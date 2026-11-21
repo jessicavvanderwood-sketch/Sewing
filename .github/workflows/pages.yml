@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Version the offline cache
+        run: sed -i "s/cachePrefix + 'v1'/cachePrefix + '$GITHUB_SHA'/" dist/sw.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
