@@ -1,8 +1,8 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v9';
-const files = ['./', './index.html', './style.css?v=9', './app.js?v=9', './atelier.jpg',
+const cacheName = cachePrefix + 'v10';
+const files = ['./', './index.html', './style.css?v=10', './app.js?v=10', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
-  './fabric.js?v=9', './handles.js?v=9', './catalog.js?v=9', './vanderwood-wordmark.webp', './visuals.js?v=9', './fit.js?v=9', './design.js?v=9', './photo.js?v=9', './camera.js?v=9', './models.js?v=9', './brother-cp2160f.jpg',
+  './fabric.js?v=10', './handles.js?v=10', './catalog.js?v=10', './vanderwood-wordmark.webp', './visuals.js?v=10', './fit.js?v=10', './design.js?v=10', './photo.js?v=10', './camera.js?v=10', './models.js?v=10', './brother-cp2160f.jpg',
   ...Array.from({length:12},(_,index)=>'./tools/tool-'+index+'.jpg')];
 
 self.addEventListener('install', event => {

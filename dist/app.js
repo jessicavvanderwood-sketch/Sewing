@@ -751,9 +751,10 @@ function constructionGuide(pattern,changes,body,fabric) {
     steps.push('Make a fitting sample in similar fabric. Apply the changes below to that sample, then transfer them to the paper pattern and check the adjoining seam lengths before cutting your final fabric.',...settings.steps.slice(2));
     visuals.push('designCut',...settings.visuals.slice(2));
   }
-  const baseVisuals=base.visuals || sewingVisuals.patterns[base.id] || base.steps.map(sewingVisuals.identify);
-  return {steps:[...steps,...base.steps],visuals:[...visuals,...baseVisuals],tools:base.tools,
-    fabric:`${fabric.name} (${fabric.gsm} g/m²). ${base.fabric}`};
+  const instructions=base.design?studioDesign.make({...base.design,fabric:fabric.name},base.name,body):base;
+  const baseVisuals=instructions.visuals || sewingVisuals.patterns[base.id] || instructions.steps.map(sewingVisuals.identify);
+  return {steps:[...steps,...instructions.steps],visuals:[...visuals,...baseVisuals],tools:instructions.tools,
+    fabric:`${fabric.name} (${fabric.gsm} g/m²). ${instructions.fabric}`};
 }
 
 function fitting() {
@@ -1026,8 +1027,8 @@ function fitting() {
     event.preventDefault();
     const make=event.submitter?.value==='make';
     const savedTarget=make?null:siblings.find(item=>item.id===form.elements.namedItem('tailorTarget').value);
-    const targetBody=savedTarget?getModel(savedTarget.fit?.modelId):body();
-    const sourceBody=pattern.fit?.modelId?getModel(pattern.fit.modelId):targetBody;
+    const targetBody=savedTarget?{...getModel(savedTarget.fit.modelId),...savedTarget.fit.modelMeasurements}:body();
+    const sourceBody=pattern.fit?.modelId?{...getModel(pattern.fit.modelId),...pattern.fit.modelMeasurements}:targetBody;
     const targetChanges=savedTarget?savedTarget.fit.changes:adjustments();
     const compare=fitDifference(pattern,{...(savedTarget||pattern),fit:{changes:targetChanges}},sourceBody,targetBody);
     if (!make && !Object.keys(compare).length) {notify('Choose a target revision with different fit settings or change the current fit.');return;}
@@ -1041,7 +1042,8 @@ function fitting() {
     const summary=fitSummary(compare);
     const {tools,steps,visuals}=kit;
     const measurements=fitMeasurementSheet(targetBody,targetChanges,compare,make,pattern,sourceBody);
-    fittingDraft={garment:pattern,...kit,summary,modelId:targetBody.id,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
+    const modelMeasurements=Object.fromEntries(Object.keys(sewingModels.dimensions).filter(key=>targetBody[key]).map(key=>[key,targetBody[key]]));
+    fittingDraft={garment:pattern,...kit,summary,modelId:targetBody.id,modelMeasurements,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
     fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p>${sewingVisuals.tools(tools)}${sewingVisuals.steps(steps,visuals)}<form id="save-fit-form">${savedTarget?'':`<label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(make?pattern.name+' new':pattern.family?pattern.name:pattern.name+' fitted')}" ${!make&&pattern.family?'readonly':''}></label>`}<button>${savedTarget?'Save tailoring work order':make?'Save new garment and work order':'Save revision and create work order'}</button></form>`;
     fitGuide.querySelector('#save-fit-form').addEventListener('submit',event=>{
@@ -1057,7 +1059,7 @@ function fitting() {
 }
 function saveFit(name) {
   if (!fittingDraft) return;
-  const {garment,tools,steps,visuals,summary,modelId,changes,fabric,make,savedTarget,route,materials,measurements} = fittingDraft;
+  const {garment,tools,steps,visuals,summary,modelId,modelMeasurements,changes,fabric,make,savedTarget,route,materials,measurements} = fittingDraft;
   const notes=[route,getModel(modelId).name,fabric.name,fabric.gsm+' g/m²',summary].filter(Boolean).join(' · ');
   if (savedTarget) {
     state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:garment.name+' · Revision '+garment.revision+' to '+savedTarget.revision,
@@ -1078,7 +1080,7 @@ function saveFit(name) {
     model:base.id,color:garment.color,design:garment.design,reference:garment.reference,fabric:materials,
     tools,steps,visuals,rebuildSteps,rebuildVisuals,measurements,
     buildFabric:make?materials:garment.buildFabric || garment.fabric,buildTools:make?tools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
-    fit:{modelId,changes,fabric,source:garment.id}};
+    fit:{modelId,modelMeasurements,changes,fabric,source:garment.id}};
   state.custom.push(plan);
   state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:name+' · Revision '+revision,pattern:id,
     due:'',notes,done:[]});
