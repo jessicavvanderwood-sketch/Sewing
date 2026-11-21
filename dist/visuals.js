@@ -17,6 +17,10 @@ const sewingVisuals = (() => {
   const machine = '<path class="fabric-shape" d="M49 112 H224 V97 H211 V39 Q211 27 196 27 H75 Q61 27 61 42 V67 H107 V52 H161 V96 H49Z"/><rect x="169" y="35" width="31" height="22" rx="2" class="screen-shape"/>';
   const iron = '<path class="fabric-shape" d="M79 91 Q88 62 114 62 H160 L179 91Z"/><path class="outline-shape" d="M108 62 L115 49 H151 L159 62 M77 93 H182"/>';
   const diagrams = {
+    designCut: ['Trace the block and redraw the silhouette', fabric(panel)+stitch('M83 40 L76 111 M188 40 L194 111')+accent('M80 37 L64 118 M189 37 L207 118')+label(84,78,'Original block')+label(119,132,'New outline')],
+    colorBlock: ['Add allowances to both sides of a divided panel', fabric('M78 25 H192 L199 68 H71Z M68 81 H202 L208 118 H62Z')+stitch('M72 60 H198 M70 89 H204')+accent('M135 32 V55 M135 94 V111')+label(152,77,'Join here')],
+    pocketPatch: ['Press pocket allowances before topstitching', fabric(panel)+fabric('M118 51 H167 V86 L158 97 H127 L118 86Z')+stitch('M122 53 V85 L129 92 H155 L163 85 V53')+label(120,47,'Opening')],
+    button: ['Mark buttonholes on one front and buttons on the other', fabric('M78 25 H118 V118 H78Z M148 25 H188 V118 H148Z')+outline('M95 43 H108 M95 68 H108 M95 93 H108')+accent('M165 43h3 M165 68h3 M165 93h3')+label(73,132,'Buttonholes')+label(151,132,'Buttons')],
     needle: ['Needle setup', needle+accent('M155 84 V42 M150 48 L155 42 160 48')+label(35,66,'Flat side faces back')+label(167,49,'Push up')],
     bobbin: ['Load the top-drop bobbin', outline('M87 40 H177 V97 H87Z')+bobbin+thread('M167 74 L181 89 207 89')+label(150,110,'Follow slot to cutter')],
     upper: ['Upper thread route', machine+thread('M92 20 H143 V62 H119 V44 H99 V70 H91 V98')+label(91,16,'Spool')+label(148,77,'Take-up lever')+label(60,126,'Needle eye · front to back')],
