@@ -26,3 +26,12 @@ Data is stored in the current browser for the current site origin. Different bro
 ## Install on a computer
 
 Open the GitHub Pages deployment in Chrome or Edge and use the install icon in the address bar, or the browser’s app menu. The installed dashboard opens in its own window and can reopen offline after its first online visit. It shares the same browser-profile data as the hosted dashboard.
+
+## Fit a model and keep garment revisions
+
+1. Open **Model Library** and choose a preset form or create one from measurements. A custom model can also include an upright, low-poly OBJ torso under 1 MB with Y pointing up and the front toward +Z. Enter actual measurements separately.
+2. Pick a garment in the **3D Fitting Room**. The controls depend on its cut. Dresses and shirts can show sleeve controls. Pants offer waist, seat, thigh, leg opening, rise and length adjustments.
+3. Generate the illustrated tailoring steps, name the garment and save its revision and work order together.
+4. Open that garment in **Pattern Library** to choose a saved revision. **Revise this fit** creates another revision. **Make this revision again** copies the selected revision’s construction and alteration sequence into a fresh work order.
+
+Tool photos show representative examples. The Brother machine photo links to the accompanying official resources in Sewing Basics. The garment preview uses simplified geometry and does not simulate cloth drape or validate pattern pieces.

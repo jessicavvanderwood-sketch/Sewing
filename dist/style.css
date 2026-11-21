@@ -10,3 +10,21 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .basics-intro{margin-bottom:18px;max-width:65ch}.lessons{display:grid;gap:12px;max-width:880px}.lesson summary{cursor:pointer;color:var(--red)}.lesson summary h2{display:inline;font-size:clamp(19px,3vw,24px);margin-left:6px}.lesson summary:focus-visible{outline:2px solid #a15067;outline-offset:5px}.lesson .steps{margin-bottom:0}
 
 .basics-resources{margin-top:16px}.basics-resources a{color:var(--red);text-decoration:underline;text-underline-offset:3px}
+
+.tool-photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:10px;margin:12px 0 17px}
+.tool-photos figure,.step-figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fffaf5}
+.tool-photos figure{max-width:190px}
+.tool-photos img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;background:#f9f5ef}
+.tool-photos figcaption,.step-figure figcaption{padding:6px 8px;font-size:13px;color:#54444a;line-height:1.35}
+.step-figure{max-width:340px;margin:9px 0 5px}
+.step-figure svg{display:block;width:100%;background:#f8f0e9}
+.step-figure svg text{font:10px system-ui,sans-serif;fill:#3c2c32}
+.fabric-shape{fill:#e9cbbb;stroke:#69484a;stroke-width:1.5;stroke-linejoin:round}
+.outline-shape,.stitch-line,.accent-line,.thread-line{fill:none;stroke:#69484a;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.stitch-line{stroke:#503746;stroke-dasharray:3 3}.accent-line{stroke:#91344e;stroke-width:2}.thread-line{stroke:#91344e;stroke-dasharray:5 2;stroke-width:2}
+.screen-shape{fill:#eee7e0;stroke:#513f47;stroke-width:1.4}.needle-eye{fill:#fff7ed;stroke:#69484a}
+.illustrated-steps>li{padding:8px 0 14px}.illustrated-steps li p{color:var(--ink)}
+.check-list .step-figure{margin-left:26px}.model-link{font-size:14px;margin:-9px 0 13px}.model-link a{color:var(--red);text-decoration:underline}
+.adjustment{gap:0}.adjustment output{float:right;color:var(--red)}.adjustment input[type=range]{min-height:32px}.adjustment-ends{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;font-weight:500}.sleeve-choice{display:flex;gap:6px;align-items:center;font-size:14px;margin-bottom:13px}.sleeve-choice input{accent-color:var(--red)}.fit-baseline{font-size:14px;margin:0 0 12px}
+.fitting-viewer{position:sticky;top:15px}
+@media(max-width:700px){.fitting-viewer{position:static}.tool-photos{grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}}
