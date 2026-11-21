@@ -657,6 +657,9 @@ function importedEnvelope(mesh,base) {
 }
 
 function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=null) {
+  if (!pattern && !body.mesh && typeof humanPreview!=='undefined') {
+    return humanPreview.draw(canvas,body,angle);
+  }
   const context = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
@@ -1035,7 +1038,7 @@ function addModel(existing) {
       </details>
     </div>
     <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="560" height="410" role="img" aria-label="Model shape preview"></canvas>
-      <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button></div>
+      <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button><button type="button" class="secondary" data-model-angle="3.14">Back view</button></div>
     </div>
     <details class="design-options"${starting.height||starting.inseam?' open':''}><summary>Length and other measurements (optional)</summary>
     <div class="measurement-help">
@@ -1068,7 +1071,8 @@ function addModel(existing) {
   const form = document.querySelector('#model-form');
   const canvas = form.querySelector('#model-scan-preview');
   let scan = existing?.scan || null;
-  let previewAngle=-.45;
+  let previewAngle=-.38;
+  let previewFrame;
   for (const button of form.querySelectorAll('[data-model-angle]')) button.onclick=()=>{
     previewAngle=Number(button.dataset.modelAngle);preview();
   };
@@ -1078,24 +1082,29 @@ function addModel(existing) {
   }));
   function preview() {
     const data = new FormData(form);
-    const shape={...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),scan,skin:color(data.get('skin'))};
+    const shape={...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),mesh:data.has('removeMesh')?null:existing?.mesh,scan,skin:color(data.get('skin'))};
     const depth=sewingModels.bustGeometry(shape,sewingModels.proportions(shape));
     const note=form.querySelector('[data-bust-depth-note]');
     note.hidden=!depth.limited;
     if (depth.limited) note.textContent='The entered depth is too large for the preview. Check the measurement and the selected unit.';
     drawModel(canvas,null,previewAngle,{},shape,true);
   }
-  modalCleanup = modelCamera.setup(form,scan,next=>{
+  const cleanCamera = modelCamera.setup(form,scan,next=>{
     scan=next;
     preview();
   });
+  modalCleanup=()=>{
+    cancelAnimationFrame(previewFrame);
+    cleanCamera?.();
+  };
   form.addEventListener('input',event=>{
     form.querySelector('#cup-field').hidden=form.elements.namedItem('profile').value==='male';
     if (event.target.name==='profile' && !existing) {
       const preset=sewingModels.starter[event.target.value];
       for (const key of Object.keys(sewingModels.dimensions)) studioUnits.writeLength(form.elements.namedItem(key),preset[key]??null);
     }
-    preview();
+    cancelAnimationFrame(previewFrame);
+    previewFrame=requestAnimationFrame(preview);
   });
   form.addEventListener('submit',async event=>{
     event.preventDefault();

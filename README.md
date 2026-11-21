@@ -85,3 +85,9 @@ In **Fabric Library → Add fabric**, use **Open camera → Take photo** to capt
 The measurement-based fitting form places adjustable landmarks for the waist, crotch, knee, chin, and bust. Cross sections are scaled to their entered girths. At the bust, the model estimates the path of a taut tape around the section, including the added front volume. Optional bust spacing and height place the two rounded contours. The form estimates shape from these measurements and can vary from a person's scan.
 
 Modeling references include the [ISO 8559-1 apparel measurement definitions](https://gso-sims-preview-doc-aws.s3-eu-west-1.amazonaws.com/gso-iso-8559-1-2017-en.html), the [GarmentCodeData body measurement method](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/07721.pdf), and [SMPL's scan-trained body shape and pose research](https://is.mpg.de/publications/smpl-2015).
+
+### Detailed human preview
+
+The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Garment movement continues to use the existing fitting simulation, with its own simplified body representation.
+
+The preview uses the [MakeHuman base mesh](https://github.com/makehumancommunity/makehuman/blob/master/makehuman/data/3dobjs/base.obj) and [MPFB adult morph targets](https://github.com/makehumancommunity/mpfb2/tree/master/src/mpfb/data/targets/macrodetails), released under [CC0 1.0](https://www.makehumancommunity.org/about/license.html). The generation command and asset inputs are documented in `scripts/build-human-mesh.py`. The geometry ships with the dashboard and the preview runs on the device.

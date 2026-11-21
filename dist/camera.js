@@ -109,7 +109,14 @@ const modelCamera = (() => {
     const frontReference=[.07,.08,.101,.132,.124,.101,.122,.14,.119];
     const sideReference=[.086,.092,.087,.096,.105,.081,.101,.106,.085];
     const scale=(actual,expected)=>Math.max(.72,Math.min(1.32,actual/expected));
-    return base.map(([y,w,d],i)=>[y,w*scale(capture.front[i],frontReference[i]),d*scale(capture.side[i],sideReference[i])]);
+    const levels=[-.90,-.79,-.75,-.63,-.45,-.25,-.04,.16,.30];
+    const sections=levels.map((y,i)=>[y,scale(capture.front[i],frontReference[i]),scale(capture.side[i],sideReference[i])]);
+    return base.map(([y,w,d])=>{
+      const hi=Math.max(1,sections.findIndex(row=>row[0]>=y));
+      const [a,b]=sections.slice(hi-1,hi+1);
+      const t=(y-a[0])/(b[0]-a[0]);
+      return [y,w*(a[1]+(b[1]-a[1])*t),d*(a[2]+(b[2]-a[2])*t)];
+    });
   }
   return {measureFrame,setup,rings};
 })();
