@@ -71,3 +71,5 @@ The Fabric Library has 127 illustrative presets grouped by fabric type. Upload a
 Custom female models offer A–G visual cup profiles alongside full-bust and underbust measurements. Cup presets control projection in the avatar and do not calculate commercial bra sizes.
 
 Work Orders include search, type and progress filters, archival, garment previews, and before/after previews for tailoring orders. Expand the action-by-action guides and the Brother CP2160F settings in each work order. Use the publisher’s pattern for pattern-specific cutting dimensions and assembly instructions.
+
+Use the **Units** selector in the header to switch between centimeters and inches for garment lengths, model measurements, fit adjustments, and work orders. The preference stays in the current browser. Saved measurements retain their original precision when switching views.

@@ -78,6 +78,7 @@ try {
 const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
 const notice = document.querySelector('#notice');
+studioUnits.watch(document.querySelector('#length-units'),view,modal);
 const titles = {overview:'Overview',design:'Design Studio',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'3D Fitting Room',models:'Model Library',basics:'Sewing Basics'};
 const features = [['design','✧','Create an original garment or start from a reference photo.'],['library','▤','Browse garment styles, cuts and construction guides.'],['fitting','◇','Preview fit changes and plan your alterations.']];
 const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -372,6 +373,7 @@ function showDialog(title, body) {
   modalCleanup?.();
   modalCleanup=undefined;
   modal.innerHTML = `<div class="dialog-head"><h2>${escape(title)}</h2><button class="secondary close" type="button" data-action="close" aria-label="Close dialog">×</button></div>${body}`;
+  studioUnits.refresh(modal);
   if (!modal.open) modal.showModal();
 }
 const referenceLinks=pattern=>pattern?.external?`<div class="actions tight"><a href="${escape(pattern.external.url)}" target="_blank" rel="noopener" class="button">Open free pattern at ${escape(pattern.external.publisher)}</a><a href="${escape(pattern.external.terms)}" target="_blank" rel="noopener" class="button secondary">Publisher terms</a></div>`:'';
@@ -780,7 +782,7 @@ function models() {
 function addModel(existing) {
   const starting = existing || getModel('studio-form');
   const fields=(optional)=>Object.entries(sewingModels.dimensions).filter(([key])=>sewingModels.extra.has(key)===optional)
-    .map(([key,[label,min,max]])=>`<label class="field">${label} (cm)<input type="number" name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${optional?'':'required'}></label>`).join('');
+    .map(([key,[label,min,max]])=>`<label class="field">${label} (cm)<input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${optional?'':'required'}></label>`).join('');
   showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
     <label class="field">Starting profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
     <div class="fields">${fields(false)}</div>
@@ -805,10 +807,13 @@ function addModel(existing) {
   const form = document.querySelector('#model-form');
   const canvas = form.querySelector('#model-scan-preview');
   let scan = existing?.scan || null;
-  const readDimensions = data=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>data.get(key)?[[key,Number(data.get(key))]]:[]));
+  const readDimensions=()=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>{
+    const metric=studioUnits.lengthValue(form.elements.namedItem(key));
+    return metric==null?[]:[[key,metric]];
+  }));
   function preview() {
     const data = new FormData(form);
-    drawModel(canvas,null,-.24,{}, {...readDimensions(data),profile:data.get('profile'),cup:data.get('cup'),scan,skin:color(data.get('skin'))},true);
+    drawModel(canvas,null,-.24,{}, {...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),scan,skin:color(data.get('skin'))},true);
   }
   modalCleanup = modelCamera.setup(form,scan,next=>{
     scan=next;
@@ -818,7 +823,7 @@ function addModel(existing) {
     form.querySelector('#cup-field').hidden=form.elements.namedItem('profile').value==='male';
     if (event.target.name==='profile' && !existing) {
       const preset=sewingModels.starter[event.target.value];
-      for (const key of Object.keys(sewingModels.dimensions)) form.elements.namedItem(key).value=preset[key]||'';
+      for (const key of Object.keys(sewingModels.dimensions)) studioUnits.writeLength(form.elements.namedItem(key),preset[key]??null);
     }
     preview();
   });
@@ -837,7 +842,7 @@ function addModel(existing) {
       } catch (problem) { error.textContent = problem.message; return; }
     }
     if (!form.isConnected || !modal.open) return;
-    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(data),profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',mesh,scan,skin:color(data.get('skin'))};
+    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(),profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',mesh,scan,skin:color(data.get('skin'))};
     if (existing) state.models = state.models.map(model=>model.id===item.id?item:model);
     else state.models.push(item);
     save(existing?'Model updated':'Model added');
@@ -1200,8 +1205,9 @@ function fitting() {
       button.style.left=`${fabricFit.clamp(anchor.x,5,95)}%`;
       button.style.top=`${fabricFit.clamp(anchor.y,4,96)}%`;
       const value=adjustmentText(values[button.dataset.key]);
-      button.setAttribute('aria-label',fitHandles.specs[button.dataset.key].label+' '+value);
-      button.title=fitHandles.specs[button.dataset.key].label+' · '+value;
+      button.dataset.metricHandle=fitHandles.specs[button.dataset.key].label+' · '+value;
+      button.setAttribute('aria-label',studioUnits.text(button.dataset.metricHandle));
+      button.title=studioUnits.text(button.dataset.metricHandle);
     }
   }
   const size = new ResizeObserver(draw);
@@ -1393,7 +1399,7 @@ function designStudio() {
         <div class="fields tight">${select('closure','Closure',studioDesign.closureChoices(designDraft.model))}${select('pocket','Pockets',studioDesign.pocketChoices(designDraft.model))}
         ${select('finish','Hem finish',studioDesign.finishes)}${select('tone','Color layout',studioDesign.tones)}
         <label class="field">Contrast color<input type="color" name="accent" value="${color(designDraft.accent)}"></label>
-        <label class="field">Target wearing ease (cm)<input type="number" name="ease" min="0" max="24" step="1" value="${Number(designDraft.ease)}" required></label></div>
+        <label class="field">Target wearing ease (cm)<input type="number" data-length-input name="ease" min="0" max="24" step="1" value="${Number(designDraft.ease)}" required></label></div>
       </details>`;
   }
   function refreshReference() {
@@ -1435,7 +1441,7 @@ function designStudio() {
     const field = event.target;
     if (!field.name || field.type==='file') return;
     if (field.name==='model') changeModel(field.value);
-    else designDraft[field.name] = field.type==='number'?Number(field.value):field.value;
+    else designDraft[field.name] = field.name==='ease'?(studioUnits.lengthValue(field)??0):field.type==='number'?Number(field.value):field.value;
     showMeasurements();
     preview();
     updateGuide();
@@ -1557,6 +1563,7 @@ function render() {
     else link.removeAttribute('aria-current');
   }
   ({overview,design:designStudio,brand,library,fabrics:materialLibrary,orders,fitting,models,basics})[page]();
+  studioUnits.refresh(view);
 }
 document.addEventListener('click',event=>{
   const button = event.target.closest('[data-action]');
