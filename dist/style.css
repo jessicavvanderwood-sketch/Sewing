@@ -50,3 +50,6 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .fit-handle{position:absolute;transform:translate(-50%,-50%);display:grid;place-items:center;width:32px;height:32px;min-width:32px;padding:0;border:2px solid #fffdfb;border-radius:50%;background:#423136;color:white;font-size:15px;line-height:1;box-shadow:0 1px 7px #34202c80;pointer-events:auto;touch-action:none;cursor:ew-resize;z-index:1}
 .fit-handle[data-axis=y]{cursor:ns-resize}.fit-handle[hidden]{display:none}.fit-handle:hover,.fit-handle:focus-visible,.fit-handle.is-dragging{background:#782a49;z-index:2}.fit-handle-help{grid-column:1/-1;font-size:13px;color:var(--muted)}
 #fit-undo{align-self:end;justify-self:start}#fit-undo:disabled{opacity:.48;cursor:default}
+
+.wo-path{border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 0;min-width:0}.wo-path legend{font-weight:700;padding:0 6px}.wo-path p{font-size:14px}
+.wo-measurements{margin:14px 0}.wo-measurements .table{margin-top:8px;border:1px solid var(--line);border-radius:7px}.wo-measurements p{font-size:14px;margin-top:6px}

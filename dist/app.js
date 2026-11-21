@@ -257,7 +257,8 @@ function newOrder(id,existing) {
     Object.assign(order,details);
     if (!existing) {
       const selected = getPattern(order.pattern);
-      if (selected?.rebuildSteps) order.snapshot = {name:selected.name,steps:selected.rebuildSteps,visuals:selected.rebuildVisuals,fabric:selected.buildFabric,tools:selected.buildTools};
+      if (selected?.rebuildSteps) order.snapshot = {name:selected.name,steps:selected.rebuildSteps,visuals:selected.rebuildVisuals,
+        fabric:selected.buildFabric,tools:selected.buildTools,measurements:selected.measurements?.make?selected.measurements:undefined};
       state.orders.unshift(order);
     }
     save('Work order saved');
@@ -268,7 +269,7 @@ function newOrder(id,existing) {
 }
 function orderDetails(order) {
   const pattern = getOrderPattern(order);
-  showDialog(order.title,`<p>${order.id} · ${escape(pattern.name)}</p>${order.notes ? `<p class="tight" style="white-space:pre-wrap">${escape(order.notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}<h3 class="tight">Step checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p><ol class="check-list">${pattern.steps.map((step,index)=>`<li><label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>${sewingVisuals.diagram((pattern.visuals || sewingVisuals.patterns[pattern.id])?.[index] || sewingVisuals.identify(step))}</li>`).join('')}</ol><button class="secondary" data-action="edit-order" data-id="${order.id}">Edit work order</button>`);
+  showDialog(order.title,`<p>${order.id} · ${escape(pattern.name)}</p>${order.notes ? `<p class="tight" style="white-space:pre-wrap">${escape(order.notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${fitMeasurementTable(pattern.measurements)}<h3 class="tight">Step checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p><ol class="check-list">${pattern.steps.map((step,index)=>`<li><label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>${sewingVisuals.diagram((pattern.visuals || sewingVisuals.patterns[pattern.id])?.[index] || sewingVisuals.identify(step))}</li>`).join('')}</ol><button class="secondary" data-action="edit-order" data-id="${order.id}">Edit work order</button>`);
   modal.querySelector('.check-list').addEventListener('change',event => {
     if (!event.target.matches('input')) return;
     order.done = [...modal.querySelectorAll('.check-list input:checked')].map(box=>Number(box.value));
@@ -651,8 +652,14 @@ function guide(pattern,changes,body) {
     steps.push(`Trace the new ${changes.neckline} neckline, baste a toile, and check coverage and head clearance. Mark the sewing allowance before cutting and draft a facing or binding to follow the new edge.`);
     visuals.push('neck');
   }
+  if (Object.hasOwn(changes,'sleeves')) {
+    steps.push(changes.sleeves
+      ? 'Trace a compatible sleeve for the armhole and make a test sleeve in matching fabric. Baste it at the notches and check reach before sewing and finishing the armhole.'
+      : 'Unpick the sleeves and check the shape and coverage of both armholes on the wearer. Staystitch and finish the openings with a compatible facing or binding.');
+    visuals.push('sleeve');
+  }
   for (const [key,value] of Object.entries(changes)) {
-    if (!value || ['waist','hip','length','hasSleeves','neckline'].includes(key)) continue;
+    if (!value || ['waist','hip','length','hasSleeves','neckline','sleeves'].includes(key)) continue;
     const [visual,step] = garmentFit.directions(key,value);
     steps.push(step);
     visuals.push(visual);
@@ -682,6 +689,73 @@ function guide(pattern,changes,body) {
   visuals.push('fit');
   return {steps,visuals};
 }
+function fitDifference(source, target, sourceBody, targetBody) {
+  const before=source.fit?.changes || {};
+  const after=target.fit?.changes || {};
+  const difference={};
+  for (const key of garmentFit.keys(basePattern(target).id,hasSleeves(target))) {
+    const measurement=['bust','waist','hip','shoulder'].includes(key)?targetBody[key]-sourceBody[key]:0;
+    const value=(after[key]||0)-(before[key]||0)+measurement;
+    if (value) difference[key]=value;
+  }
+  if (hasSleeves(source)!==hasSleeves(target)) difference.sleeves=hasSleeves(target);
+  const sourceNeck=before.neckline || source.design?.neckline || 'Scoop';
+  const targetNeck=after.neckline || target.design?.neckline || 'Scoop';
+  if (sourceNeck!==targetNeck) difference.neckline=targetNeck;
+  return difference;
+}
+function fitSummary(delta) {
+  return Object.entries(delta).map(([key,amount])=>key==='neckline'?amount+' neckline':
+    key==='sleeves'?(amount?'Add sleeves':'Remove sleeves'):garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
+}
+function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBody) {
+  const dimensions=[['bust','Chest / bust'],['waist','Waist'],['hip','Hip / seat'],['shoulder','Shoulder span'],
+    ['height','Height'],['arm','Shoulder to wrist'],['inseam','Inseam']];
+  const cm=value=>value==null?'—':value+' cm';
+  const rows=dimensions.filter(([key])=>body[key] || sourceBody[key]).map(([key,label])=>[
+    label,...(make?[]:[cm(sourceBody[key])]),cm(body[key])
+  ]);
+  const changes=make?targetChanges:difference;
+  const adjustments=Object.entries(changes).filter(([key,value])=>garmentFit.fields[key]&&value)
+    .map(([key,value])=>[garmentFit.fields[key][0],adjustmentText(value)]);
+  if (changes.neckline) adjustments.push(['Neckline style',changes.neckline]);
+  if (make && ['dress','top'].includes(basePattern(pattern).id)) adjustments.push(['Sleeves',targetChanges.hasSleeves?'Sleeved':'Sleeveless']);
+  if (Object.hasOwn(changes,'sleeves')) adjustments.push(['Sleeves',changes.sleeves?'Add sleeves':'Remove sleeves']);
+  const targets=[];
+  if (make && Number.isFinite(pattern.design?.ease)) {
+    const model=basePattern(pattern).id;
+    const key=['top','dress'].includes(model)?'bust':'hip';
+    targets.push([key==='bust'?'Finished chest / bust target':'Finished hip / seat target',cm(body[key]+pattern.design.ease+(targetChanges[key]||0))]);
+  }
+  return {headings:make?['Model measurement','Size']:['Model measurement','Source','Target'],
+    rows,adjustments,targets,make};
+}
+function fitMeasurementTable(sheet) {
+  if (!sheet) return '';
+  const table=(headings,rows)=>`<div class="table"><table><thead><tr>${headings.map(h=>`<th scope="col">${escape(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(([label,...cells])=>
+    `<tr><th scope="row">${escape(label)}</th>${cells.map(cell=>`<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<section class="wo-measurements"><h3>Measurement sheet</h3>${table(sheet.headings,sheet.rows)}
+    ${sheet.adjustments.length?table(['Garment setting',sheet.make?'Change from the base pattern':'Change from source to target'],sheet.adjustments):''}
+    ${sheet.targets.length?table(['Finished garment','Target including design ease'],sheet.targets):''}
+    <p class="muted">${sheet.make?'Use your selected sewing pattern for cut-piece dimensions and seam allowances.':'Measure the existing garment before marking the listed changes.'}</p></section>`;
+}
+
+function constructionGuide(pattern,changes,body,fabric) {
+  let base=pattern;
+  while (base.fit?.source && getPattern(base.fit.source)) base=getPattern(base.fit.source);
+  const delta=fitDifference(base,{...pattern,fit:{changes}},body,body);
+  const settings=Object.keys(delta).length?guide(base,delta,body):null;
+  const steps=[`For this new garment, choose a block in the selected model’s size and check the bust (${body.bust} cm), waist (${body.waist} cm), hip (${body.hip} cm), and shoulders (${body.shoulder} cm) against the pattern. Test ${fabric.name} (${fabric.gsm} g/m²) for the intended ease and finish.`];
+  const visuals=['measure'];
+  if (settings) {
+    steps.push('Make a fitting sample in similar fabric. Apply the changes below to that sample, then transfer them to the paper pattern and check the adjoining seam lengths before cutting your final fabric.',...settings.steps.slice(2));
+    visuals.push('designCut',...settings.visuals.slice(2));
+  }
+  const baseVisuals=base.visuals || sewingVisuals.patterns[base.id] || base.steps.map(sewingVisuals.identify);
+  return {steps:[...steps,...base.steps],visuals:[...visuals,...baseVisuals],tools:base.tools,
+    fabric:`${fabric.name} (${fabric.gsm} g/m²). ${base.fabric}`};
+}
+
 function fitting() {
   const pattern = getPattern(fitPattern);
   const modelType = basePattern(pattern).id;
@@ -690,6 +764,7 @@ function fitting() {
     (/denim/i.test(pattern.fabric)?'Rigid denim':/twill|suiting/i.test(pattern.fabric)?'Medium-weight twill':'Cotton poplin');
   const initialMaterial=fabricFit.fabrics[fabricName] || fabricFit.fabrics['Cotton poplin'];
   const initialWeight=fitRevision?.fabric?.gsm || initialMaterial.gsm;
+  const siblings=pattern.family?allPatterns().filter(item=>item.family===pattern.family && item.id!==pattern.id && !isArchived('patterns',item.id)):[];
   const startingNeck=fitRevision?.changes.neckline || pattern.design?.neckline || 'Scoop';
   view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>    <div class="fit-preview-controls">
       <label class="field">Movement<select id="fit-pose">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</select></label>
@@ -719,7 +794,12 @@ function fitting() {
     ${sleeveEligible?`<label class="sleeve-choice"><input name="sleeves" type="checkbox" ${hasSleeves(pattern)?'checked':''}> Show sleeves and sleeve adjustments</label>`:''}
     ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:''}
     <div id="fit-sliders"></div>
-    <p class="muted fit-baseline">The map estimates how much each area will resist movement. Presets are illustrative. Check fit and fabric stretch on a sample before cutting.</p><div class="actions"><button>Generate tailoring instructions</button><button type="reset" class="secondary">Reset changes</button></div></form></section></div><section id="fit-guide" class="panel instructions" hidden></section>`;
+    <p class="muted fit-baseline">The map estimates how much each area will resist movement. Presets are illustrative. Check fit and fabric stretch on a sample before cutting.</p><fieldset class="wo-path"><legend>Create work order</legend>
+      <label class="field">Tailoring target<select name="tailorTarget"><option value="">Current fit as a new revision</option>${siblings.map(item=>option(item.id,'Saved revision '+item.revision)).join('')}</select></label>
+      ${pattern.revision?`<p class="muted">Source garment is revision ${pattern.revision}. Choose a saved revision to use its recorded settings as the tailoring target.</p>`:''}
+      <p class="muted">Make a new garment uses the fit shown above and creates a separate design.</p>
+      <div class="actions tight"><button name="workType" value="tailor">Tailor between revisions</button><button class="secondary" name="workType" value="make">Make a new garment</button><button type="reset" class="secondary">Reset changes</button></div>
+    </fieldset></form></section></div><section id="fit-guide" class="panel instructions" hidden></section>`;
   const form = document.querySelector('#fitting-form');
   const canvas = document.querySelector('#model');
   const fitGuide = document.querySelector('#fit-guide');
@@ -944,19 +1024,29 @@ function fitting() {
   document.querySelector('#reset-view').onclick = ()=>{angle=0;draw();};
   form.addEventListener('submit',event=>{
     event.preventDefault();
-    const delta = changes();
-    if (sleeveEligible && neckline()!==startingNeck) delta.neckline=neckline();
-    if (!Object.values(delta).some(Boolean)) {notify('Change a fit slider or the neckline style to generate instructions.');return;}
-    const tools = 'Measuring tape, pins or clips, tailor’s chalk, seam ripper, matching thread, sewing machine, iron and press cloth. Keep shears handy for a confirmed hem alteration.';
-    const {steps,visuals} = guide(pattern,delta,body());
-    const summary = Object.entries(delta).filter(([,amount])=>amount).map(([key,amount])=>key==='neckline'?amount+' neckline':garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
-    const fabric={name:pickedFabric(),...material()};
-    fittingDraft = {garment:pattern,tools,steps,visuals,summary,modelId:fitModel,changes:adjustments(),fabric};
+    const make=event.submitter?.value==='make';
+    const savedTarget=make?null:siblings.find(item=>item.id===form.elements.namedItem('tailorTarget').value);
+    const targetBody=savedTarget?getModel(savedTarget.fit?.modelId):body();
+    const sourceBody=pattern.fit?.modelId?getModel(pattern.fit.modelId):targetBody;
+    const targetChanges=savedTarget?savedTarget.fit.changes:adjustments();
+    const compare=fitDifference(pattern,{...(savedTarget||pattern),fit:{changes:targetChanges}},sourceBody,targetBody);
+    if (!make && !Object.keys(compare).length) {notify('Choose a target revision with different fit settings or change the current fit.');return;}
+    const fabric=savedTarget?.fit.fabric || {name:pickedFabric(),...material()};
+    const kit=make?constructionGuide(pattern,targetChanges,targetBody,fabric):{
+      ...guide(pattern,compare,targetBody),
+      tools:'Measuring tape, pins or clips, tailor’s chalk, seam ripper, matching thread, sewing machine, iron and press cloth.',
+      fabric:'Existing garment and compatible fabric if an extension is needed.'
+    };
+    const route=make?'New garment':`Revision ${pattern.revision || 'base'} to ${savedTarget?'revision '+savedTarget.revision:'a new revision'}`;
+    const summary=fitSummary(compare);
+    const {tools,steps,visuals}=kit;
+    const measurements=fitMeasurementSheet(targetBody,targetChanges,compare,make,pattern,sourceBody);
+    fittingDraft={garment:pattern,...kit,summary,modelId:targetBody.id,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
-    fitGuide.innerHTML = `<h2>Tailoring instructions</h2><p class="tight">${escape(pattern.name)} · ${escape(body().name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p><p class="tight"><strong>Tools and materials</strong> ${tools}</p>${sewingVisuals.tools(tools)}${sewingVisuals.steps(steps,visuals)}<form id="save-fit-form"><label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(pattern.family?pattern.name:pattern.name+' fitted')}" ${pattern.family?'readonly':''}></label><button>Save revision and create work order</button></form>`;
+    fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p>${sewingVisuals.tools(tools)}${sewingVisuals.steps(steps,visuals)}<form id="save-fit-form">${savedTarget?'':`<label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(make?pattern.name+' new':pattern.family?pattern.name:pattern.name+' fitted')}" ${!make&&pattern.family?'readonly':''}></label>`}<button>${savedTarget?'Save tailoring work order':make?'Save new garment and work order':'Save revision and create work order'}</button></form>`;
     fitGuide.querySelector('#save-fit-form').addEventListener('submit',event=>{
       event.preventDefault();
-      const name = new FormData(event.target).get('garmentName').trim();
+      const name = savedTarget?.name || new FormData(event.target).get('garmentName').trim();
       if (!name) {notify('Enter a garment name.');return;}
       saveFit(name);
     });
@@ -967,22 +1057,31 @@ function fitting() {
 }
 function saveFit(name) {
   if (!fittingDraft) return;
-  const {garment,tools,steps,visuals,summary,modelId,changes,fabric} = fittingDraft;
+  const {garment,tools,steps,visuals,summary,modelId,changes,fabric,make,savedTarget,route,materials,measurements} = fittingDraft;
+  const notes=[route,getModel(modelId).name,fabric.name,fabric.gsm+' g/m²',summary].filter(Boolean).join(' · ');
+  if (savedTarget) {
+    state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:garment.name+' · Revision '+garment.revision+' to '+savedTarget.revision,
+      pattern:savedTarget.id,due:'',notes,done:[],snapshot:{name:savedTarget.name,tools,steps,visuals,fabric:materials,measurements}});
+    save('Tailoring work order saved');
+    fittingDraft=undefined;
+    location.hash='orders';
+    return;
+  }
   const base = basePattern(garment);
   const id = 'alteration-'+createId();
-  const family = garment.family || id;
+  const family = make?id:garment.family || id;
   const revision = state.custom.filter(p=>p.family===family).length+1;
   const garmentVisuals = garment.visuals || sewingVisuals.patterns[garment.id] || garment.steps.map(sewingVisuals.identify);
-  const rebuildSteps = [...(garment.rebuildSteps || garment.steps),...steps];
-  const rebuildVisuals = [...(garment.rebuildVisuals || garmentVisuals),...visuals];
+  const rebuildSteps = make?steps:[...(garment.rebuildSteps || garment.steps),...steps];
+  const rebuildVisuals = make?visuals:[...(garment.rebuildVisuals || garmentVisuals),...visuals];
   const plan = {id,family,revision,name,type:garment.type,level:'Intermediate',cut:garment.cut,
-    model:base.id,color:garment.color,design:garment.design,reference:garment.reference,fabric:'Existing garment and compatible fabric if an extension is needed.',
-    tools,steps,visuals,rebuildSteps,rebuildVisuals,
-    buildFabric:garment.buildFabric || garment.fabric,buildTools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
+    model:base.id,color:garment.color,design:garment.design,reference:garment.reference,fabric:materials,
+    tools,steps,visuals,rebuildSteps,rebuildVisuals,measurements,
+    buildFabric:make?materials:garment.buildFabric || garment.fabric,buildTools:make?tools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
     fit:{modelId,changes,fabric,source:garment.id}};
   state.custom.push(plan);
   state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:name+' · Revision '+revision,pattern:id,
-    due:'',notes:getModel(modelId).name+' · '+fabric.name+' · '+fabric.gsm+' g/m² · '+summary,done:[]});
+    due:'',notes,done:[]});
   save('Revision and work order saved');
   fittingDraft = undefined;
   fitPattern = id;
