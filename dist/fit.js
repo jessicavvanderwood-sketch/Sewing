@@ -4,6 +4,11 @@ const garmentFit = (() => {
   const fields = {
     waist:['Waist circumference',12,'Tighter','Looser'],
     hip:['Hip / seat circumference',12,'Tighter','Looser'],
+    upperHip:['Upper hip circumference',18,'Tighter','Looser'],
+    seatDepth:['Back seat depth',12,'Less room','More room'],
+    lapEase:['Lap circumference',28,'Narrower','Wider'],
+    kneeEase:['Skirt circumference at the knees',36,'Narrower','Wider'],
+    sittingLength:['Center-back sitting length',14,'Shorter','Longer'],
     bust:['Chest / bust circumference',12,'Tighter','Looser'],
     length:['Hem length',15,'Shorter','Longer'],
     shoulder:['Shoulder span',6,'Narrower','Wider'],
@@ -29,8 +34,9 @@ const garmentFit = (() => {
 
   function keys(model,sleeves) {
     if (model==='trousers') return ['waist','hip','rise','backRise','crotch','thigh','knee','kneeFlex','leg','length'];
-    if (model==='skirt') return ['waist','hip','waistHeight','sweep','length'];
-    return ['waist','hip','bust','shoulder','shoulderSlope','armhole','neckDepth','neckWidth','backNeck','waistHeight',
+    const skirtFit=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
+    if (model==='skirt') return ['waist','hip',...skirtFit,'waistHeight','sweep','length'];
+    return ['waist','hip',...(model==='dress'?skirtFit:[]),'bust','shoulder','shoulderSlope','armhole','neckDepth','neckWidth','backNeck','waistHeight',
       ...(sleeves ? ['sleeveWidth','sleeveCap','sleeveLength','cuff'] : []),'sweep','length'];
   }
 
@@ -38,6 +44,12 @@ const garmentFit = (() => {
     const n = Math.abs(delta);
     const label = fields[key][0].toLowerCase();
     const smaller = delta < 0;
+    if (['upperHip','lapEase','kneeEase'].includes(key)) {
+      const band=key==='upperHip'?'upper-hip tape line':key==='lapEase'?'lap line across both thighs':'line across both knees';
+      return [key,`${smaller?'Take out':'Add'} ${n} cm at the ${band} around the entire garment. Mark the level on the toile while seated, then carry the marks to the front and back patterns. If the two side seams share the change equally, mark ${n/4} cm ${smaller?'inside':'outside'} the old stitch line on each of the four panel edges. Blend the change into the adjacent levels. Check seated movement and walking before transferring the new stitch line and restoring the seam allowance.`];
+    }
+    if (key==='seatDepth') return [key,`${smaller?'Take out':'Add'} ${n} cm of room at the fullest seat measured on the side-view profile. Mark the seat level from waist to hip and compare the back profile with the toile held at that level. Shape the back panel or princess seams and blend toward the side seams. Pin or baste a mock-up first. Check the waist, back closure and hem after sitting.`];
+    if (key==='sittingLength') return [key,`${smaller?'Remove':'Add'} ${n} cm of vertical length at center back above the seat. Draw a horizontal adjustment line from center back to the side seam. ${smaller?'Overlap':'Spread'} the paper at center back, taper to zero at the side seam, then redraw the center-back seam and check the closure length. Baste the toile, sit down and recheck the balance of the hem before cutting.`];
     if (key==='waistHeight') return ['band',`Mark the new waist line ${n} cm ${smaller?'below':'above'} the old line at center front and back. On the toile, level the line at the sides, move the seam or shaping to that height, then adjust adjacent bodice and skirt lengths and recheck the closure.`];
     if (key==='sweep') return [smaller?'take':'let',`Change the finished hem circumference by ${n} cm total. Spread the adjustment equally between corresponding panels, blending to zero above the hem. For a wider sweep, slash and spread the paper pattern or add matching godets to an existing garment. True the new hem before cutting.`];
     if (key==='shoulderSlope') return ['shoulder',`Move the outer shoulder ${n} cm ${smaller?'up':'down'} while holding the neckline point fixed. Redraw and match the front and back shoulder seams, then true the armhole and test the sleeve cap.`];

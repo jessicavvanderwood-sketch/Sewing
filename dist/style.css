@@ -105,3 +105,5 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .wf-photo-pin span{position:absolute;left:calc(100% + 2px);white-space:nowrap;background:#fff9f5;color:#5f2841;border-radius:4px;padding:1px 3px}
 .wf-photo-pin-end span{left:auto;right:calc(100% + 2px)}
 @media(max-width:600px){.wf-reference{grid-template-columns:1fr}.wf-reference-image{justify-self:center}}
+
+[data-strap-sizing][hidden],[data-strapless-note][hidden],[data-sleeve-toggle][hidden],[data-sleeve-style][hidden]{display:none}

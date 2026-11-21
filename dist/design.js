@@ -9,12 +9,12 @@ const studioDesign = (() => {
     corset:{label:'Corset / structured bodice',type:'Tops',cuts:['Underbust','Overbust','Corset-style bodice'],lengths:['Waist','High hip','Low hip']}
   };
   const necklines = ['Crew','Scoop','V-neck','Boat','Square','Sweetheart','U-neck','Mock neck'];
-  const sleeves = ['Sleeveless','Short','Elbow','Long','Puff','Bell'];
+  const sleeves = ['Sleeveless','Cap','Short','Elbow','Long','Puff','Bell'];
   const fabrics = ['Cotton poplin','Linen blend','Medium-weight twill','Fluid woven crepe'];
   const closures = ['Invisible zipper','Back button and loop','Front buttons','Elastic waistband','Side zipper','Zip fly',
     'Button fly','Wrap ties','Separating zipper','Back lacing','Front busk'];
   const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back'];
-  const supports = ['Integrated shoulders','Wide straps','Narrow straps','Spaghetti straps','Halter strap','Strapless'];
+  const supports = ['Integrated shoulders','Wide straps','Narrow straps','Spaghetti straps','Halter strap','One-shoulder','Strapless'];
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
@@ -33,6 +33,7 @@ const studioDesign = (() => {
   const closureChoices = model=>closuresByType[model];
   const supportChoices = model=>model==='corset'?supports.slice(1):supports;
   const selectedSupport = design=>design.support || (design.model==='corset'?'Strapless':supports[0]);
+  const supportWidth = style=>({'Integrated shoulders':6.5,'Wide straps':4.5,'Narrow straps':2.2,'Spaghetti straps':.8,'Halter strap':2.5,'One-shoulder':4.5})[style];
   const selectedBack = design=>design.back || backs[0];
   const pocketChoices = model => model==='corset' ? pockets.slice(0,1) : model==='top' ? pockets.slice(0,2) : pockets;
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
@@ -43,7 +44,7 @@ const studioDesign = (() => {
   function defaults(model='dress') {
     const spec = silhouettes[model];
     const corset=model==='corset';
-    return {model,cut:spec.cuts[1],length:spec.lengths[1],neckline:corset?'Sweetheart':necklines[1],sleeve:corset?sleeves[0]:sleeves[1],
+    return {model,cut:spec.cuts[1],length:spec.lengths[1],neckline:corset?'Sweetheart':necklines[1],sleeve:corset?sleeves[0]:'Short',
       fabric:model==='trousers'||corset?fabrics[2]:fabrics[0],closure:closureChoices(model)[0],
       support:corset?'Strapless':supports[0],back:backs[0],rise:rises[1],
       pocket:pockets[0],finish:corset?'Faced hem':finishes[0],hemStyle:hemStyles[0],hemDrop:10,
@@ -79,7 +80,13 @@ const studioDesign = (() => {
     if (isBodice(design.model)) {
       add('neck',`Draw the ${design.neckline.toLowerCase()} front edge and ${selectedBack(design).toLowerCase()} on the toile. Mark center front, center back and matching points. Check coverage and closure access, then trace matching facings or binding before cutting.`);
       const strap=selectedSupport(design);
-      if (strap!==supports[0] && strap!=='Strapless') add('strap',`Mark the ${strap.toLowerCase()} anchor points on the front and back during the fitting. Measure each strap over the shoulder or around the neck as the style requires. Add the pattern's attachment allowances to the measured length. Baste in place, check reach and symmetry, then reinforce the ends.`);
+      if (strap!=='Strapless' && (strap!==supports[0] || design.strapWidth || design.strapPlacement)) {
+        const width=design.strapWidth??supportWidth(strap);
+        const shift=design.strapPlacement?` Move the attachment ${Math.abs(design.strapPlacement)} cm ${design.strapPlacement<0?'inward':'outward'} from the starting shoulder mark.`:'';
+        const route=strap==='Halter strap'?'Fit from the two front attachment points around the neck.':strap==='One-shoulder'
+          ?'Fit from the front bodice to the back bodice over the wearer’s right shoulder.':'Fit from the front bodice to the back bodice over each shoulder.';
+        add('strap',`Fit the ${strap.toLowerCase()} at ${width} cm wide, finished. ${route}${shift} Mark the worn length and add the pattern’s attachment allowances. Baste, check reach and support, then reinforce the ends.`);
+      }
       if (strap==='Strapless') add('facing','Fit and mark the strapless upper edge on the toile. Check that it stays in place while moving. Use the support, facing and reinforcement specified for the pattern before finishing the edge.');
       if (isSleeved(design)) add('sleeve',`Trace a sleeve for the matching armhole. Mark the ${design.sleeve.toLowerCase()} sleeve shape and finished length. ${design.sleeve==='Puff'?'Slash and spread the sleeve pattern for fullness, then gather that excess into a tested cap or cuff.':design.sleeve==='Bell'?'Slash and spread from hem toward the cap, keeping the cap seam intact. Draw a smooth, wider hem.':'Keep the sleeve cap and its notches aligned to the armhole.'} Baste it into the test garment and check reach before cutting the final fabric.`);
     } else if (design.model==='trousers') {
@@ -146,5 +153,5 @@ const studioDesign = (() => {
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,tones,backs,rises,
-    baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,selectedBack,pocketChoices,defaults,measurements,instructions,make};
+    baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};
 })();

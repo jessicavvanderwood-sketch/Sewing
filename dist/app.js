@@ -114,6 +114,25 @@ function archiveItem(key,id) {
 const basePattern = pattern => patterns.find(base => base.id === (pattern.model || pattern.id)) || patterns[0];
 const canTryOn=pattern=>!pattern.external || pattern.tryOn;
 const hasSleeves = pattern => pattern.fit?.changes.hasSleeves ?? Boolean(pattern.sleeves);
+function shoulderSettings(pattern) {
+  const design=pattern.design||{};
+  const fit=pattern.fit?.changes||{};
+  const model=design.model || basePattern(pattern).id;
+  const options=studioDesign.supportChoices(model);
+  const requested=fit.support || studioDesign.selectedSupport({...design,model});
+  const support=options.includes(requested)?requested:options[0];
+  return {support,strapWidth:fit.strapWidth??design.strapWidth??studioDesign.supportWidth(support),
+    strapPlacement:fit.strapPlacement??design.strapPlacement??0,
+    sleeveStyle:fit.sleeveStyle || (design.sleeve==='Sleeveless'?null:design.sleeve) || 'Short'};
+}
+function designForFit(design,changes) {
+  if (!design) return design;
+  const fitAdjustments=Object.fromEntries(Object.entries(changes).filter(([key,value])=>garmentFit.fields[key]&&Number.isFinite(value)&&value!==0));
+  const fitted={...design,fitAdjustments};
+  if (!changes.support) return fitted;
+  return {...fitted,support:changes.support,strapWidth:changes.strapWidth,strapPlacement:changes.strapPlacement,
+    sleeve:changes.hasSleeves?changes.sleeveStyle||design.sleeve:'Sleeveless'};
+}
 const option = (value,name,selected) => `<option value="${escape(value)}"${value===selected?' selected':''}>${escape(name)}</option>`;
 const patternCategory=pattern=>pattern.category || ({dress:'Dresses by silhouette',top:'Tops by silhouette',skirt:'Skirts by silhouette',trousers:'Pants by silhouette'}[basePattern(pattern).id]);
 const options = (selected,fittingOnly=false) => {
@@ -440,7 +459,7 @@ function uploadFabric() {
   });
 }
 function library() {
-  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ Add garment</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
+  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ New custom piece</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
   const search = document.querySelector('#pattern-search');
   const filter = document.querySelector('#pattern-filter');
   const container = document.querySelector('#patterns');
@@ -750,10 +769,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   if (!pattern && !body.mesh && typeof humanPreview!=='undefined') {
     return humanPreview.draw(canvas,body,angle);
   }
+  changes={...pattern?.design?.fitAdjustments,...changes};
   const context = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
   const lifted=analysis?.pose?.arm||0;
+  const shoulderRaising=Math.max(0,lifted-.45*(analysis?.pose?.reach||0)-.12*(analysis?.pose?.sit||0));
   const scale = Math.min(height * (thumbnail && pattern ? .44 : .345)/Math.max(1,(body.height||168)/174),width*.57)*(1-.21*lifted);
   const cx = width/2;
   const cy = height*(thumbnail && pattern ? .49 : .51+.05*lifted);
@@ -761,14 +782,17 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const markings = [];
   const surfaces = {};
   const model = pattern ? basePattern(pattern).id : null;
+  const skirtFit=model==='dress'||model==='skirt';
   const design = pattern?.design;
   const designShape = design ? studioDesign.measurements(design) : null;
   const necklineStyle = changes.neckline || design?.neckline;
-  const support=design?studioDesign.selectedSupport(design):'Integrated shoulders';
+  const support=changes.support || (design?studioDesign.selectedSupport(design):'Integrated shoulders');
+  const sleeveStyle=changes.sleeveStyle || design?.sleeve || 'Short';
   const backStyle=design?studioDesign.selectedBack(design):'Classic back';
   const structured=design?.model==='corset';
   const fairyHem=design && studioDesign.hasFairyHem(design);
-  const strapWidth=({'Wide straps':.25,'Narrow straps':.15,'Spaghetti straps':.09,'Halter strap':.16})[support];
+  const strapWidth=support==='Strapless'?0:Number(changes.strapWidth??design?.strapWidth)||studioDesign.supportWidth(support)||0;
+  const strapPlacement=(Number(changes.strapPlacement??design?.strapPlacement)||0)*2.368/168;
   const neckWidth=fabricFit.clamp((.56+(changes.neckWidth||0)/37)*(necklineStyle==='Boat'?1.27:1),.21,.94);
   const neckDepth=fabricFit.clamp(.115+(changes.neckDepth||0)/75,.012,.39);
   const neckProfile=(style,t)=>{
@@ -803,8 +827,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const project=point=>screen(rotateView(point));
   let shellContact;
   let skinPoints=null;
+  let posedSkin=null;
   function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
-    const segments = neck && strapWidth ? 88 : part==='shell' ? 64 : hex===skin && !detail ? 54 : 38;
+    const segments = part==='shell' ? 64 : hex===skin && !detail ? 54 : 38;
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
     function restPoint(ring,theta,ringIndex) {
       const [y,w,d,center=0,centerZ=0] = ring;
@@ -817,12 +842,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       let edge=z>=0?frontDepth*neckProfile(necklineStyle,absX/neckWidth):backDepth*neckProfile(backStyle,absX/backWidth);
       if (z<0 && backStyle==='Racerback') edge=.035+.17*Math.sin(absX*Math.PI)**2;
       if (neck && !changes.hasSleeves && support==='Integrated shoulders') {
-        edge+=.135*absX**8;
+        edge+=.135*absX**8+.11*shoulderRaising*absX**5;
       }
-      if (support==='Strapless' || strapWidth) {
-        const anchor=support==='Halter strap'?(z>=0?.43:.32):.64;
-        const stripe=strapWidth?Math.exp(-(((absX-anchor)/strapWidth)**4)):0;
-        edge=edge*.55+(.18+.04*absX)*(1-stripe);
+      if (support!=='Integrated shoulders') {
+        const lowered=support==='Strapless'?.18:z>=0?.111:.156;
+        edge=edge*.55+lowered+(.04+.11*shoulderRaising)*absX**4;
+        if (support==='One-shoulder') edge-=.066*x;
       }
       if (structured && design.cut==='Underbust') edge=.36+(z<0?backDepth*.37:0);
       const transition=structured?.56:.70;
@@ -843,7 +868,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const corner=(1/Math.max(Math.abs(x),Math.abs(z))-1)/(Math.SQRT2-1);
       const hemOffset=fairyHem && part==='shell'?studioDesign.hemDrop(design)*.0138*progress**4*(corner-.5):0;
       const hemLimited=hemOffset ? Math.min(y+hemOffset,1.105) : y;
-      return [offset+center+x*(w+fold),hemLimited+neckline+slope+pelvisY,centerZ+z*(d+fold)+projectedBust];
+      const seatedSkirt=skirtFit && part==='shell';
+      const front=Math.max(0,z),rear=Math.max(0,-z);
+      const seatPanel=seatedSkirt?Math.exp(-(((y-.15)/.25)**2))*rear**2*(changes.seatDepth||0)*.013:0;
+      const lapPanel=seatedSkirt?Math.exp(-(((y-.35)/.31)**2))*front*(changes.lapEase||0)*.0038:0;
+      const backLength=seatedSkirt?rear**2*fabricFit.clamp((y+.31)/.77,0,1)*(changes.sittingLength||0)*.011:0;
+      return [offset+center+x*(w+fold+lapPanel*.55),Math.min(hemLimited+backLength,1.12)+neckline+slope+pelvisY,centerZ+z*(d+fold)+projectedBust+lapPanel-seatPanel];
     }
     function movePoint(vertex,theta,ringIndex) {
       const moved=transform?transform(vertex,theta):vertex;
@@ -858,10 +888,13 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const geometry=contact?clothContact.drape(targets,rest.map(row=>row.map(([x,y,z])=>[x,proportions.yAt(y),z])),
       contact,analysis?.material,{free:model==='dress'?.29:.13}):targets;
     const projected=geometry.map(row=>row.map(project));
-    if (part && part!=='torso-skin') surfaces[part]={rings,opening:neckWidth,projectPoint:(row,theta,index)=>{
+    function sampleRing(theta,index) {
       const position=((theta/(2*Math.PI)*segments)%segments+segments)%segments;
       const column=Math.floor(position);
-      const point=geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
+      return geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
+    }
+    if (part && part!=='torso-skin') surfaces[part]={rings,opening:neckWidth,sampleRing,projectPoint:(row,theta,index)=>{
+      const point=sampleRing(theta,index);
       if (row!==rings[index]) {
         const current=movePoint(restPoint(row,theta,index),theta,index);
         const base=movePoint(restPoint(rings[index],theta,index),theta,index);
@@ -926,7 +959,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const hemWeight=Math.max(0,1-Math.abs(y-rings.at(-1)[0])/.42);
       const kneeWeight=Math.max(0,1-Math.abs(y-.62)/.29);
       const extraSweep=designShell?(hemWeight*(fit.sweep||0)+kneeWeight*(fit.knee||0))/450:0;
-      const widthChange = waistWeight(y)*waist+hipWeight(y)*hip+designWidth+extraSweep+
+      const seatedWidth=designShell && skirtFit
+        ? (Math.exp(-(((y+.065)/.16)**2))*(fit.upperHip||0)+kneeWeight*(fit.kneeEase||0))*.00225 : 0;
+      const widthChange = waistWeight(y)*waist+hipWeight(y)*hip+designWidth+extraSweep+seatedWidth+
         (bustWeight*(fit.bust||0)+thighWeight*(fit.thigh||0)+legWeight*(fit.leg||0))/450+
         shoulderWeight*(fit.shoulder||0)/220;
       const heightChange = index===0 ? 0 : length*(index/(rings.length-1))**2;
@@ -1070,8 +1105,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const detailedSleeveEnd=()=>{
     const [shoulder,elbow,wrist]=avatar.joints;
     const start=shoulder[1]-.085;
-    const naturalEnd=({Long:wrist[1],Bell:wrist[1],Elbow:elbow[1]})[design?.sleeve] ??
-      fabricFit.mix(shoulder[1]-.027,elbow[1],design?.sleeve==='Puff'?.91:.77);
+    const naturalEnd=({Long:wrist[1],Bell:wrist[1],Elbow:elbow[1]})[sleeveStyle] ??
+      fabricFit.mix(shoulder[1]-.027,elbow[1],({Cap:.35,Puff:.91})[sleeveStyle]??.77);
     return [start,Math.max(start+.11,naturalEnd+(changes.sleeveLength||0)/75)];
   };
   if (avatar) {
@@ -1083,6 +1118,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const movingArm=arms[x<0?0:1](rest);
       return main.map((value,index)=>fabricFit.mix(value,movingArm[index],arm));
     });
+    posedSkin=bodyPoints;
     skinPoints=bodyPoints.map(rotateView);
     if (typeof clothContact!=='undefined' && humanPreview.topology) {
       shellContact=clothContact.fromAvatar(bodyPoints,avatar.vertices,humanPreview.topology);
@@ -1126,6 +1162,119 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         [.073,.006,.006,side*(.337+shoulders)]],skin,0,false,false,false,moveArm);
       if (exposedLeg.length>1) mesh(exposedLeg,skin,side*legSpacing,false,false,false,legMove);
       mesh(foot,skin,side*legSpacing,false,false,false,p=>rig.foot([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
+    }
+  }
+
+  function bridgeShoulders() {
+    if (!strapWidth || (model!=='dress' && model!=='top') || structured && design.cut==='Underbust') return;
+    const {sampleRing,rings}=surfaces.shell;
+    const bind=avatar?.joints[0] || [.214+shoulders,-.73,0];
+    const rows=changes.hasSleeves?2:1;
+    const width=rings[rows][1];
+    const centimeter=2.368/168;
+    const edge=Math.min(bind[0]+(changes.hasSleeves?.061:.018-.029*shoulderRaising),width*.95);
+    const halfWidth=Math.min(Math.max(.003,strapWidth*centimeter/2),(edge-.067)*.5);
+    const integrated=support==='Integrated shoulders', halter=support==='Halter strap';
+    const fitCenter=bind[0]*(integrated?.81:halter?.64:.76)+strapPlacement-(changes.hasSleeves?0:.021*shoulderRaising);
+    const center=fabricFit.clamp(fitCenter,.067+halfWidth,edge-halfWidth);
+    const shoulderTriangles=[];
+    if (posedSkin && humanPreview.topology) {
+      const topology=humanPreview.topology;
+      for (let i=0;i<topology.length;i+=4) {
+        const a=topology[i],b=topology[i+1],c=topology[i+2],d=topology[i+3];
+        const bindPoints=[avatar.vertices[a],avatar.vertices[b],avatar.vertices[c],avatar.vertices[d]];
+        if (bindPoints.every(([,y])=>y<bind[1]-.22 || y>bind[1]+.17)) continue;
+        for (const indices of [[a,b,c],[a,c,d]]) {
+          const [p,q,r]=indices.map(index=>posedSkin[index]);
+          const [wp,wq,wr]=indices.map(index=>avatar.vertices[index][3]);
+          const ux=q[0]-p[0], uz=q[2]-p[2], vx=r[0]-p[0], vz=r[2]-p[2];
+          const determinant=ux*vz-uz*vx;
+          if (Math.abs(determinant)<1e-8) continue;
+          shoulderTriangles.push({
+            p,ux,uz,vx,vz,determinant,uy:q[1]-p[1],vy:r[1]-p[1],wp,wu:wq-wp,wv:wr-wp,
+            x0:Math.min(p[0],q[0],r[0]),x1:Math.max(p[0],q[0],r[0]),
+            z0:Math.min(p[2],q[2],r[2]),z1:Math.max(p[2],q[2],r[2])
+          });
+        }
+      }
+    }
+    // A vertical ray through the posed shoulder finds the skin below each
+    // point of the support, including while the arm moves at the joint.
+    function aboveShoulder(x,z,fallback) {
+      let y=fallback;
+      for (const tri of shoulderTriangles) {
+        if (x<tri.x0 || x>tri.x1 || z<tri.z0 || z>tri.z1) continue;
+        const dx=x-tri.p[0],dz=z-tri.p[2];
+        const a=(dx*tri.vz-dz*tri.vx)/tri.determinant;
+        const b=(tri.ux*dz-tri.uz*dx)/tri.determinant;
+        const armWeight=tri.wp+a*tri.wu+b*tri.wv;
+        if (!changes.hasSleeves && shoulderRaising>.12 && armWeight>.58) continue;
+        if (a>=0 && b>=0 && a+b<=1) y=Math.min(y,tri.p[1]+a*tri.uy+b*tri.vy-.012);
+      }
+      return y;
+    }
+    const channels=color(pattern.color).slice(1).match(/../g).map(value=>parseInt(value,16));
+    const level=(regions?.shoulder?.level||0)*.70;
+    const paint='rgb('+fabricFit.tint(channels,level).map(n=>Math.round(n*.94)).join(',')+')';
+    const lanes=strapWidth<1.2?2:6;
+    function collarPoint(x,y) {
+      const neck=avatar?.sectionAt('torso',y);
+      const z=neck ? Math.min(-.10,neck[3]-neck[1]-.015) : -.102;
+      return torsoMove([x,y,z]);
+    }
+    function drawStrip(points) {
+      const projected=points.map(row=>row.map(project));
+      for (let i=0;i<projected.length-1;i++) {
+        for (let j=0;j<projected[i].length-1;j++) {
+          const quad=[projected[i][j],projected[i][j+1],projected[i+1][j+1],projected[i+1][j]];
+          faces.push({points:quad,depth:quad.reduce((sum,p)=>sum+p[2],0)/4,paint});
+        }
+      }
+    }
+    for (const side of support==='One-shoulder'?[1]:[-1,1]) {
+      const stations=18;
+      const target=Array.from({length:lanes+1},(_,lane)=>{
+        const across=(lane/lanes*2-1)*halfWidth;
+        const x=side*(center+across);
+        const theta=Math.acos(fabricFit.clamp(x/width,-.95,.95));
+        const front=sampleRing(theta,rows);
+        const back=halter?collarPoint(side*(.044+across*.32),bind[1]-.167):sampleRing(-theta,rows);
+        const crown=torsoMove([x,bind[1]-.066,bind[2]]);
+        const raise=Math.max(.028,(front[1]+back[1])*.5-crown[1]);
+        return {front,back,crown,raise};
+      });
+      const strip=Array.from({length:stations+1},(_,index)=>{
+        const t=index/stations;
+        const arch=Math.sin(Math.PI*t);
+        return target.map(({front,back,crown,raise})=>{
+          const x=fabricFit.mix(front[0],back[0],t)-(changes.hasSleeves?0:side*arch*.031*shoulderRaising);
+          const z=fabricFit.mix(front[2],back[2],t);
+          const height=fabricFit.mix(front[1],back[1],t)-raise*arch;
+          if (!index || index===stations) return [x,height-.001,z+(index?-.002:.002)];
+          const shoulderHeight=Math.min(height,crown[1]+Math.abs(t-.5)*.34);
+          const outside=aboveShoulder(x,z,shoulderHeight);
+          const endBlend=Math.min(1,index/2,(stations-index)/2);
+          return [x,fabricFit.mix(height,outside,endBlend),z];
+        });
+      });
+      // Relax height discontinuities at the shoulder edge while preserving
+      // the same clearance and fixed stitched endpoints.
+      for (let pass=0;pass<2;pass++) {
+        for (let i=2;i<stations-1;i++) {
+          for (let j=0;j<=lanes;j++) {
+            const point=strip[i][j];
+            const mean=(strip[i-1][j][1]+strip[i+1][j][1])*.5;
+            point[1]=aboveShoulder(point[0],point[2],fabricFit.mix(point[1],mean,.39));
+          }
+        }
+      }
+      drawStrip(strip);
+    }
+    if (halter) {
+      drawStrip(Array.from({length:9},(_,i)=>{
+        const x=(i/8*2-1)*.047;
+        return [collarPoint(x,bind[1]-.177),collarPoint(x,bind[1]-.150)];
+      }));
     }
   }
 
@@ -1175,6 +1324,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (model==='dress'||model==='skirt') return skirtMove(moved,theta);
         return model==='trousers'?rig.pelvis(moved,theta):torsoMove(moved);
       },'shell');
+    bridgeShoulders();
     if (design?.hood) {
       const hood=fabricFit.resample([[-.867,.072,.041],[-.835,.10,.061],[-.775,.136,.079],[-.705,.136,.105],
         [-.64,.093,.086],[-.585,.031,.029]],.027);
@@ -1216,9 +1366,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
     }
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
-      const sleeve=(changes.sleeveWidth||0)/410+(design?.sleeve==='Puff'?.045:0);
-      const length=(changes.sleeveLength||0)/75+({Short:-.08,Elbow:.07,Long:.39,Puff:.02,Bell:.36}[design?.sleeve]||0);
-      const cuff=(changes.cuff||0)/410+(design?.sleeve==='Bell'?.085:0);
+      const sleeve=(changes.sleeveWidth||0)/410+(sleeveStyle==='Puff'?.045:0);
+      const length=(changes.sleeveLength||0)/75+({Cap:-.16,Short:-.08,Elbow:.07,Long:.39,Puff:.02,Bell:.36}[sleeveStyle]||0);
+      const cuff=(changes.cuff||0)/410+(sleeveStyle==='Bell'?.085:0);
       for (const side of [-1,1]) {
         let rings=[[-.71,.075+sleeve+(changes.sleeveCap||0)/460,.091],[-.60,.085+sleeve+(changes.sleeveCap||0)/620,.105],
           [Math.max(-.595,-.46+length*.48),.068+sleeve*.6,.077],
@@ -1237,7 +1387,52 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           if (avatar) return aroundAvatar([y,w,d,side*(center+shoulders)],'arm',side);
           return [y,Math.max(w,bw+.012),Math.max(d,bd+.012),side*(center+shoulders)];
         });
-        mesh(shellSleeve,color(pattern.color),0,false,true,false,armMove(side),'sleeve');
+        const moveArm=armMove(side);
+        const start=shellSleeve[0][0];
+        const seamSpan=Math.min(.146,(shellSleeve.at(-1)[0]-start)*.75);
+        const posedArm=articulated?.joints[side];
+        const upperRadius=(body.upperArm||(body.bust||92)*.31)*2.368/168/(2*Math.PI);
+        const armSegments=posedArm?[[posedArm.shoulder,posedArm.elbow,upperRadius,upperRadius*.78],
+          [posedArm.elbow,posedArm.wrist,upperRadius*.78,(body.wrist||16)*2.368/168/(2*Math.PI)]].map(([a,b,first,last])=>{
+          const axis=b.map((value,i)=>value-a[i]);
+          return {a,axis,square:axis.reduce((sum,n)=>sum+n*n,0),first,last};
+        }):[];
+        function sleeveClearance(point,follow) {
+          if (!follow || !armSegments.length) return point;
+          let closest;
+          for (const {a,axis,square,first,last} of armSegments) {
+            if (square<1e-8) continue;
+            const fromStart=point.reduce((sum,value,i)=>sum+(value-a[i])*axis[i],0);
+            const t=fabricFit.clamp(fromStart/square,0,1);
+            const normal=point.map((value,i)=>value-a[i]-axis[i]*t);
+            const distance=Math.hypot(...normal);
+            if (!closest || distance<closest.distance) {
+              closest={normal,distance,radius:fabricFit.mix(first,last,t)+.008};
+            }
+          }
+          if (!closest || closest.distance<.001 || closest.distance>=closest.radius) return point;
+          const push=follow*(closest.radius/closest.distance-1);
+          return point.map((value,i)=>value+closest.normal[i]*push);
+        }
+        const moveSleeve=avatar?(point,theta)=>{
+          const t=fabricFit.clamp((point[1]-start)/Math.max(.025,seamSpan),0,1);
+          const follow=t*t*(3-2*t);
+          const arm=moveArm(point);
+          if (follow===1) return sleeveClearance(arm,1);
+          // Walk a closed armhole around the actual bodice on this side.
+          // Its upper edge starts at the shoulder and its lower edge
+          // follows the underarm, so raising the limb cannot detach it.
+          const bodice=surfaces.shell;
+          const underarm=fabricFit.clamp((1-side*Math.cos(theta))*.5,0,1);
+          const angle=Math.sin(theta)*.64;
+          const around=side>0?angle:Math.PI-angle;
+          const depth=Math.min(bodice.rings.length-1,underarm*6);
+          const row=Math.floor(depth);
+          const a=bodice.sampleRing(around,row), b=bodice.sampleRing(around,Math.ceil(depth));
+          const socket=a.map((value,axis)=>fabricFit.mix(value,b[axis],depth-row));
+          return sleeveClearance(socket.map((value,axis)=>fabricFit.mix(value,arm[axis],follow)),follow);
+        }:moveArm;
+        mesh(shellSleeve,color(pattern.color),0,false,true,false,moveSleeve,'sleeve');
       }
     }
     if (trouserLeg) {
@@ -1465,6 +1660,10 @@ function startFit(id,modelId) {
 
 let fittingDraft;
 const adjustmentText = n => (n>0?'+':'')+n+' cm';
+function fitSlider(key,value,label=garmentFit.fields[key][0]) {
+  const [,max,minus,plus]=garmentFit.fields[key];
+  return `<label class="field adjustment"><span>${label} <output id="${key}-value">${adjustmentText(value)}</output></span><input data-fit-slider name="${key}" type="range" min="-${max}" max="${max}" step="0.5" value="${value}"><span class="adjustment-ends"><span>${minus}</span><span>${plus}</span></span></label>`;
+}
 function guide(pattern,changes,body) {
   const {waist,hip,length} = changes;
   const model = basePattern(pattern).id;
@@ -1483,8 +1682,24 @@ function guide(pattern,changes,body) {
       : 'Unpick the sleeves and check the shape and coverage of both armholes on the wearer. Staystitch and finish the openings with a compatible facing or binding.');
     visuals.push('sleeve');
   }
+  if (changes.sleeveStyle) {
+    steps.push(`Use a ${changes.sleeveStyle.toLowerCase()} sleeve pattern matched to the armhole. Baste it in at the shoulder and underarm marks, then check coverage and reach before stitching.`);
+    visuals.push('sleeve');
+  }
+  if (changes.support==='Strapless') {
+    steps.push('Fit a strapless sample with the lining, waist stay or other support specified by the pattern. Test that it stays in place while sitting and moving before you remove any existing shoulders or straps.');
+    visuals.push('strapless');
+  } else if (changes.support) {
+    const placement=changes.strapPlacement
+      ? ` Move the attachment ${Math.abs(changes.strapPlacement)} cm ${changes.strapPlacement<0?'inward':'outward'} from the starting shoulder mark.` : '';
+    const route=changes.support==='Halter strap'?'Pin the strap ends to the front bodice and fit the strap around the neck.':changes.support==='One-shoulder'
+      ? 'Pin the strap from front to back over the wearer’s right shoulder and fit the opposite edge.'
+      : 'Pin each shoulder piece from the front bodice to the back bodice.';
+    steps.push(`Fit the ${changes.support.toLowerCase()} at ${changes.strapWidth} cm wide, finished. ${route}${placement} Mark the length on the wearer, add the attachment allowances, then baste and check that the garment stays up before securing the ends.`);
+    visuals.push('strap');
+  }
   for (const [key,value] of Object.entries(changes)) {
-    if (!value || ['waist','hip','length','hasSleeves','neckline','sleeves'].includes(key)) continue;
+    if (!value || !garmentFit.fields[key] || ['waist','hip','length'].includes(key)) continue;
     const [visual,step] = garmentFit.directions(key,value);
     steps.push(step);
     visuals.push(visual);
@@ -1515,8 +1730,8 @@ function guide(pattern,changes,body) {
   return {steps,visuals};
 }
 function fitDifference(source, target, sourceBody, targetBody) {
-  const before=source.fit?.changes || {};
-  const after=target.fit?.changes || {};
+  const before=source.fit?.changes || source.design?.fitAdjustments || {};
+  const after=target.fit?.changes || target.design?.fitAdjustments || {};
   const difference={};
   for (const key of garmentFit.keys(basePattern(target).id,hasSleeves(target))) {
     const measurement=['bust','waist','hip','shoulder'].includes(key)?targetBody[key]-sourceBody[key]:0;
@@ -1527,11 +1742,33 @@ function fitDifference(source, target, sourceBody, targetBody) {
   const sourceNeck=before.neckline || source.design?.neckline || 'Scoop';
   const targetNeck=after.neckline || target.design?.neckline || 'Scoop';
   if (sourceNeck!==targetNeck) difference.neckline=targetNeck;
+  if (['dress','top'].includes(basePattern(target).id)) {
+    const original=shoulderSettings(source), selected=shoulderSettings(target);
+    if (selected.support!==original.support || selected.support!=='Strapless' &&
+        (selected.strapWidth!==original.strapWidth || selected.strapPlacement!==original.strapPlacement)) {
+      Object.assign(difference,{support:selected.support,strapWidth:selected.strapWidth,strapPlacement:selected.strapPlacement});
+    }
+    if (hasSleeves(target) && (!hasSleeves(source) || original.sleeveStyle!==selected.sleeveStyle)) difference.sleeveStyle=selected.sleeveStyle;
+  }
   return difference;
 }
+function applyDesignFit(item,body) {
+  const changes=item.design?.fitAdjustments || {};
+  if (!Object.values(changes).some(Boolean)) return item;
+  const adjustment=guide(item,changes,body);
+  return {...item,steps:[item.steps[0],...adjustment.steps.slice(2,-1),...item.steps.slice(1)],
+    visuals:[item.visuals[0],...adjustment.visuals.slice(2,-1),...item.visuals.slice(1)]};
+}
 function fitSummary(delta) {
-  return Object.entries(delta).map(([key,amount])=>key==='neckline'?amount+' neckline':
-    key==='sleeves'?(amount?'Add sleeves':'Remove sleeves'):garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
+  return Object.entries(delta).flatMap(([key,amount])=>{
+    if (key==='neckline') return amount+' neckline';
+    if (key==='support') return amount;
+    if (key==='strapWidth' && Number.isFinite(amount)) return 'Finished shoulder width '+amount+' cm';
+    if (key==='strapPlacement' && amount) return 'Shoulder placement '+adjustmentText(amount);
+    if (key==='sleeveStyle') return amount+' sleeves';
+    if (key==='sleeves') return amount?'Add sleeves':'Remove sleeves';
+    return garmentFit.fields[key]?garmentFit.fields[key][0]+' '+adjustmentText(amount):[];
+  }).join(' · ');
 }
 function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBody) {
   const dimensions=Object.entries(sewingModels.dimensions).map(([key,[label]])=>[key,label]);
@@ -1545,6 +1782,10 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
   if (changes.neckline) adjustments.push(['Neckline style',changes.neckline]);
   if (make && ['dress','top'].includes(basePattern(pattern).id)) adjustments.push(['Sleeves',targetChanges.hasSleeves?'Sleeved':'Sleeveless']);
   if (Object.hasOwn(changes,'sleeves')) adjustments.push(['Sleeves',changes.sleeves?'Add sleeves':'Remove sleeves']);
+  if (changes.support) adjustments.push(['Shoulder support',changes.support]);
+  if (Number.isFinite(changes.strapWidth)) adjustments.push(['Finished shoulder width',cm(changes.strapWidth)]);
+  if (changes.strapPlacement) adjustments.push(['Shoulder placement',adjustmentText(changes.strapPlacement)]);
+  if (changes.sleeveStyle && (make?targetChanges.hasSleeves:true)) adjustments.push(['Sleeve style',changes.sleeveStyle]);
   const targets=[];
   if (make && Number.isFinite(pattern.design?.ease)) {
     const model=basePattern(pattern).id;
@@ -1575,7 +1816,7 @@ function constructionGuide(pattern,changes,body,fabric) {
     steps.push('Make a fitting sample in similar fabric. Apply the changes below to that sample, then transfer them to the paper pattern and check the adjoining seam lengths before cutting your final fabric.',...settings.steps.slice(2));
     visuals.push('designCut',...settings.visuals.slice(2));
   }
-  const instructions=base.design?studioDesign.make({...base.design,fabric:fabric.name},base.name,body):base;
+  const instructions=base.design?studioDesign.make({...designForFit(base.design,changes),fabric:fabric.name},base.name,body):base;
   const baseVisuals=instructions.visuals || sewingVisuals.patterns[base.id] || instructions.steps.map(sewingVisuals.identify);
   return {steps:[...steps,...instructions.steps],visuals:[...visuals,...baseVisuals],tools:instructions.tools,
     fabric:`${fabric.name} (${fabric.gsm} g/m²). ${instructions.fabric}`};
@@ -1593,6 +1834,10 @@ function fitting() {
   const initialWeight=fitRevision?.fabric?.gsm || initialMaterial.gsm;
   const siblings=pattern.family?allPatterns().filter(item=>item.family===pattern.family && item.id!==pattern.id && !isArchived('patterns',item.id)):[];
   const startingNeck=fitRevision?.changes.neckline || pattern.design?.neckline || 'Scoop';
+  const startingFit=fitRevision?.changes || pattern.design?.fitAdjustments || {};
+  const shoulders=shoulderSettings(pattern);
+  const supportStyles=studioDesign.supportChoices(pattern.design?.model || modelType);
+  const canHaveSleeves=shoulders.support==='Integrated shoulders';
   view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>    <div class="fit-preview-controls">
       <label class="field">Movement<select id="fit-pose"><optgroup label="Poses">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</optgroup><optgroup label="Motion loops">${Object.entries(fabricFit.motions).map(([key,value])=>option(key,value.name)).join('')}</optgroup></select></label>
       <div id="motion-controls" hidden>
@@ -1605,7 +1850,7 @@ function fitting() {
       <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
       <div id="fit-legend"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
       <p id="fit-reading" class="fit-reading" aria-live="polite"></p>
-      ${modelType==='trousers'?'<div class="seat-fit"><button type="button" class="secondary" id="add-seat-ease">Add sitting ease</button><p id="seat-fit-hint" class="fit-reading"></p></div>':''}
+      ${['trousers','dress','skirt'].includes(modelType)?'<div class="seat-fit"><button type="button" class="secondary" id="add-seat-ease">Add sitting ease</button><p id="seat-fit-hint" class="fit-reading"></p></div>':''}
     </div>
 </section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
@@ -1624,9 +1869,20 @@ function fitting() {
       <label class="field">Drape firmness<select name="fabricBend">${[['.2','Fluid'],['.42','Balanced'],['.65','Structured']].map(([value,label])=>option(value,label,String((fitRevision?.fabric?.bend ?? initialMaterial.bend)<.31?'.2':(fitRevision?.fabric?.bend ?? initialMaterial.bend)<.55?'.42':'.65'))).join('')}</select></label>
       <p>Set stretch to the amount you can pull a swatch before you feel firm resistance.</p>
     </details>
-    ${sleeveEligible?`<label class="field">Neckline style<select name="neckline">${studioDesign.necklines.map(name=>option(name,name,startingNeck)).join('')}</select></label>`:''}
-    ${sleeveEligible?`<label class="sleeve-choice"><input name="sleeves" type="checkbox" ${hasSleeves(pattern)?'checked':''}> Show sleeves and sleeve adjustments</label>`:''}
-    ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:''}
+    ${sleeveEligible?`<label class="field">Neckline style<select name="neckline">${studioDesign.necklines.map(name=>option(name,name,startingNeck)).join('')}</select></label>
+      <fieldset class="wo-path"><legend>Shoulders and sleeves</legend>
+        <label class="field">Shoulder support<select name="support">${supportStyles.map(name=>option(name,name,shoulders.support)).join('')}</select></label>
+        <div class="fields" data-strap-sizing ${shoulders.support==='Strapless'?'hidden':''}>
+          <label class="field">Finished shoulder width (cm)<input name="strapWidth" type="number" data-length-input min=".4" max="12" value="${shoulders.strapWidth??''}"></label>
+          <label class="field">Shoulder placement (cm)<input name="strapPlacement" type="number" data-length-input min="-4" max="4" value="${shoulders.strapPlacement}"></label>
+        </div>
+        <p class="muted" data-strap-sizing ${shoulders.support==='Strapless'?'hidden':''}>Negative placement moves toward the neck. Positive placement moves toward the arm.</p>
+        <p class="muted" data-strapless-note ${shoulders.support==='Strapless'?'':'hidden'}>Check the support and stability of a strapless bodice on a fitting sample.</p>
+        <div data-sleeve-toggle ${canHaveSleeves?'':'hidden'}><label class="sleeve-choice"><input name="sleeves" type="checkbox" ${canHaveSleeves&&hasSleeves(pattern)?'checked':''}> Add sleeves</label></div>
+        <div data-sleeve-style ${canHaveSleeves&&hasSleeves(pattern)?'':'hidden'}><label class="field">Sleeve style<select name="sleeveStyle">${studioDesign.sleeves.filter(style=>style!=='Sleeveless').map(name=>option(name,name,shoulders.sleeveStyle)).join('')}</select></label></div>
+      </fieldset>`:''}
+    ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:
+      Object.values(pattern.design?.fitAdjustments||{}).some(Boolean)?'<p class="muted fit-baseline">These sliders start from the fit saved in Design Studio.</p>':''}
     <div id="fit-sliders"></div>
     <p class="muted fit-baseline">The map estimates stretch demand as the fabric moves. The preview uses the selected weight, stretch and drape. Check the fit and movement on a sewn sample.</p>${publisher?`<div class="actions tight"><button type="button" data-action="new" data-use-fit-model data-id="${escape(pattern.id)}">Create publisher-pattern work order</button><button type="reset" class="secondary">Reset changes</button></div>${referenceLinks(pattern)}`:`<fieldset class="wo-path"><legend>Create work order</legend>
       <label class="field">Tailoring target<select name="tailorTarget"><option value="">Current fit as a new revision</option>${siblings.map(item=>option(item.id,'Saved revision '+item.revision)).join('')}</select></label>
@@ -1672,22 +1928,49 @@ function fitting() {
     form.elements.namedItem('fabricBend').value=preset.bend<.31?'.2':preset.bend<.55?'.42':'.65';
   }
   const neckline=()=>form.elements.namedItem('neckline')?.value || startingNeck;
-  const sleeves = () => form.elements.namedItem('sleeves')?.checked || false;
+  const supportField=form.elements.namedItem('support');
+  const sleeveToggle=form.elements.namedItem('sleeves');
+  const sleeveStyle=form.elements.namedItem('sleeveStyle');
+  const strapWidth=form.elements.namedItem('strapWidth');
+  const strapPlacement=form.elements.namedItem('strapPlacement');
+  const sleeves = () => supportField?.value==='Integrated shoulders' && sleeveToggle.checked;
+  function refreshShoulders() {
+    if (!supportField) return;
+    const strapless=supportField.value==='Strapless';
+    for (const row of form.querySelectorAll('[data-strap-sizing]')) row.hidden=strapless;
+    strapWidth.disabled=strapPlacement.disabled=strapless;
+    form.querySelector('[data-strapless-note]').hidden=!strapless;
+    form.querySelector('[data-sleeve-toggle]').hidden=supportField.value!=='Integrated shoulders';
+    form.querySelector('[data-sleeve-style]').hidden=!sleeves();
+  }
+  refreshShoulders();
   const keys = () => garmentFit.keys(modelType,sleeves());
   const changes = () => Object.fromEntries(keys().map(key=>[key,Number(form.elements.namedItem(key)?.value || 0)]));
   const adjustments = () => {
     const result = {hasSleeves:sleeves(),neckline:neckline()};
-    for (const [key,n] of Object.entries(changes())) result[key] = (fitRevision?.changes[key] || 0)+n;
+    if (supportField) {
+      result.support=supportField.value;
+      if (result.support!=='Strapless') {
+        result.strapWidth=fabricFit.clamp(studioUnits.lengthValue(strapWidth)??studioDesign.supportWidth(result.support),.4,12);
+        result.strapPlacement=fabricFit.clamp(studioUnits.lengthValue(strapPlacement)??0,-4,4);
+      }
+      if (result.hasSleeves) result.sleeveStyle=sleeveStyle.value;
+    }
+    for (const [key,n] of Object.entries(changes())) result[key] = (startingFit[key] || 0)+n;
     return result;
   };
   const body = () => getModel(fitModel);
   function drawControls(values={}) {
-    sliders.innerHTML = keys().map(key=>{
-      const [defaultLabel,max,minus,plus] = garmentFit.fields[key];
+    const seatedKeys=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
+    const slider=key=>{
+      const [defaultLabel] = garmentFit.fields[key];
       const label=key==='neckDepth'?`${neckline()} depth`:key==='neckWidth'?`${neckline()} width`:defaultLabel;
       const n = values[key] || 0;
-      return `<label class="field adjustment"><span>${label} <output id="${key}-value">${adjustmentText(n)}</output></span><input name="${key}" type="range" min="-${max}" max="${max}" step="0.5" value="${n}"><span class="adjustment-ends"><span>${minus}</span><span>${plus}</span></span></label>`;
-    }).join('');
+      return fitSlider(key,n,label);
+    };
+    const seated=keys().filter(key=>seatedKeys.includes(key));
+    sliders.innerHTML = (seated.length?`<fieldset class="wo-path"><legend>Seated fit</legend>${seated.map(slider).join('')}</fieldset>`:'')+
+      keys().filter(key=>!seatedKeys.includes(key)).map(slider).join('');
   }
   drawControls();
   function refreshGroups() {
@@ -1765,8 +2048,9 @@ function fitting() {
   };
   const easeButton=document.querySelector('#add-seat-ease');
   const seatHint=document.querySelector('#seat-fit-hint');
-  const seatControls={waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
-    leg:['leg'],rise:['rise'],backRise:['backRise'],crotch:['crotch']};
+  const seatControls=modelType==='trousers'?{waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
+    leg:['leg'],rise:['rise'],backRise:['backRise'],crotch:['crotch']}:
+    {waist:['waist'],upperHip:['upperHip'],hip:['hip'],seat:['seatDepth'],lap:['lapEase'],skirtKnee:['kneeEase'],sittingLength:['sittingLength']};
   if (easeButton) easeButton.onclick=()=>{
     const values=adjustments();
     const seated=fabricFit.poses.sit;
@@ -1774,12 +2058,14 @@ function fitting() {
     const draft=changes();
     for (const [region,controls] of Object.entries(seatControls)) {
       const details=estimate()[region];
+      if (!details) continue;
       const ordered=region==='knee' && details.length>details.cross?controls.slice().reverse():controls;
       for (const key of ordered) {
         const input=form.elements.namedItem(key);
+        if (!input) continue;
         // Crosswise and lengthwise room can be solved independently.
         const component=key==='knee'?'cross':key==='kneeFlex'?'length':null;
-        const needsRoom=current=>component?current[component]>0:current.level>.24;
+        const needsRoom=current=>component?current[component]>0:current.level>(modelType==='trousers'?.24:.01);
         while (draft[key]<Number(input.max) && needsRoom(estimate()[region])) {
           draft[key]+=.5;
           values[key]=(values[key]||0)+.5;
@@ -1798,9 +2084,13 @@ function fitting() {
     const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level);
     const state=peak.level>.66?'Restricted':peak.level>.26?'Snug':'Room to move';
     reading.textContent=`${state} · ${peak.label} · ${(100*Math.max(peak.cross,peak.length)).toFixed(1)}% estimated stretch demand`;
-    if (seatHint) seatHint.textContent=peak.level>.26 && pose.sit>.6
-      ? `Check ${seatControls[Object.keys(regions).find(key=>regions[key]===peak)].map(key=>garmentFit.fields[key][0].toLowerCase()).join(' and ')}.`
-      : 'Adds room where the seated fit needs it using the selected fabric.';
+    if (seatHint) {
+      const [region,seatedPeak]=Object.entries(regions).filter(([key])=>seatControls[key])
+        .sort((a,b)=>b[1].level-a[1].level)[0]||[];
+      seatHint.textContent=pose.sit<=.6?'Adds room where the seated fit needs it using the selected fabric.':
+        seatedPeak?.level>.26?`For sitting, check ${seatControls[region].map(key=>garmentFit.fields[key][0].toLowerCase()).join(' and ')}.`:
+          'The seated fit estimate shows room around the hips and knees. Check on a sewn sample.';
+    }
   }
   function draw() {
     if (!canvas.isConnected) return;
@@ -1906,9 +2196,13 @@ function fitting() {
     if (event.target.name==='pattern') { startFit(event.target.value); return; }
     if (event.target.name==='model') fitModel = event.target.value;
     if (event.target.name==='fabric') setFabricDefaults(getFabric(pickedFabric()));
-    if (['sleeves','neckline'].includes(event.target.name)) {
+    if (event.target===supportField) {
+      studioUnits.writeLength(strapWidth,studioDesign.supportWidth(supportField.value));
+    }
+    if (['sleeves','neckline','support'].includes(event.target.name)) {
+      refreshShoulders();
       drawControls(changes());
-      if (event.target.name==='sleeves') refreshGroups();
+      refreshGroups();
     }
     for (const [key,n] of Object.entries(changes())) document.querySelector('#'+key+'-value').textContent = adjustmentText(n);
     fittingDraft = undefined;
@@ -1919,8 +2213,13 @@ function fitting() {
   form.addEventListener('reset',event=>{
     event.preventDefault();
     if (sleeveEligible) {
-      form.elements.namedItem('sleeves').checked = hasSleeves(pattern);
+      supportField.value=shoulders.support;
+      sleeveToggle.checked=canHaveSleeves&&hasSleeves(pattern);
+      sleeveStyle.value=shoulders.sleeveStyle;
+      studioUnits.writeLength(strapWidth,shoulders.strapWidth);
+      studioUnits.writeLength(strapPlacement,shoulders.strapPlacement);
       form.elements.namedItem('neckline').value=startingNeck;
+      refreshShoulders();
     }
     form.elements.namedItem('fabric').value=fabricName;
     setFabricDefaults({...initialMaterial,...fitRevision?.fabric},initialWeight);
@@ -1969,8 +2268,10 @@ function fitting() {
     const {tools,steps,visuals}=kit;
     const measurements=fitMeasurementSheet(targetBody,targetChanges,compare,make,pattern,sourceBody);
     const modelMeasurements=Object.fromEntries(Object.keys(sewingModels.dimensions).filter(key=>targetBody[key]).map(key=>[key,targetBody[key]]));
-    const packet={...(savedTarget||pattern),steps,visuals,measurements};
-    const draftOrder={kind:make?'Construction':'Tailoring'};
+    const packet={...(savedTarget||pattern),design:designForFit((savedTarget||pattern).design,targetChanges),steps,visuals,measurements};
+    const draftOrder={kind:make?'Construction':'Tailoring',plan:{
+      strapWidth:['Wide straps','Narrow straps','Spaghetti straps','Halter strap','One-shoulder'].includes(targetChanges.support)?targetChanges.strapWidth:undefined
+    }};
     const drawings=()=>orderFigureSections(draftOrder,packet,measurements)+workFigures.stepList(packet,draftOrder,measurements);
     fittingDraft={garment:pattern,...kit,summary,modelId:targetBody.id,modelMeasurements,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
@@ -2025,7 +2326,7 @@ function saveFit(name) {
   const rebuildSteps = make?steps:[...(garment.rebuildSteps || garment.steps),...steps];
   const rebuildVisuals = make?visuals:[...(garment.rebuildVisuals || garmentVisuals),...visuals];
   const plan = {id,family,revision,name,type:garment.type,level:'Intermediate',cut:garment.cut,
-    model:base.id,color:garment.color,design:garment.design,reference:garment.reference,fabric:materials,
+    model:base.id,color:garment.color,design:designForFit(garment.design,changes),reference:garment.reference,fabric:materials,
     tools,steps,visuals,rebuildSteps,rebuildVisuals,measurements,
     buildFabric:make?materials:garment.buildFabric || garment.fabric,buildTools:make?tools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
     fit:{modelId,modelMeasurements,changes,fabric,source:garment.id}};
@@ -2069,6 +2370,11 @@ function designStudio() {
       <label class="field">Garment name<input name="name" required maxlength="100" value="${escape(designDraft.name)}" placeholder="e.g. Plum bell-sleeve dress"></label>
       <label class="field">Garment type<select name="model">${Object.entries(studioDesign.silhouettes).map(([id,entry])=>option(id,entry.label,designDraft.model)).join('')}</select></label>
       <div id="design-settings"></div>
+      <details class="design-options"><summary>Fine-tune fit</summary>
+        <p class="muted tight">Adjust the garment from its starting shape.</p>
+        <div id="design-fit-sliders"></div>
+        <button type="button" class="secondary" id="reset-design-fit">Reset fit adjustments</button>
+      </details>
       <div class="actions"><button name="save" value="library">Save to Pattern Library</button><button class="secondary" name="save" value="order">Save and create work order</button></div>
     </form></div></div>
     <details class="panel instructions" id="design-guide"><summary>Preview illustrated construction plan</summary><div id="design-guide-content"></div></details>`;
@@ -2076,6 +2382,7 @@ function designStudio() {
   const canvas = document.querySelector('#design-model');
   const angle = document.querySelector('#design-angle');
   const settings = document.querySelector('#design-settings');
+  const fitSliders = document.querySelector('#design-fit-sliders');
   const guide = document.querySelector('#design-guide');
   const photo = document.querySelector('#design-photo');
   const photoStatus = document.querySelector('#photo-status');
@@ -2094,19 +2401,54 @@ function designStudio() {
   let editedSupport=Boolean(designDraft.reference || designDraft.name);
   const measurementSummary = document.querySelector('#design-measurements');
   const body = () => getModel(designDraft.fitModelId);
+  const fitKeys=()=>garmentFit.keys(studioDesign.baseModel(designDraft.model),studioDesign.isSleeved(designDraft));
+  const activeDesignFit=()=>Object.fromEntries(fitKeys().flatMap(key=>{
+    const value=designDraft.fitAdjustments?.[key];
+    return Number.isFinite(value)&&value!==0 ? [[key,value]] : [];
+  }));
   function showMeasurements() {
     const model = body();
     const target = studioDesign.isBodice(designDraft.model)?['bust',model.bust]:['hip',model.hip];
-    measurementSummary.textContent = `Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm · Shoulders ${model.shoulder} cm. Finished ${target[0]} target ${target[1]+Number(designDraft.ease)} cm.`;
+    const finished=target[1]+Number(designDraft.ease)+(designDraft.fitAdjustments?.[target[0]]||0);
+    measurementSummary.textContent = `Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm · Shoulders ${model.shoulder} cm. Finished ${target[0]} target ${finished} cm.`;
+  }
+  function drawFitSliders() {
+    const neckline=designDraft.neckline;
+    fitSliders.innerHTML=fitKeys().map(key=>fitSlider(key,designDraft.fitAdjustments?.[key]||0,
+      key==='neckDepth'?`${neckline} depth`:key==='neckWidth'?`${neckline} width`:garmentFit.fields[key][0])).join('');
+    studioUnits.refresh(fitSliders);
+  }
+  function refreshDesignStraps(resetWidth=false) {
+    const width=form.elements.namedItem('strapWidth');
+    if (!width) return;
+    const placement=form.elements.namedItem('strapPlacement');
+    const support=studioDesign.selectedSupport(designDraft);
+    const strapless=support==='Strapless';
+    for (const row of settings.querySelectorAll('[data-design-strap-sizing]')) row.hidden=strapless;
+    width.disabled=placement.disabled=strapless;
+    if (resetWidth) {
+      designDraft.strapWidth=studioDesign.supportWidth(support);
+      studioUnits.writeLength(width,designDraft.strapWidth);
+    }
+    if (strapless) {
+      delete designDraft.strapPlacement;
+      studioUnits.writeLength(placement,0);
+    }
   }
   const select = (key,label,items) => `<label class="field">${label}<select name="${key}">${items.map(item=>option(item,item,designDraft[key])).join('')}</select></label>`;
   function settingsForModel(open=false) {
     const model=designDraft.model;
     const spec = studioDesign.silhouettes[model];
     const bodice=studioDesign.isBodice(model);
+    const support=studioDesign.selectedSupport(designDraft);
+    const strapless=support==='Strapless';
     settings.innerHTML = `<div class="fields">${select('cut','Silhouette',spec.cuts)}${select('length','Finished length',spec.lengths)}</div>
       ${bodice?`<div class="fields">${select('neckline',model==='corset'?'Front edge':'Neckline',studioDesign.necklines)}${select('back','Back style',studioDesign.backs)}
-        ${select('support','Straps and shoulders',studioDesign.supportChoices(model))}${model==='corset'?'':select('sleeve','Sleeves',studioDesign.sleeves)}</div>`:''}
+        ${select('support','Straps and shoulders',studioDesign.supportChoices(model))}${model==='corset'?'':select('sleeve','Sleeves',studioDesign.sleeves)}</div>
+        <div data-design-strap-sizing${strapless?' hidden':''}><div class="fields">
+          <label class="field">Finished strap / shoulder width (cm)<input name="strapWidth" type="number" data-length-input min=".4" max="12" step=".1" value="${designDraft.strapWidth??studioDesign.supportWidth(support)??''}"${strapless?' disabled':''}></label>
+          <label class="field">Shoulder placement (cm)<input name="strapPlacement" type="number" data-length-input min="-4" max="4" step=".1" value="${designDraft.strapPlacement??0}"${strapless?' disabled':''}></label>
+        </div><p class="muted">Negative placement moves toward the neck. Positive placement moves toward the arm.</p></div>`:''}
       ${['dress','skirt'].includes(model)?`<div class="fields">${select('hemStyle','Hem shape',studioDesign.hemStyles)}<div data-hem-drop${studioDesign.hasFairyHem(designDraft)?'':' hidden'}>
         <label class="field">High-to-low hem drop (cm)<input type="number" data-length-input name="hemDrop" min="2" max="35" step="0.5" value="${studioDesign.hemDrop(designDraft)}" required${studioDesign.hasFairyHem(designDraft)?'':' disabled'}></label></div></div>`:''}
       <div class="fields">${select('closure','Closure',studioDesign.closureChoices(model))}${model==='trousers'?select('rise','Waist rise',studioDesign.rises):''}</div>
@@ -2118,6 +2460,7 @@ function designStudio() {
         <label class="field">Custom detail notes<textarea name="details" rows="3" maxlength="2000" placeholder="e.g. Contrast stitching, back tie placement or special hardware">${escape(designDraft.details || '')}</textarea></label>
       </details>`;
     studioUnits.refresh(settings);
+    drawFitSliders();
   }
   function refreshReference() {
     const image=captured?.thumbnail || designDraft.reference;
@@ -2154,11 +2497,24 @@ function designStudio() {
   }
   function updateGuide() {
     if (!guide.open) return;
-    const item = studioDesign.make(designDraft,designDraft.name,body());
-    const measurements=fitMeasurementSheet(body(),{hasSleeves:item.sleeves},{},true,item,body());
+    const design={...designDraft,fitAdjustments:activeDesignFit()};
+    const item = applyDesignFit(studioDesign.make(design,designDraft.name,body()),body());
+    const measurements=designMeasurementSheet(item);
+    const figureValues={plan:{strapWidth:design.strapWidth}};
     const work=guide.querySelector('#design-guide-content');
-    work.innerHTML = `<p class="tight"><strong>Fabric</strong> ${escape(item.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(item.tools)}</p>${sewingVisuals.tools(item.tools)}${workFigures.referenceSheet(designDraft.reference,item.design,{},measurements)}${workFigures.stepList(item,{},measurements)}`;
+    work.innerHTML = `<p class="tight"><strong>Fabric</strong> ${escape(item.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(item.tools)}</p>${sewingVisuals.tools(item.tools)}${workFigures.referenceSheet(designDraft.reference,item.design,figureValues,measurements)}${workFigures.stepList(item,figureValues,measurements)}`;
     studioUnits.refresh(work);
+  }
+  function designMeasurementSheet(item) {
+    const design=item.design;
+    const model=body();
+    const changes={...design.fitAdjustments,hasSleeves:item.sleeves};
+    if (studioDesign.isBodice(design.model)) {
+      const support=studioDesign.selectedSupport(design);
+      Object.assign(changes,{support,neckline:design.neckline,sleeveStyle:design.sleeve});
+      if (support!=='Strapless') Object.assign(changes,{strapWidth:design.strapWidth??studioDesign.supportWidth(support),strapPlacement:design.strapPlacement});
+    }
+    return fitMeasurementSheet(model,changes,{},true,item,model);
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
@@ -2173,10 +2529,29 @@ function designStudio() {
   fitCleanup = () => {size.disconnect();stopCamera();};
   angle.addEventListener('input',preview);
   guide.addEventListener('toggle',updateGuide);
+  form.querySelector('#reset-design-fit').onclick=()=>{
+    designDraft.fitAdjustments={};
+    drawFitSliders();
+    showMeasurements();
+    preview();
+    updateGuide();
+  };
   form.addEventListener('input',event=>{
     const field = event.target;
     if (!field.name || field.type==='file') return;
+    const oldSupport=studioDesign.selectedSupport(designDraft);
     if (field.name==='model') changeModel(field.value);
+    else if (field.hasAttribute('data-fit-slider')) {
+      const value=Number(field.value);
+      designDraft.fitAdjustments={...designDraft.fitAdjustments,[field.name]:value};
+      const output=fitSliders.querySelector(`#${field.name}-value`);
+      output.textContent=adjustmentText(value);
+      studioUnits.refresh(output);
+    } else if (field.name==='strapWidth' || field.name==='strapPlacement') {
+      const value=studioUnits.lengthValue(field);
+      const [min,max]=field.name==='strapWidth'?[.4,12]:[-4,4];
+      designDraft[field.name]=value==null?undefined:fabricFit.clamp(value,min,max);
+    }
     else designDraft[field.name] = field.name==='ease' || field.name==='hemDrop'?(studioUnits.lengthValue(field)??0):field.type==='number'?Number(field.value):field.value;
     if (field.name==='support' || field.name==='sleeve') editedSupport=true;
     if (field.name==='hemStyle') {
@@ -2190,6 +2565,8 @@ function designStudio() {
     if (field.name==='sleeve' && field.value!=='Sleeveless') {
       form.elements.support.value=designDraft.support='Integrated shoulders';
     }
+    if (field.name==='support' || field.name==='sleeve') refreshDesignStraps(oldSupport!==studioDesign.selectedSupport(designDraft));
+    if (['support','sleeve','neckline'].includes(field.name)) drawFitSliders();
     showMeasurements();
     preview();
     updateGuide();
@@ -2282,6 +2659,7 @@ function designStudio() {
   function applyReference(result) {
     const modelChanged=result.model && result.model!==designDraft.model;
     if (modelChanged) changeModel(result.model);
+    const oldSupport=studioDesign.selectedSupport(designDraft);
     if (result.cut) designDraft.cut=result.cut;
     if (studioDesign.isBodice(designDraft.model)) {
       if (result.support) designDraft.support=result.support;
@@ -2290,6 +2668,7 @@ function designStudio() {
       if (result.neckline) designDraft.neckline=result.neckline;
     }
     if (result.hemStyle) designDraft.hemStyle=result.hemStyle;
+    if (oldSupport!==studioDesign.selectedSupport(designDraft)) designDraft.strapWidth=studioDesign.supportWidth(designDraft.support);
     if (result.primary) designDraft.primary=result.primary;
     designDraft.reference=result.thumbnail;
     designDraft.photoOutline=result.photoOutline;
@@ -2345,9 +2724,10 @@ function designStudio() {
       return;
     }
     stopCamera();
-    const {name:_,reference,...design} = designDraft;
-    const item = {id:'design-'+createId(),...studioDesign.make(design,name,body()),reference};
-    item.measurements=fitMeasurementSheet(body(),{hasSleeves:item.sleeves},{},true,item,body());
+    const {name:_,reference,...draft} = designDraft;
+    const design={...draft,fitAdjustments:activeDesignFit()};
+    const item = {id:'design-'+createId(),...applyDesignFit(studioDesign.make(design,name,body()),body()),reference};
+    item.measurements=designMeasurementSheet(item);
     state.custom.push(item);
     showArchivedPatterns=false;
     if (event.submitter?.value==='order') state.orders.unshift({

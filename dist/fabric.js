@@ -238,26 +238,56 @@ const fabricFit = (() => {
     const ease = pattern.design?.ease;
     const bodice=model==='top'||model==='dress';
     const legs=model==='trousers';
+    const skirt=model==='dress'||model==='skirt';
     const around = (measure,extra,delta,demand=0) => stretch(measure*(1+demand),measure+extra+(changes[delta]||0));
     const regions = {};
     const hangingLength = model==='dress'||model==='trousers'?1:model==='skirt'?.58:.33;
     const gravity = clamp((material.gsm-85)/420,0,1.35)*hangingLength*.009*(1-material.bend);
     const step=Math.abs(pose.stride||0);
+    // Seated arm IK targets the lap. Fade the raised and reaching load
+    // with that same transition instead of counting it again while seated.
+    const arm=pose.arm*(1-pose.sit), reach=pose.reach*(1-pose.sit);
     function add(key,label,cross,length=0) {
       regions[key]={label,cross,length,level:response(material,cross,length)};
     }
     if (bodice) {
-      add('bust','Chest / bust',around(body.bust||92,ease??5,'bust',.042*pose.reach+.022*pose.arm),.009*pose.reach);
-      add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*pose.reach+.036*pose.arm+.024*step),.032*pose.reach+.025*pose.arm+.012*step);
-      add('armhole','Armhole',around(38,2.2,'armhole',.035*pose.reach+.095*pose.arm),.05*pose.arm);
+      add('bust','Chest / bust',around(body.bust||92,ease??5,'bust',.042*reach+.022*arm),.009*reach);
+      add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*reach+.036*arm+.024*step),.032*reach+.025*arm+.012*step);
+      add('armhole','Armhole',around(38,2.2,'armhole',.035*reach+.095*arm),.05*arm);
       if (changes.hasSleeves) {
-        add('sleeve','Upper sleeve',around(body.upperArm||(body.bust||92)*.32,3.5,'sleeveWidth',.060*pose.arm+.035*pose.reach),.021*pose.arm+.022*pose.reach);
-        add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*pose.arm));
+        add('sleeve','Upper sleeve',around(body.upperArm||(body.bust||92)*.32,3.5,'sleeveWidth',.060*arm+.035*reach),.021*arm+.022*reach);
+        add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*arm));
       }
     }
-    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit+.014*step),legs?0:.013*pose.sit+gravity);
+    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit+.014*step),
+      legs?0:skirt?gravity*(1-pose.sit):.013*pose.sit+gravity);
     if (model!=='top' || pattern.design?.length==='Low hip') {
-      add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit+.034*step),legs?0:.045*pose.sit+.021*step+gravity);
+      add('hip',skirt?'Hip / seat circumference':'Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit+.034*step),
+        legs?0:skirt?gravity*(1-pose.sit):.045*pose.sit+.021*step+gravity);
+    }
+    if (skirt) {
+      const hip=body.hip||98;
+      const waist=body.waist||74;
+      const upper=body.highHip||mix(waist,hip,.57);
+      const backDepth=(body.hipDepth||hip*.235)*.52;
+      const lap=Math.max(hip*.87,(body.thigh||hip*.54)*1.57);
+      const bothKnees=Math.max(hip*.69,(body.knee||hip*.37)*1.65);
+      const backLength=(body.waistToHip||((body.height||168)*.125))+5;
+      const c=key=>changes[key]||0;
+      const room=ease??5;
+      const cut=pattern.design?.cut||pattern.cut||'';
+      const flare=/full skirt|circle|flared/i.test(cut)?2:/a-line/i.test(cut)?1:0;
+      // These are approximate geometric demands across bands, not a cloth stress solve.
+      add('upperHip','Upper hip',stretch(upper*(1+.057*pose.sit+.022*step),upper+room*.57+c('upperHip')+c('hip')*.22));
+      add('seat','Fullest seat depth',stretch(backDepth*(1+.24*pose.sit+.06*step),backDepth+.75+c('seatDepth')+c('hip')*.045));
+      add('lap','Lap across both thighs',stretch(lap*(1+.137*pose.sit+.067*step),
+        lap+room*.82+flare*3.2+c('lapEase')+c('hip')*.22+c('sweep')*.30));
+      if (pattern.design?.length!=='Above knee' || c('length')>7) {
+        add('skirtKnee','Skirt at the knees',stretch(bothKnees*(1+.165*pose.sit+.12*step),
+          bothKnees+room*.80+flare*5.8+c('kneeEase')+c('lapEase')*.16+c('sweep')*.68));
+      }
+      add('sittingLength','Center-back sitting length',0,stretch(backLength*(1+.137*pose.sit+.035*step+gravity),
+        backLength+.9+c('sittingLength')+c('seatDepth')*.14));
     }
     if (legs) {
       const c=key=>changes[key]||0;
@@ -277,10 +307,14 @@ const fabricFit = (() => {
     if (part==='sleeve') return Math.max(band('sleeve',-.61,.47),band('cuff',-.35,.38),band('armhole',-.68,.12));
     if (part==='leg') return Math.max(band('thigh',.38,.27),band('leg',.92,.31),band('knee',.65,.21),band('crotch',.23,.17));
     const side = Math.abs(Math.cos(theta));
-    const upperBack = .65+.35*Math.max(0,-Math.sin(theta));
+    const back=Math.max(0,-Math.sin(theta));
+    const front=Math.max(0,Math.sin(theta));
+    const upperBack = .65+.35*back;
     return Math.max(band('bust',-.48,.23),band('waist',-.25,.26),band('hip',.12,.35),
-      band('shoulder',-.73,.15)*upperBack,band('armhole',-.61,.2)*side,band('rise',.10,.32)*Math.max(0,Math.sin(theta)),
-      band('backRise',.09,.33)*Math.max(0,-Math.sin(theta)),band('crotch',.27,.14));
+      band('upperHip',-.045,.20),band('seat',.16,.22)*back,band('lap',.40,.29)*(.42+.58*front),
+      band('skirtKnee',.66,.27)*(.53+.47*front),band('sittingLength',.05,.28)*back,
+      band('shoulder',-.73,.15)*upperBack,band('armhole',-.61,.2)*side,band('rise',.10,.32)*front,
+      band('backRise',.09,.33)*back,band('crotch',.27,.14));
   }
   function tint(channels,level) {
     const low=[238,173,64], high=[194,25,65];

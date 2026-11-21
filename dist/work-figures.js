@@ -177,6 +177,11 @@ const workFigures = (() => {
     const allowance=order.allowances||{};
     const movement=moveFigure(step,id);
     if (movement) return movement;
+    if (Object.hasOwn(seatedRegions,id)) return seatedPanels(step,id,order,pattern.measurements)[0];
+    if (id==='strap') return strapPanels(step,order,pattern.design)[0];
+    if (id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
+      return straplessPanels(order,pattern.measurements)[0];
+    }
     if (id==='darts') return seamFold(allowance,true);
     if (['seam','layer','sew'].includes(id)) return seamFold(allowance);
     if (id==='topstitch') return strip('Topstitch placement',[topstitchPanel(allowance)]);
@@ -192,6 +197,131 @@ const workFigures = (() => {
       return `<details class="wf-optional"><summary>See a double-fold hem example</summary>${hemFold(allowance,'double')}</details>`;
     }
     return '';
+  }
+
+  const seatedRegions={
+    upperHip:{title:'Upper hip',y:78,check:'Make sure the waist stays in place and the upper hips have room when you sit.'},
+    seatDepth:{title:'Back seat depth',y:102,check:'Look at the back and side while seated. Check for diagonal pull lines and make sure the back hem still covers the intended area.'},
+    lapEase:{title:'Lap',y:104,check:'Check that the front panel rests across the thighs and that the side seams hang evenly after you stand.'},
+    kneeEase:{title:'Knee level',y:132,check:'Check room at the knees while seated and when rising. Walk a few steps to verify stride and coverage.'},
+    sittingLength:{title:'Center-back length',y:116,check:'Compare coverage and hem balance when sitting and standing. Level the hem after confirming the back length.'}
+  };
+  function seatedPanels(step,id,order,measurements) {
+    const region=seatedRegions[id];
+    const amount=step.match(/([+−-]?\d+(?:\.\d+)?) cm/i)?.[1];
+    const lowerAmount=/^(?:remove|reduce|subtract|shorten|take in)/i.test(step) || /^[−-]/.test(amount||'');
+    const value=amount?amount.replace(/^[-+−]/,'')+' cm':'';
+    const change=value?(lowerAmount?'Remove ':'Add ')+value:'Mark on the sample';
+    const around=['upperHip','lapEase','kneeEase'].includes(id);
+    const allowance=format(order.allowances?.seam);
+    const after=lowerAmount?'Narrower':'Wider';
+    const skirt=path('M78 40H139Q145 74 158 89L177 143H40L60 89Q72 73 78 40Z','wf-cloth');
+    const side=path('M84 35H127Q135 59 155 77Q169 95 147 126L125 148H68L71 107Q57 72 84 35Z','wf-cloth');
+    const waist=guide(69,47,152,47)+label(173,50,'Waist reference');
+    const hip=valueFor(measurements,'Hip / seat');
+    let marks,adjustment;
+    if (around) {
+      const ends={upperHip:[66,150],lapEase:[56,163],kneeEase:[46,173]}[id];
+      marks=tape(...ends,region.y,value?change+' total':region.title);
+      const newEdge=lowerAmount?146:172;
+      const eachEdge=amount && /(?:two|both) side seams/i.test(step)?format(Math.abs(Number(amount.replace('−','-')))/4):'';
+      adjustment=path('M87 34H138L167 140H55Z','wf-cloth')+guide(108,40,108,136)+
+        guide(138,41,157,137)+path(`M138 41L${newEdge} 137`,'wf-stitch')+
+        dimText(187,81,value?change+' total':'Transfer the fit mark')+
+        label(187,102,after+' seam line')+
+        (allowance?dimText(187,125,allowance+' allowance'):'')+
+        (eachEdge?path(`M157 137V151M${newEdge} 137V151`,'wf-extension')+
+          span(Math.min(157,newEdge),Math.max(157,newEdge),152,eachEdge)+label(187,155,'One edge'):'');
+    } else if (id==='seatDepth') {
+      marks=side+waist+guide(151,102,197,102)+label(202,106,'Measure at fullest seat');
+      const old=lowerAmount?158:141, next=lowerAmount?141:158;
+      adjustment=side+path(`M127 48Q${old} 79 ${old} 102Q${old} 121 123 143`,'wf-guide')+
+        path(`M127 48Q${next} 79 ${next} 102Q${next} 121 123 143`,'wf-stitch')+
+        path('M141 102V118M158 102V118','wf-extension')+
+        span(141,158,119,value||'Depth change')+label(174,99,'Side view')+label(175,131,'Back seat');
+    } else {
+      marks=skirt+waist+guide(111,49,111,145)+label(171,115,'Measure down the back');
+      const old=lowerAmount?114:87, next=lowerAmount?87:114;
+      adjustment=path('M74 39H150L177 143H74Z','wf-cloth')+guide(74,38,74,145)+
+        path(`M74 ${old}L162 96`,'wf-guide')+path(`M74 ${next}L162 96`,'wf-stitch')+
+        path('M55 87H74M55 114H74','wf-extension')+tick(54,87,114,value||'Change',-1)+
+        label(77,156,'Center back')+guide(162,96,186,96)+label(193,100,'Blend to side seam');
+    }
+    const firstDrawing=around?skirt+waist+marks:marks;
+    return [
+      panel('Locate the '+region.title.toLowerCase()+' on the toile',firstDrawing,
+        id==='seatDepth'?'Mark where the fullest part of the seat touches the back skirt while sitting. Use the side view to distinguish back room from front lap room.'
+          :id==='sittingLength'?'Mark the waist and center back on the toile, then sit to check back coverage. Keep the waist reference fixed while measuring the change in length.'
+            :'Mark the level on the fitted garment while seated. Keep the tape level at the marked line. The pictured change applies around the skirt at this level.'),
+      panel(around?'Transfer the total circumference change':'Transfer the measured back adjustment',adjustment,
+        around?'Pin or baste the change on the toile, distributing the total between the panels that need it. Blend into adjoining edges and match seam lengths before adding the pattern allowance.'
+          :'Transfer the tested change to the back pattern. Blend to the unchanged adjoining seams and walk the seam lengths before marking the cut line.'),
+      panel('Compare sitting and standing',path('M71 31Q95 20 114 40L116 77Q148 82 176 92L178 107L172 145H153L159 108H91Q69 105 67 91Z','wf-cloth')+
+        path('M52 62V114H150V149M58 114V149','wf-edge')+guide(113,84,153,71)+label(157,73,'Watch the lay over the lap')+
+        (hip?dimText(187,128,'Model hip / seat '+hip):''),
+        region.check+' Transfer the final marks to the paper pattern only after both checks.')
+    ];
+  }
+
+  function strapPanels(step,order,design) {
+    const plan=order.plan||{};
+    const widthMark=num(step,/(\d+(?:\.\d+)?) cm wide/i);
+    const width=widthMark?widthMark+' cm':format(plan.strapWidth);
+    const length=format(plan.strapLength);
+    const placement=step.match(/(\d+(?:\.\d+)?) cm (inward|outward) from the starting shoulder mark/i);
+    const halter=/\bhalter\b/i.test(step) || design?.support==='Halter strap' && !/shoulder straps|wide straps|narrow straps|spaghetti straps/i.test(step);
+    const side=placement?.[2].toLowerCase();
+    const old=side==='outward'?75:51;
+    const target=side==='outward'?51:75;
+    const attach=(x,offset=0)=>path(`M${x+offset-7} 68h14`,'wf-stitch');
+    const bodice='M30 69H137L130 111Q124 129 125 144H42Q43 129 37 111Z';
+    const front=path(bodice,'wf-cloth')+guide(84,72,84,143)+attach(target)+attach(168-target);
+    const backing=path('M180 69H287L280 111Q274 129 275 144H192Q193 129 187 111Z','wf-right')+
+      guide(234,72,234,143)+(halter?'':attach(target,150)+attach(168-target,150));
+    const connectors=halter
+      ?path(`M${target} 65Q${target} 30 84 30Q${168-target} 30 ${168-target} 65`,'wf-arrow')+label(84,20,'Around neck','middle')
+      :path(`M${target} 64V53Q${target} 37 ${target+18} 37H${target+132}Q${target+150} 37 ${target+150} 53V64`,'wf-arrow')+
+        label(158,29,'Route over shoulder','middle');
+    const offset=placement?guide(old,64,old,88)+guide(target,69,target,88)+span(51,75,91,placement[1]+' cm')+
+      label(86,97,side):'';
+    const pad=format(order.allowances?.neck??order.allowances?.seam);
+    const start=64,end=203,outerLeft=38,outerRight=225,yTop=63,yBottom=97;
+    const plannedStrip=path(`M${outerLeft} ${yTop}H${outerRight}V${yBottom}H${outerLeft}Z`,'wf-cloth')+
+      path(`M${start} ${yTop}V${yBottom}M${end} ${yTop}V${yBottom}`,'wf-stitch')+
+      path(`M${start} ${yTop}V40M${end} ${yTop}V40M${outerRight} ${yTop}H242M${outerRight} ${yBottom}H242`,'wf-extension')+
+      span(start,end,43,length||'Finished length')+tick(241,yTop,yBottom,width||'Pattern width');
+    return [
+      panel(halter?'Mark front anchors for the halter':'Locate both strap anchors on front and back',
+        front+backing+connectors+offset+label(84,126,'Front','middle')+label(234,126,halter?'Back · no anchors':'Back','middle'),
+        placement?`Measure ${placement[1]} cm ${side} from the starting shoulder mark on each side. Mark the straps on the fitting sample and check both sides before cutting.`
+          :halter?'Mark where the halter ends meet the front. Check the fit around the back of the neck, including the closure.'
+            :'Mark both ends of each strap on the fitting sample. Match the left and right sides, then transfer every marked end to the paper pattern.'),
+      panel('Measure between the attachment lines',
+        plannedStrip+label(58,119,'Front mark')+label(170,119,halter?'Neck mark':'Back mark')+
+        (pad?span(outerLeft,start,145,pad):''),
+        `${width?'Check the finished width at '+width+'. ':''}${length?'Use '+length+' between the marked lines and check it on the fitting sample. ':'Measure between the attachment marks on the wearer. '}Add the pattern’s attachment allowance to the cut length. A folded or turned strap also needs the cut width specified by its construction.`),
+      panel('Baste both ends and check the fit',
+        path('M52 43H258V133H52Z','wf-cloth')+path('M130 26H155V102H130Z','wf-right')+
+        path('M116 66H169M131 85H154','wf-stitch')+guide(155,85,193,85)+label(198,89,'Baste here')+
+        (width?span(130,155,123,width):''),
+        'Keep each strap flat and untwisted. Baste it at the marks and try on the garment. Check reach, symmetry, and coverage before permanently sewing and reinforcing the attachment as the pattern directs.')
+    ];
+  }
+  function straplessPanels(order,measurements) {
+    const edge=format(order.allowances?.neck??order.allowances?.seam);
+    const bust=valueFor(measurements,'Chest / bust');
+    const bodice=path('M45 54Q72 39 105 54Q132 39 164 54L153 133H57Z','wf-cloth');
+    const topEdge=path('M45 54Q72 39 105 54Q132 39 164 54','wf-dimension');
+    return [
+      panel('Fit the unsupported upper edge',
+        bodice+topEdge+guide(161,52,187,40)+label(192,42,'Finished upper edge')+
+        (bust?tape(52,159,85,'Model bust '+bust):''),
+        'Use a strapless pattern or toile with the specified structure before removing any support. Mark front and back upper edge heights on the wearer, then check standing, sitting, and reaching without the edge slipping.'),
+      panel('Mark the facing or support seam',
+        bodice+path('M47 65Q72 50 105 65Q132 50 162 65','wf-stitch')+path('M163 54H192M162 65H192','wf-extension')+
+        tick(192,54,65,edge||'Pattern allowance')+label(104,116,'Inside of the bodice','middle'),
+        'Trace matching front and back reinforcement and finishing pieces from the confirmed pattern. Keep the specified seam allowance and construct the support before finishing the upper edge.')
+    ];
   }
 
   function fairyHemActions(design,allowance) {
@@ -421,10 +551,6 @@ const workFigures = (() => {
     const plan=order.plan||{};
     const annotated=format(seam)||'Pattern allowance';
     const local=scenes[figure];
-    if (figure==='strap') return panel(title,path('M47 61H224V94H47Z','wf-cloth')+
-      path('M64 58V102M206 58V102','wf-stitch')+path('M64 44V61M206 44V61','wf-extension')+
-      span(64,206,44,format(plan.strapLength)||'Finished length')+path('M224 61H245M224 94H245','wf-extension')+
-      tick(240,61,94,format(plan.strapWidth)||'Pattern width')+label(69,120,'Front mark')+label(169,120,'Back mark'),description);
     if (figure==='shoulder') return panel(title,torsoDrawing(measurements)+
       dimText(161,42,'Shoulder allowance '+annotated),description);
     if (figure==='armhole') return panel(title,path('M32 41H114Q110 78 146 103L140 135H32Z','wf-cloth')+
@@ -489,6 +615,11 @@ const workFigures = (() => {
   function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
     if (id==='fairyHem') return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures</summary><div class="wf-grid">${fairyHemActions(design,order.allowances||{}).join('')}</div></details>`;
+    if (Object.hasOwn(seatedRegions,id)) return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · 2 actions</summary><div class="wf-grid">${seatedPanels(step,id,order,measurements).slice(1).join('')}</div></details>`;
+    if (id==='strap' || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
+      const panels=id==='strap'?strapPanels(step,order,design).slice(1):straplessPanels(order,measurements).slice(1);
+      return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · ${panels.length} actions</summary><div class="wf-grid">${panels.join('')}</div></details>`;
+    }
     const opening=id==='armhole'||id==='sleeve'&&/unpick the sleeves|sleeveless opening/i.test(step);
     const actions=opening?[
       {figure:'armhole',text:'With the fitting sample on the wearer, mark the underarm and shoulder reference points. Check coverage and reach, then transfer matching marks to the other side.'},
@@ -514,7 +645,7 @@ const workFigures = (() => {
     return `<ol class="${checklist?'check-list':'steps illustrated-steps'} wo-packet-steps">${pattern.steps.map((step,index)=>{
       const id=ids?.[index] || sewingVisuals.identify(step);
       const figure=sewingVisuals.figureParts(id);
-      const overview=forStep(step,id,order,pattern) || (id==='fairyHem'?'':actionPanel(order,id,figure?.[0]||'Pattern detail',step,id,measurements) || sewingVisuals.diagram(id));
+      const overview=forStep(step,id,order,{...pattern,measurements}) || (id==='fairyHem'?'':actionPanel(order,id,figure?.[0]||'Pattern detail',step,id,measurements) || sewingVisuals.diagram(id));
       const text=checklist?`<label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>`:`<p>${escape(step)}</p>`;
       return `<li>${text}${overview}${illustratedActions(step,id,index,order,measurements,pattern.design)}</li>`;
     }).join('')}</ol>`;

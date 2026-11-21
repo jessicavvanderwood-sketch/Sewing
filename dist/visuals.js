@@ -24,6 +24,8 @@ const sewingVisuals = (() => {
     lacing: ['Place paired eyelets on reinforced edges',fabric('M60 26H119V115H60Z M151 26H210V115H151Z')+accent('M109 43L162 63L109 83L162 103M162 43L109 63L162 83L109 103')+stitch('M95 29V110 M176 29V110')+label(86,130,'Use the pattern eyelet spacing')],
     busk: ['Transfer the loop and stud positions',fabric('M56 27H112V116H56Z M154 27H210V116H154Z')+outline('M111 40h18v7h-18M111 65h18v7h-18M111 90h18v7h-18')+accent('M146 44h12m-12 25h12m-12 25h12')+label(83,132,'Use the actual busk as a guide')],
     strap: ['Mark both strap attachment points',fabric('M66 52H120V115H66Z M152 52H206V115H152Z')+accent('M93 54Q134 -4 179 54')+stitch('M80 60h27M165 60h27')+label(65,131,'Baste the front and back ends')],
+    strapless: ['Test the finished upper edge',fabric('M61 49Q94 33 135 49Q176 33 209 49L197 117H73Z')+
+      accent('M61 49Q94 33 135 49Q176 33 209 49')+stitch('M68 61Q96 47 135 61Q174 47 203 61')+label(77,96,'Fit with internal support')],
     needle: ['Needle setup', needle+accent('M155 84 V42 M150 48 L155 42 160 48')+label(35,66,'Flat side faces back')+label(167,49,'Push up')],
     bobbin: ['Load the top-drop bobbin', outline('M87 40 H177 V97 H87Z')+bobbin+thread('M167 74 L181 89 207 89')+label(150,110,'Follow slot to cutter')],
     upper: ['Upper thread route', machine+thread('M92 20 H143 V62 H119 V44 H99 V70 H91 V98')+label(91,16,'Spool')+label(148,77,'Take-up lever')+label(60,126,'Needle eye · front to back')],
@@ -53,6 +55,13 @@ const sewingVisuals = (() => {
     blend: ['Blend the new seam into the old line', fabric(panel)+stitch('M189 39 Q169 70 204 111')+outline('M198 38 L212 114')+label(65,72,'Baste along the curve')],
     hemUp: ['Raise the hem and keep the allowance', fabric(panel)+stitch('M62 100 H208')+accent('M68 81 H202')+label(89,77,'New finished hem')+label(85,132,'Allowance below fold')],
     hemDown: ['Lower the hem only as fabric permits', fabric(panel)+stitch('M67 80 H203')+accent('M62 101 H208')+label(93,75,'Original fold')+label(97,131,'New finished hem')],
+    upperHip: ['Check room at the upper hip',fabric(panel)+accent('M68 59Q135 72 202 59')+label(150,48,'Below waist')],
+    seatDepth: ['Mark back seat depth in side view',fabric('M99 22H156Q162 45 181 61Q193 83 159 118H90Q96 72 83 59Z')+
+      stitch('M156 26Q157 45 169 62Q177 85 159 118')+accent('M171 75H185')+label(64,132,'Keep the waist fixed')],
+    lapEase: ['Check ease around both thighs',fabric(panel)+accent('M65 81Q135 95 205 81')+label(121,69,'Lap level')],
+    kneeEase: ['Check skirt circumference near the knees',fabric(panel)+accent('M62 101Q135 113 209 101')+label(127,93,'Knee level')],
+    sittingLength: ['Test additional back length above the seat',fabric('M71 28H180L207 116H71Z')+
+      stitch('M71 65L193 75')+accent('M71 88L193 75')+label(73,129,'Blend to the side seam')],
     finish: ['Fold, press and stitch the hem', fabric(panel)+stitch('M63 100 H208')+outline('M61 109 H209')+label(84,90,'Stitch through fold')+label(93,132,'Finished edge')],
     layer: ['Stack with right sides touching', fabric('M70 38 H172 V118 H70Z')+fabric('M88 24 H190 V104 H88Z')+label(101,65,'Wrong side up')+label(47,133,'Right sides face each other')],
     gap: ['Leave a gap and pivot at each corner', fabric(square)+stitch('M128 113 H93 V34 H177 V113 H152')+accent('M129 116 H151')+label(110,134,'Turning gap')],
@@ -92,6 +101,7 @@ const sewingVisuals = (() => {
     return [
       [/\btake in\b/i,'take'],[/\blet out\b/i,'let'],[/new finished hem .*above/i,'hemUp'],
       [/new finished hem .*below/i,'hemDown'],[/neckline|neck opening/i,'neck'],
+      [/\bstrapless\b/i,'strapless'],[/\bstrap(?:s)?\b|\bhalter\b/i,'strap'],
       [/armhole|armscye/i,'armhole'],[/sleeve|cuff/i,'sleeve'],[/shoulder/i,'shoulder'],
       [/crotch|rise seam/i,'rise'],[/taper|leg opening|thigh/i,'taper'],[/blend/i,'blend'],
       [/measure the garment/i,'measure'],[/turn the garment inside out|unpick/i,'open'],

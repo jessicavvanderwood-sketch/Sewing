@@ -101,3 +101,9 @@ The Fitting Room uses MakeHuman/MPFB’s [CC0 game-engine skin weights](https://
 The browser projects bodice and skirt points outside cross-sections of the posed avatar, with a small clearance. Stretch and bending settings influence how the surface settles between its attachment points and moving edges. This takes cues from [Blender’s cloth collision settings](https://docs.blender.org/manual/en/5.3/physics/cloth/settings/collisions.html) and [Position Based Dynamics](https://doi.org/10.2312/PE/vriphys/vriphys06/071-080). It is a preview with simplified contact and material behavior. Use a sewing sample to verify the actual drape, movement and fit.
 
 Use **Reanalyze photo** on an attached garment reference to update the suggested features. Confirm the straps and **Hem shape** in the design fields. The fairy hem has an editable high-to-low drop. Set the drop from your design or fitting sample. Work orders and the fitting preview label recorded dimensions on drawings, with reference marks for recognizable photo features.
+
+In the **3D Fitting Room**, open **Shoulders and sleeves** to choose a shoulder construction, set the finished width and placement, and add cap, short, elbow, long, puff or bell sleeves to integrated shoulders. Strapless is an explicit choice. Fitting changes carry into the saved revision and the work-order figures.
+
+For dresses and skirts, **Seated fit** adjusts upper-hip circumference, back seat depth, front lap room, knee room and extra center-back length. **Add sitting ease** estimates a starting set of changes and opens the seated view. Confirm those changes on a seated fitting sample before cutting the final fabric.
+
+Use **Pattern Library → New custom piece** to open Design Studio. Its **Fine-tune fit** section uses the same garment adjustments as the Fitting Room. Saved designs carry these settings into try-on and construction work orders.
