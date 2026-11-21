@@ -47,3 +47,13 @@ Select **Fit to model** to use a saved model’s chest, waist, hip and shoulder 
 In **Model Library**, add a model and enter your measurements. Height, inseam, and shoulder-to-wrist length are optional. You can edit your measurements later. In a supported browser, **Shape your form with a camera** captures front and side outlines to approximate your body shape. It uses camera permission and HTTPS. It keeps the derived outline and the measurements in this browser. It does not store photographs, calculate measurements from the camera, or reconstruct a face.
 
 **Show archive** in the Model and Pattern Libraries reveals archived entries and their Restore buttons. In a named garment's revision picker, you can archive the selected revision or the garment's full revision history. Existing work orders can still use archived garments and saved revisions.
+
+## Vanderwood identity and fabric fit preview
+
+The Brand Kit includes the approved condensed Vanderwood wordmark and a charcoal and mushroom palette. Use **Use Vanderwood identity** to apply it in a browser that already has a customized brand kit.
+
+Choose a fabric preset and adjust its mass per area in g/m² in the fitting room. The shading compares estimated crosswise and lengthwise stretch demand against an illustrative nonlinear response for that fabric. Weight affects hang and adds an approximate gravity contribution. **Movement** transitions the full-body form between Standing, Sitting, Reach Forward, and Raise Arms. Depth and width of the front neckline are independent controls, and the back neckline has its own depth control. The Pattern Library includes 27 starter garments.
+
+The preview is a garment fitting aid. It uses procedural body and garment meshes, estimated ease and movement demand, and illustrative material parameters. It does not solve cloth contact, pressure, seam forces, or measured drape. The approach to displaying a deformed shape and color contours was informed by [Ansys Contour Results](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/motion_ug/motion_ug_using_postproc_contour.html) and [Ansys material nonlinearity documentation](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/ans_thry/thy_undmat.html).
+
+Use **Sculpt with handles** to select a part of the garment. Drag the on-model handles to edit widths, depths, and lengths or use the arrow keys on a focused handle. Adjustments stay synchronized with the sliders and tailoring work order. **Undo drag** reverses the last handle adjustment.

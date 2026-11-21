@@ -43,8 +43,15 @@ const patterns = [
   ]}
 ];
 
+patterns.push(...starterCatalog);
+
+const vanderwoodBrand = {
+  name:'Vanderwood',tagline:'',primary:'#26231f',accent:'#a99c8c',neutral:'#d2c8ba',
+  notes:'Use the tall, condensed VANDERWOOD wordmark in charcoal on warm mushroom or oat. Keep generous clear space around it. Use a clean sans serif for product details and sizes. Favor matte materials, blind-debossed tags, and photographs that show the cut and texture of the garment.',
+  logo:'vanderwood-wordmark.webp'
+};
 const initial = {
-  brand:{name:'Jessica’s Sewing',tagline:'Made with care, fitted with intention.',primary:'#752c40',accent:'#c49399',neutral:'#f2e5dd',notes:'',logo:''},
+  brand:vanderwoodBrand,
   orders:[
     {id:'WO-001',title:'Studio dress sample',pattern:'dress',due:'',notes:'Use the first toile to check waist placement.',done:[0,1]},
     {id:'WO-002',title:'Linen shell prototype',pattern:'top',due:'',notes:'',done:[]}
@@ -60,7 +67,12 @@ const storageKey = 'jessicas-sewing-v1';
 let state = structuredClone(initial);
 try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
-  if (saved) state = {...state, ...saved, brand:{...initial.brand,...saved.brand}};
+  if (saved) {
+    const wasStarter = !saved.brand || (saved.brand.name==='Jessica’s Sewing' && !saved.brand.logo &&
+      saved.brand.primary==='#752c40' && saved.brand.accent==='#c49399' && saved.brand.neutral==='#f2e5dd' &&
+      saved.brand.tagline==='Made with care, fitted with intention.' && !saved.brand.notes);
+    state = {...state,...saved,brand:wasStarter?{...vanderwoodBrand}:{...initial.brand,...saved.brand}};
+  }
 } catch {}
 const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
@@ -134,16 +146,21 @@ function brand() {
     <div class="fields">${[['primary','Primary'],['accent','Accent'],['neutral','Neutral']].map(([key,label])=>`<label class="field">${label}<input type="color" name="${key}" value="${color(b[key])}"></label>`).join('')}</div>
     <label class="field">Logo (PNG, JPEG or WebP, up to 1 MB)<input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
     ${b.logo ? '<label class="field"><span><input style="min-height:auto;width:auto" type="checkbox" name="removeLogo"> Remove saved logo</span></label>' : ''}
-    <label class="field">Brand guidelines<textarea name="notes" rows="4" maxlength="5000">${escape(b.notes)}</textarea></label><button>Save brand kit</button></form><div class="panel brand-preview" id="brand-preview"></div></div>`;
+    <label class="field">Brand guidelines<textarea name="notes" rows="4" maxlength="5000">${escape(b.notes)}</textarea></label><div class="actions"><button>Save brand kit</button><button type="button" class="secondary" id="apply-vanderwood">Use Vanderwood identity</button></div></form><div class="panel brand-preview" id="brand-preview"></div></div>`;
   const form = document.querySelector('#brand-form');
   const preview = document.querySelector('#brand-preview');
   function update() {
     const data = new FormData(form);
-    const logo = !data.has('removeLogo') && /^data:image\/(png|jpeg|webp);base64,[\da-z+/=]+$/i.test(b.logo) ? b.logo : '';
+    const logo = !data.has('removeLogo') && (b.logo===vanderwoodBrand.logo || /^data:image\/(png|jpeg|webp);base64,[\da-z+/=]+$/i.test(b.logo)) ? b.logo : '';
     preview.style.background = color(data.get('neutral'));
-    preview.innerHTML = `<div>${logo ? `<img src="${logo}" alt="Brand logo">` : ''}<h2 style="color:${color(data.get('primary'))}">${escape(data.get('name'))}</h2><p>${escape(data.get('tagline'))}</p><div class="swatches">${['primary','accent','neutral'].map(key=>`<span title="${color(data.get(key))}" style="background:${color(data.get(key))}"></span>`).join('')}</div></div>`;
+    preview.innerHTML = `<div>${logo ? `<img src="${logo}" alt="${escape(data.get('name'))} wordmark">` : `<h2 style="color:${color(data.get('primary'))}">${escape(data.get('name'))}</h2>`}<p>${escape(data.get('tagline'))}</p><div class="swatches">${['primary','accent','neutral'].map(key=>`<span title="${color(data.get(key))}" style="background:${color(data.get(key))}"></span>`).join('')}</div></div>`;
   }
   update();
+  document.querySelector('#apply-vanderwood').onclick=()=>{
+    state.brand={...vanderwoodBrand};
+    save('Vanderwood identity applied');
+    brand();
+  };
   form.addEventListener('input',update);
   form.addEventListener('submit',async event => {
     event.preventDefault();
@@ -209,7 +226,7 @@ function patternDetails(pattern) {
   modal.querySelector('#revision-picker')?.addEventListener('change',event=>patternDetails(getPattern(event.target.value)));
 }
 function addPattern() {
-  showDialog('Add a style',`<form id="pattern-form"><label class="field">Style name<input required maxlength="100" name="name"></label><div class="fields"><label class="field">Garment type<select name="model">${patterns.map(p=>option(p.id,p.id==='shirt'?'Shirt with sleeves':p.id==='top'?'Sleeveless top':p.type)).join('')}</select></label><label class="field">Clothing cut<input required maxlength="100" name="cut"></label></div><label class="field">Skill level<select name="level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label><label class="field">Fabric and quantity<input required maxlength="200" name="fabric"></label><label class="field">Tools and notions<textarea required maxlength="2000" name="tools" rows="2"></textarea></label><label class="field">Construction steps (one per line)<textarea required maxlength="10000" name="steps" rows="6"></textarea></label><button>Save style</button></form>`);
+  showDialog('Add a style',`<form id="pattern-form"><label class="field">Style name<input required maxlength="100" name="name"></label><div class="fields"><label class="field">Garment type<select name="model">${patterns.filter(p=>!p.id.startsWith('catalog-')).map(p=>option(p.id,p.id==='shirt'?'Shirt with sleeves':p.id==='top'?'Sleeveless top':p.type)).join('')}</select></label><label class="field">Clothing cut<input required maxlength="100" name="cut"></label></div><label class="field">Skill level<select name="level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label><label class="field">Fabric and quantity<input required maxlength="200" name="fabric"></label><label class="field">Tools and notions<textarea required maxlength="2000" name="tools" rows="2"></textarea></label><label class="field">Construction steps (one per line)<textarea required maxlength="10000" name="steps" rows="6"></textarea></label><button>Save style</button></form>`);
   document.querySelector('#pattern-form').addEventListener('submit',event => {
     event.preventDefault();
     const data = new FormData(event.target);
@@ -270,17 +287,38 @@ const shells = {
   trousers:[[-.25,.169,.114],[-.04,.209,.143],[.16,.246,.154],[.35,.24,.144]]
 };
 
-function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
+function importedEnvelope(mesh,base) {
+  const samples=base.map(([y,w,d])=>[y,w,d]);
+  const occupied=samples.map(()=>[]);
+  for (const [x,y,z] of mesh.vertices) {
+    let closest=0;
+    for (let i=1;i<samples.length;i++) if (Math.abs(samples[i][0]-y)<Math.abs(samples[closest][0]-y)) closest=i;
+    occupied[closest].push([x,z]);
+  }
+  return samples.map(([y,w,d],index)=>{
+    const bin=occupied[index];
+    if (!bin.length) return [y,w,d];
+    const width=Math.max(w,...bin.map(([x])=>Math.abs(x)));
+    const depth=Math.max(d,...bin.map(([,z])=>Math.abs(z)));
+    const radial=Math.max(1,...bin.map(([x,z])=>Math.hypot(x/width,z/depth)));
+    return [y,width*radial,depth*radial];
+  });
+}
+
+function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=null) {
   const context = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
-  const scale = height * (thumbnail ? .44 : .41);
+  const scale = Math.min(height * (thumbnail && pattern ? .44 : .345),width*.57);
   const cx = width/2;
-  const cy = height*(thumbnail ? .49 : .47);
+  const cy = height*(thumbnail && pattern ? .49 : .51);
   const faces = [];
+  const surfaces = {};
   const model = pattern ? basePattern(pattern).id : null;
   const design = pattern?.design;
   const designShape = design ? studioDesign.measurements(design) : null;
+  const necklineStyle = changes.neckline || design?.neckline;
+  const regions = analysis?.show ? fabricFit.estimate(pattern,model,body,changes,analysis.pose,analysis.material) : null;
   const segments = 38;
   const spin = Math.cos(angle);
   const sine = Math.sin(angle);
@@ -293,36 +331,43 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
     const perspective = 3.7/(3.7-depth);
     return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
   };
-  function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false) {
+  function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null) {
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
-    function point(ring,index,ringIndex) {
+    function point(ring,theta,ringIndex) {
       const [y,w,d,center=0] = ring;
-      const theta = index*2*Math.PI/segments;
       const x = Math.cos(theta);
       const z = Math.sin(theta);
-      const neckWidth = .56+(changes.neckWidth||0)/42;
-      const neckDepth = Math.max(.015,.115+(changes.neckDepth||0)/80);
-      const neckProfile = Math.abs(x)/(neckWidth * (design?.neckline==='Boat'?1.27:1));
-      const outline = design?.neckline==='V-neck' ? Math.max(0,1-neckProfile)
-        : design?.neckline==='Square' ? Math.max(0,1-neckProfile**7)
+      const neckWidth = fabricFit.clamp(.56+(changes.neckWidth||0)/37,.21,.94);
+      const neckDepth = fabricFit.clamp(.115+(changes.neckDepth||0)/75,.012,.39);
+      const neckProfile = Math.abs(x)/(neckWidth * (necklineStyle==='Boat'?1.27:1));
+      const outline = necklineStyle==='V-neck' ? Math.max(0,1-neckProfile)
+        : necklineStyle==='Square' ? Math.max(0,1-neckProfile**7)
         : Math.max(0,1-neckProfile**2);
-      const frontDepth = neckDepth * ({Crew:.58,Boat:.45,'V-neck':1.5,Square:1.18}[design?.neckline] || 1);
-      const neckline = neck && ringIndex===0 ? outline*(z>0?frontDepth:.0575) : 0;
-      const fold = detail ? Math.max(0,y-.1)*.016*Math.sin(theta*9) : 0;
-      return project([offset+center+x*(w+fold),y+neckline,z*(d+fold)]);
+      const frontDepth = neckDepth * ({Crew:.58,Boat:.45,'V-neck':1.5,Square:1.18}[necklineStyle] || 1);
+      const neckline = neck ? Math.max(0,1-(y-rings[0][0])/.70)* outline*(z>0?frontDepth:fabricFit.clamp(.0575+(changes.backNeck||0)/92,.012,.25)) : 0;
+      const fold = detail ? Math.max(0,y-.34)*.008*Math.sin(theta*9) : 0;
+      const slope = neck?Math.abs(x)*(changes.shoulderSlope||0)/120*Math.max(0,1-ringIndex/5):0;
+      const vertex=[offset+center+x*(w+fold),y+neckline+slope,z*(d+fold)];
+      return project(transform?transform(vertex):vertex);
     }
+    if (part) surfaces[part]={rings,projectPoint:point,
+      opening:fabricFit.clamp((.56+(changes.neckWidth||0)/37)*(necklineStyle==='Boat'?1.27:1),.2,.97)};
+    const projected = rings.map((row,index)=>Array.from({length:segments},(_,i)=>point(row,i*2*Math.PI/segments,index)));
+    const contrast = design?.accent ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)) : channels;
     for (let ring=0;ring<rings.length-1;ring++) {
       for (let i=0;i<segments;i++) {
         if (neck && !changes.hasSleeves && ring===0 && (i>=17&&i<=21 || i<2 || i>=36)) continue;
-        const points = [point(rings[ring],i,ring),point(rings[ring],i+1,ring),point(rings[ring+1],i+1,ring+1),point(rings[ring+1],i,ring+1)];
+        const next=(i+1)%segments;
+        const points=[projected[ring][i],projected[ring][next],projected[ring+1][next],projected[ring+1][i]];
         const [a,b,c] = points;
         if ((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]) >= 0) continue;
         const theta = (i+.5)*2*Math.PI/segments+angle;
         const light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
         const depth = points.reduce((sum,p)=>sum+p[2],0)/4;
-        const paint = channels.map(c=>Math.max(0,Math.min(255,Math.round(c*light))));
         const contrastPanel = detail && design && fabricBody && (design.tone==='Contrast lower panel' && ring>=Math.floor(rings.length*.54) || design.finish==='Contrast hem band' && ring===rings.length-2);
-        const fiber = contrastPanel ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>Math.round(parseInt(c,16)*light)) : paint;
+        const level = regions && part ? fabricFit.levelAt(regions,(rings[ring][0]+rings[ring+1][0])*.5,theta-angle,part) : 0;
+        const palette=contrastPanel?contrast:channels;
+        const fiber=(level>0?fabricFit.tint(palette,level):palette).map(c=>fabricFit.clamp(Math.round(c*light),0,255));
         faces.push({points,depth,paint:'rgb('+fiber.join(',')+')',seam:detail&&(i===0||i===19||ring===rings.length-2)});
       }
     }
@@ -344,52 +389,133 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
       const legWeight = Math.max(0,1-Math.abs(y-.93)/.38);
       const designWidth = designShell && designShape ? (designShape.volume*.13 +
         (design.ease-4)/180)*Math.max(0,Math.min(1,(y+.59)/(model==='top'?.73:1.4))) : 0;
-      const widthChange = waistWeight(y)*waist+hipWeight(y)*hip+designWidth+
+      const hemWeight=Math.max(0,1-Math.abs(y-rings.at(-1)[0])/.42);
+      const kneeWeight=Math.max(0,1-Math.abs(y-.62)/.29);
+      const extraSweep=designShell?(hemWeight*(fit.sweep||0)+kneeWeight*(fit.knee||0))/450:0;
+      const widthChange = waistWeight(y)*waist+hipWeight(y)*hip+designWidth+extraSweep+
         (bustWeight*(fit.bust||0)+thighWeight*(fit.thigh||0)+legWeight*(fit.leg||0))/450+
         shoulderWeight*(fit.shoulder||0)/220;
       const heightChange = index===0 ? 0 : length*(index/(rings.length-1))**2;
       const riseShift = Math.max(0,1-Math.abs(y+.25)/.36)*(fit.rise||0)/100;
       const armholeShift = Math.max(0,1-Math.abs(y+.64)/.1)*(fit.armhole||0)/100;
-      return [y+heightChange-riseShift+armholeShift,w+widthChange,d+widthChange*.68];
+      const waistShift=waistWeight(y)*(fit.waistHeight||0)/94;
+      return [y+heightChange-riseShift+armholeShift-waistShift,Math.max(.013,w+widthChange),Math.max(.013,d+widthChange*.68)];
     });
   }
   context.clearRect(0,0,width,height);
   context.fillStyle='#3a1e271f';
   context.beginPath();
-  context.ellipse(cx,height*.91,scale*.41,scale*.065,0,0,Math.PI*2);
+  context.ellipse(cx,height*(analysis?.pose.sit?.81:.906),scale*.41,scale*.065,0,0,Math.PI*2);
   context.fill();
-  if (!thumbnail || !pattern) {
-    mesh([[.2,.014,.014],[.89,.014,.014]],'#6d5150');
+  const pose = analysis?.pose || fabricFit.poses.stand;
+  const skin = color(body.skin||'#d7b69d');
+  const torso = resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,
+    {bust:modeledBust,shoulder:modeledShoulder});
+  const head = [[-1.24,.015,.023],[-1.219,.065,.062],[-1.17,.084,.078],[-1.105,.084,.082],
+    [-1.047,.074,.078],[-1.004,.05,.056],[-.978,.023,.035],[-.948,.068,.065],[-.875,.069,.07]];
+  const upperLeg = Math.max(.083,.112+bodyHip*.37);
+  const legBody = [[.20,upperLeg,.114],[.28,upperLeg,.119],[.38,upperLeg*.94,.108],
+    [.56,.081,.086],[.66,.069,.067],[.76,.071,.069],[.88,.056,.057],[.996,.036,.041],[1.045,.04,.039]];
+  const foot = [[1.014,.031,.037],[1.054,.058,.086],[1.096,.059,.103],[1.116,.052,.094],[1.128,.009,.029]];
+  const armBody = [[-.728,.027,.046,.19],[-.668,.058,.064,.244],[-.52,.052,.052,.285],
+    [-.365,.045,.044,.317],[-.28,.043,.041,.33],[-.14,.032,.032,.35],
+    [-.038,.026,.026,.367],[-.006,.032,.03,.373],[.055,.036,.027,.384],[.103,.019,.015,.397],[.123,.005,.005,.40]];
+  const legSpacing = .116 + bodyHip*.24;
+  const shoulders = modeledShoulder/240;
+  const torsoMove = point=>fabricFit.posePoint(point,pose);
+  const skirtMove = point=>{
+    const a=torsoMove(point),b=legMove(point);
+    const t=fabricFit.clamp((point[1]-.16)/.08,0,1);
+    return a.map((n,i)=>fabricFit.mix(n,b[i],t));
+  };
+  const legMove = point=>{
+    const lower=fabricFit.posePoint(point,pose,'leg');
+    lower[1]-=pose.sit*.10;
+    lower[2]+=pose.sit*.11;
+    return lower;
+  };
+  function armMove(side) {
+    return ([x,y,z])=>{
+      const pivot=.218+shoulders;
+      const lift=pose.arm*2.42;
+      const u=x*side-pivot;
+      const v=y+.68;
+      const extendedZ=z+Math.max(0,v)*pose.reach*.8;
+      return torsoMove([side*(pivot+u*Math.cos(lift)+v*Math.sin(lift)),
+        -.68+v*Math.cos(lift)-u*Math.sin(lift)-Math.max(0,v)*pose.reach*.36,extendedZ]);
+    };
+  }
+  const expanded = rings=>fabricFit.resample(rings);
+  const fullBody = !thumbnail || !pattern;
+  if (fullBody) {
     if (body.mesh) {
-      const points = body.mesh.vertices.map(project);
+      const points = body.mesh.vertices.map(v=>project(torsoMove(v)));
       for (const triangle of body.mesh.triangles) {
         const corners = triangle.map(index=>points[index]);
         const [a,b,c] = corners;
         const area = (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
         if (Math.abs(area)<.1) continue;
         const depth = (a[2]+b[2]+c[2])/3;
-        const light = Math.round(Math.max(-40,Math.min(40,depth*65)));
-        faces.push({points:corners,depth,paint:`rgb(${208+light},${173+light},${151+light})`});
+        const light = Math.round(Math.max(-36,Math.min(36,depth*62)));
+        const paint=skin.slice(1).match(/../g).map(channel=>fabricFit.clamp(parseInt(channel,16)+light,0,255));
+        faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
       }
-    } else mesh(resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,{bust:modeledBust,shoulder:modeledShoulder}),color(body.skin||'#d7b69d'));
-  }
-  if (pattern) mesh(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,{...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0)},true),color(pattern.color),0,model==='top'||model==='dress',true,true);
-  if (changes.hasSleeves && (model==='dress'||model==='top')) {
-    const shoulder = (modeledShoulder+(changes.shoulder||0))/220;
-    const sleeve = (changes.sleeveWidth||0)/410+(design?.sleeve==='Puff'?.045:0);
-    const length = (changes.sleeveLength||0)/75+({Short:-.08,Elbow:.07,Long:.39,Puff:.02,Bell:.36}[design?.sleeve]||0);
-    const cuff = (changes.cuff||0)/410+(design?.sleeve==='Bell'?.085:0);
+    } else mesh(expanded(torso),skin,0,false,false,false,torsoMove);
+    mesh(head,skin,0,false,false,false,torsoMove);
     for (const side of [-1,1]) {
-      const rings = [[-.71,.075+sleeve,.091, side*(.221+shoulder)],
-        [-.60,.085+sleeve,.105,side*(.259+shoulder)],
-        [-.46+length*.48,.068+sleeve*.6,.077,side*(.312+shoulder+length*.13)],
-        [-.35+length,.057+cuff,.064+cuff*.64,side*(.344+shoulder+length*.19)]];
-      mesh(rings,color(pattern.color),0,false,true);
+      const arms=armBody.map(([y,w,d,x])=>[y,w,d,side*(x+shoulders)]);
+      mesh(expanded(arms),skin,0,false,false,false,armMove(side));
+      mesh(expanded(legBody),skin,side*legSpacing,false,false,false,legMove);
+      mesh(foot,skin,side*legSpacing,false,false,false,p=>legMove([p[0],p[1],p[2]+.045]));
     }
   }
-  if (model==='trousers') {
-    const leg = [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]];
-    for (const side of [-1,1]) mesh(resize(leg,0,hipDelta,lengthDelta,changes,true),color(pattern.color),side*.12,false,true,true);
+
+  if (pattern) {
+    const material = analysis?.material;
+    const gravity = material ? fabricFit.clamp((material.gsm-110)/400,-.2,1.35) : 0;
+    function hang(rings) {
+      return rings.map(([y,w,d,...rest],i)=>{
+        const drop=(i/(rings.length-1))**2;
+        const drape=gravity*(1-(material?.bend||0))*drop;
+        return [y+drape*.055,w*(1-drape*.11),d*(1-drape*.06),...rest];
+      });
+    }
+    const tailored = {...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0)};
+    const shell = hang(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,tailored,true));
+    const torsoClearance = body.mesh ? importedEnvelope(body.mesh,torso) : torso;
+    let guarded = fullBody?fabricFit.clearance(expanded(shell),torsoClearance):expanded(shell);
+    if (fullBody && ['dress','skirt'].includes(model)) {
+      const coveredLegs=legBody.map(([y,w,d])=>[y,w+legSpacing,d]);
+      guarded=fabricFit.clearance(guarded,coveredLegs);
+    }
+    mesh(guarded,color(pattern.color),0,model==='top'||model==='dress',true,true,
+      model==='dress'||model==='skirt'?skirtMove:torsoMove,'shell');
+    if (changes.hasSleeves && (model==='dress'||model==='top')) {
+      const sleeve=(changes.sleeveWidth||0)/410+(design?.sleeve==='Puff'?.045:0);
+      const length=(changes.sleeveLength||0)/75+({Short:-.08,Elbow:.07,Long:.39,Puff:.02,Bell:.36}[design?.sleeve]||0);
+      const cuff=(changes.cuff||0)/410+(design?.sleeve==='Bell'?.085:0);
+      for (const side of [-1,1]) {
+        const rings=[[-.71,.075+sleeve+(changes.sleeveCap||0)/460,.091],[-.60,.085+sleeve+(changes.sleeveCap||0)/620,.105],
+          [Math.max(-.595,-.46+length*.48),.068+sleeve*.6,.077],
+          [Math.max(-.585,-.35+length),.057+cuff,.064+cuff*.64]];
+        const shellSleeve=expanded(hang(rings)).map(([y,w,d])=>{
+          const [bw,bd]=fabricFit.envelope(armBody,y);
+          const next=armBody.findIndex(ring=>ring[0]>=y);
+          const i=fabricFit.clamp(next<0?armBody.length-1:next,1,armBody.length-1);
+          const a=armBody[i-1],b=armBody[i];
+          const t=fabricFit.clamp((y-a[0])/(b[0]-a[0]),0,1);
+          const center=fabricFit.mix(a[3],b[3],t);
+          return [y,Math.max(w,bw+.012),Math.max(d,bd+.012),side*(center+shoulders)];
+        });
+        mesh(shellSleeve,color(pattern.color),0,false,true,false,armMove(side),'sleeve');
+      }
+    }
+    if (model==='trousers') {
+      const leg = [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]];
+      const fitted=expanded(hang(resize(leg,0,hipDelta,lengthDelta,changes,true)));
+      for (const side of [-1,1]) mesh(fabricFit.clearance(fitted,legBody),color(pattern.color),
+        side*legSpacing,false,true,true,legMove,'leg');
+    }
   }
   for (const face of faces.sort((a,b)=>a.depth-b.depth)) {
     context.beginPath();
@@ -410,6 +536,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
       context.stroke();
     }
   }
+  return Object.fromEntries((analysis?.handleKeys || []).map(key=>[key,fitHandles.place(key,surfaces,canvas)]));
 }
 
 let fitPattern = 'dress';
@@ -501,8 +628,12 @@ function guide(pattern,changes,body) {
     'Turn the garment inside out and mark the original stitching lines. If a lining, facing or waistband blocks the seam, open only the section needed for access.'
   ];
   const visuals = ['measure','open'];
+  if (changes.neckline) {
+    steps.push(`Trace the new ${changes.neckline} neckline, baste a toile, and check coverage and head clearance. Mark the sewing allowance before cutting and draft a facing or binding to follow the new edge.`);
+    visuals.push('neck');
+  }
   for (const [key,value] of Object.entries(changes)) {
-    if (!value || ['waist','hip','length','hasSleeves'].includes(key)) continue;
+    if (!value || ['waist','hip','length','hasSleeves','neckline'].includes(key)) continue;
     const [visual,step] = garmentFit.directions(key,value);
     steps.push(step);
     visuals.push(visual);
@@ -536,60 +667,242 @@ function fitting() {
   const pattern = getPattern(fitPattern);
   const modelType = basePattern(pattern).id;
   const sleeveEligible = ['dress','top'].includes(modelType);
-  view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div></section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
+  const fabricName=fitRevision?.fabric?.name || pattern.design?.fabric ||
+    (/denim/i.test(pattern.fabric)?'Rigid denim':/twill|suiting/i.test(pattern.fabric)?'Medium-weight twill':'Cotton poplin');
+  const initialMaterial=fabricFit.fabrics[fabricName] || fabricFit.fabrics['Cotton poplin'];
+  const initialWeight=fitRevision?.fabric?.gsm || initialMaterial.gsm;
+  const startingNeck=fitRevision?.changes.neckline || pattern.design?.neckline || 'Scoop';
+  view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>    <div class="fit-preview-controls">
+      <label class="field">Movement<select id="fit-pose">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</select></label>
+      <label class="fit-map-toggle"><input type="checkbox" id="fit-map" checked> Show tightness</label>
+      <label class="field">Sculpt with handles<select id="fit-handle-group"><option value="">Off</option></select></label><button type="button" class="secondary" id="fit-undo" disabled>Undo drag</button>
+      <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
+      <div id="fit-legend"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
+      <p id="fit-reading" class="fit-reading" aria-live="polite"></p>
+    </div>
+</section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
     <p class="model-link"><a href="#models">Open Model Library</a></p>
     <label class="field">Garment<select name="pattern">${options(fitPattern)}</select></label>
+    <div class="fields">
+      <label class="field">Fabric<select name="fabric">${Object.keys(fabricFit.fabrics).map(name=>option(name,name,fabricName)).join('')}</select></label>
+      <label class="field">Fabric weight (g/m²)<input name="fabricWeight" type="number" value="${initialWeight}" min="45" max="900" step="1" required></label>
+    </div>
+    <details class="design-options"><summary>Fabric stretch and drape</summary>
+      <div class="fields tight">
+        <label class="field">Crosswise stretch (%)<input type="number" name="fabricCross" min="0" max="100" step="0.1" value="${Math.round((fitRevision?.fabric?.cross ?? initialMaterial.cross)*1000)/10}" required></label>
+        <label class="field">Lengthwise stretch (%)<input type="number" name="fabricLength" min="0" max="100" step="0.1" value="${Math.round((fitRevision?.fabric?.length ?? initialMaterial.length)*1000)/10}" required></label>
+      </div>
+      <label class="field">Drape firmness<select name="fabricBend">${[['.2','Fluid'],['.42','Balanced'],['.65','Structured']].map(([value,label])=>option(value,label,String((fitRevision?.fabric?.bend ?? initialMaterial.bend)<.31?'.2':(fitRevision?.fabric?.bend ?? initialMaterial.bend)<.55?'.42':'.65'))).join('')}</select></label>
+      <p>Set stretch to the amount you can pull a swatch before you feel firm resistance.</p>
+    </details>
+    ${sleeveEligible?`<label class="field">Neckline style<select name="neckline">${studioDesign.necklines.map(name=>option(name,name,startingNeck)).join('')}</select></label>`:''}
     ${sleeveEligible?`<label class="sleeve-choice"><input name="sleeves" type="checkbox" ${hasSleeves(pattern)?'checked':''}> Show sleeves and sleeve adjustments</label>`:''}
     ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:''}
     <div id="fit-sliders"></div>
-    <p class="muted fit-baseline">The 3D preview approximates shape and ease. Check the actual fabric, seam allowances and comfort before cutting.</p><div class="actions"><button>Generate tailoring instructions</button><button type="reset" class="secondary">Reset changes</button></div></form></section></div><section id="fit-guide" class="panel instructions" hidden></section>`;
+    <p class="muted fit-baseline">The map estimates how much each area will resist movement. Presets are illustrative. Check fit and fabric stretch on a sample before cutting.</p><div class="actions"><button>Generate tailoring instructions</button><button type="reset" class="secondary">Reset changes</button></div></form></section></div><section id="fit-guide" class="panel instructions" hidden></section>`;
   const form = document.querySelector('#fitting-form');
   const canvas = document.querySelector('#model');
   const fitGuide = document.querySelector('#fit-guide');
   const sliders = document.querySelector('#fit-sliders');
   let angle = 0;
   let pointer;
+  let pose={...fabricFit.poses.stand};
+  let animation=0;
+  const poseField=document.querySelector('#fit-pose');
+  const mapField=document.querySelector('#fit-map');
+  const reading=document.querySelector('#fit-reading');
+  const overlay=document.querySelector('#fit-handles');
+  const handleGroup=document.querySelector('#fit-handle-group');
+  const undoButton=document.querySelector('#fit-undo');
+  const handleHelp=document.querySelector('#fit-handle-help');
+  const history=[];
+  let activeHandles=[];
+  let drag;
+  let groups={};
+  const pickedFabric=()=>form.elements.namedItem('fabric').value;
+  const gsm=()=>fabricFit.clamp(Number(form.elements.namedItem('fabricWeight').value)||initialWeight,45,900);
+  const stretchInput=key=>fabricFit.clamp(Number(form.elements.namedItem(key).value)/100,0,1);
+  const material=()=>({...fabricFit.fabrics[pickedFabric()],gsm:gsm(),
+    cross:stretchInput('fabricCross'),length:stretchInput('fabricLength'),
+    bend:Number(form.elements.namedItem('fabricBend').value)});
+  function setFabricDefaults(preset,weight=preset.gsm) {
+    form.elements.namedItem('fabricWeight').value=weight;
+    form.elements.namedItem('fabricCross').value=Math.round(preset.cross*1000)/10;
+    form.elements.namedItem('fabricLength').value=Math.round(preset.length*1000)/10;
+    form.elements.namedItem('fabricBend').value=preset.bend<.31?'.2':preset.bend<.55?'.42':'.65';
+  }
+  const neckline=()=>form.elements.namedItem('neckline')?.value || startingNeck;
   const sleeves = () => form.elements.namedItem('sleeves')?.checked || false;
   const keys = () => garmentFit.keys(modelType,sleeves());
   const changes = () => Object.fromEntries(keys().map(key=>[key,Number(form.elements.namedItem(key)?.value || 0)]));
   const adjustments = () => {
-    const result = {hasSleeves:sleeves()};
+    const result = {hasSleeves:sleeves(),neckline:neckline()};
     for (const [key,n] of Object.entries(changes())) result[key] = (fitRevision?.changes[key] || 0)+n;
     return result;
   };
   const body = () => getModel(fitModel);
   function drawControls(values={}) {
     sliders.innerHTML = keys().map(key=>{
-      const [label,max,minus,plus] = garmentFit.fields[key];
+      const [defaultLabel,max,minus,plus] = garmentFit.fields[key];
+      const label=key==='neckDepth'?`${neckline()} depth`:key==='neckWidth'?`${neckline()} width`:defaultLabel;
       const n = values[key] || 0;
       return `<label class="field adjustment"><span>${label} <output id="${key}-value">${adjustmentText(n)}</output></span><input name="${key}" type="range" min="-${max}" max="${max}" step="0.5" value="${n}"><span class="adjustment-ends"><span>${minus}</span><span>${plus}</span></span></label>`;
     }).join('');
   }
   drawControls();
+  function refreshGroups() {
+    const selected=handleGroup.value;
+    groups=Object.fromEntries(fitHandles.available(keys()));
+    handleGroup.innerHTML='<option value="">Off</option>'+Object.entries(groups).map(([id,g])=>option(id,g.label,selected)).join('');
+    renderHandles();
+  }
+  function renderHandles() {
+    activeHandles=groups[handleGroup.value]?.keys || [];
+    overlay.hidden=handleHelp.hidden=!activeHandles.length;
+    overlay.innerHTML=activeHandles.map(key=>{
+      const spec=fitHandles.specs[key];
+      return `<button type="button" class="fit-handle" data-key="${key}" data-axis="${spec.axis}" aria-label="${spec.label}" title="${spec.label}"><span aria-hidden="true">${spec.axis==='x'?'↔':'↕'}</span></button>`;
+    }).join('');
+  }
+  function edit(key,value) {
+    const input=form.elements.namedItem(key);
+    const n=fabricFit.clamp(Math.round(value*2)/2,Number(input.min),Number(input.max));
+    if (Number(input.value)===n) return;
+    input.value=n;
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  function remember(key,before) {
+    if (Number(form.elements.namedItem(key).value)!==before) {
+      history.push({key,before});
+      undoButton.disabled=false;
+    }
+  }
+  refreshGroups();
+  handleGroup.addEventListener('change',()=>{
+    if (handleGroup.value) angle=handleGroup.value==='back'?Math.PI:0;
+    renderHandles();
+    draw();
+  });
+  overlay.addEventListener('pointerdown',event=>{
+    const button=event.target.closest('button[data-key]');
+    if (!button || event.button!==0) return;
+    const key=button.dataset.key;
+    const spec=fitHandles.specs[key];
+    drag={button,key,spec,id:event.pointerId,start:spec.axis==='x'?event.clientX:event.clientY,
+      before:Number(form.elements.namedItem(key).value)};
+    button.setPointerCapture(event.pointerId);
+    button.classList.add('is-dragging');
+  });
+  overlay.addEventListener('pointermove',event=>{
+    if (drag?.id!==event.pointerId) return;
+    const current=drag.spec.axis==='x'?event.clientX:event.clientY;
+    const speed=(drag.spec.axis==='x'?110:65)/Math.max(250,canvas.clientHeight);
+    edit(drag.key,drag.before+(current-drag.start)*speed*(drag.spec.direction||1)*(event.shiftKey?.35:1));
+  });
+  overlay.addEventListener('lostpointercapture',event=>{
+    if (drag?.id!==event.pointerId) return;
+    drag.button.classList.remove('is-dragging');
+    remember(drag.key,drag.before);
+    drag=undefined;
+  });
+  overlay.addEventListener('keydown',event=>{
+    const button=event.target.closest('button[data-key]');
+    const key=button?.dataset.key;
+    if (!key) return;
+    const spec=fitHandles.specs[key];
+    const arrows=spec.axis==='x'?['ArrowLeft','ArrowRight']:['ArrowUp','ArrowDown'];
+    if (!arrows.includes(event.key)) return;
+    event.preventDefault();
+    const before=Number(form.elements.namedItem(key).value);
+    edit(key,before+(event.key===arrows[0]?-1:1)*(spec.direction||1)*(event.shiftKey?2:.5));
+    remember(key,before);
+  });
+  undoButton.onclick=()=>{
+    let action=history.pop();
+    while (action && !form.elements.namedItem(action.key)) action=history.pop();
+    if (action) edit(action.key,action.before);
+    undoButton.disabled=!history.length;
+  };
+  function reportFit() {
+    const regions=fabricFit.estimate(pattern,modelType,body(),adjustments(),pose,material());
+    const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level);
+    const state=peak.level>.66?'Restricted':peak.level>.26?'Snug':'Room to move';
+    reading.textContent=`${state} · ${peak.label} · ${(100*Math.max(peak.cross,peak.length)).toFixed(1)}% estimated stretch demand`;
+  }
   function draw() {
     if (!canvas.isConnected) return;
     const ratio = Math.min(window.devicePixelRatio||1,2);
-    canvas.width = Math.round(canvas.clientWidth*ratio);
-    canvas.height = Math.round(canvas.clientHeight*ratio);
-    drawModel(canvas,pattern,angle,adjustments(),body());
+    const width=Math.round(canvas.clientWidth*ratio),height=Math.round(canvas.clientHeight*ratio);
+    if (canvas.width!==width) canvas.width=width;
+    if (canvas.height!==height) canvas.height=height;
+    const anchors=drawModel(canvas,pattern,angle,adjustments(),body(),false,
+      {pose,material:material(),show:mapField.checked,handleKeys:activeHandles});
+    const values=activeHandles.length?changes():{};
+    for (const button of overlay.querySelectorAll('button')) {
+      const anchor=anchors[button.dataset.key];
+      button.hidden=!anchor;
+      if (!anchor) continue;
+      button.style.left=`${fabricFit.clamp(anchor.x,5,95)}%`;
+      button.style.top=`${fabricFit.clamp(anchor.y,4,96)}%`;
+      const value=adjustmentText(values[button.dataset.key]);
+      button.setAttribute('aria-label',fitHandles.specs[button.dataset.key].label+' '+value);
+      button.title=fitHandles.specs[button.dataset.key].label+' · '+value;
+    }
   }
   const size = new ResizeObserver(draw);
   size.observe(canvas);
-  fitCleanup = () => size.disconnect();
+  fitCleanup = () => {size.disconnect();cancelAnimationFrame(animation);};
+  mapField.addEventListener('change',()=>{
+    document.querySelector('#fit-legend').hidden=!mapField.checked;
+    draw();
+  });
+  poseField.addEventListener('change',()=>{
+    cancelAnimationFrame(animation);
+    const target=fabricFit.poses[poseField.value];
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      pose={...target};
+      draw();
+      reportFit();
+      return;
+    }
+    const previous={...pose},start=performance.now();
+    function step(now) {
+      const t=fabricFit.clamp((now-start)/580,0,1);
+      const transition=t*t*(3-2*t);
+      pose=Object.fromEntries(['sit','arm','reach'].map(key=>[key,fabricFit.mix(previous[key],target[key],transition)]));
+      draw();
+      if (t<1) animation=requestAnimationFrame(step);
+      else reportFit();
+    }
+    animation=requestAnimationFrame(step);
+  });
   form.addEventListener('input',event=>{
     if (event.target.name==='pattern') { startFit(event.target.value); return; }
     if (event.target.name==='model') fitModel = event.target.value;
-    if (event.target.name==='sleeves') drawControls(changes());
+    if (event.target.name==='fabric') setFabricDefaults(fabricFit.fabrics[pickedFabric()]);
+    if (['sleeves','neckline'].includes(event.target.name)) {
+      drawControls(changes());
+      if (event.target.name==='sleeves') refreshGroups();
+    }
     for (const [key,n] of Object.entries(changes())) document.querySelector('#'+key+'-value').textContent = adjustmentText(n);
     fittingDraft = undefined;
     fitGuide.hidden = true;
     draw();
+    reportFit();
   });
   form.addEventListener('reset',event=>{
     event.preventDefault();
-    if (sleeveEligible) form.elements.namedItem('sleeves').checked = hasSleeves(pattern);
+    if (sleeveEligible) {
+      form.elements.namedItem('sleeves').checked = hasSleeves(pattern);
+      form.elements.namedItem('neckline').value=startingNeck;
+    }
+    form.elements.namedItem('fabric').value=fabricName;
+    setFabricDefaults({...initialMaterial,...fitRevision?.fabric},initialWeight);
     drawControls();
+    refreshGroups();
+    history.length=0;
+    undoButton.disabled=true;
     form.dispatchEvent(new Event('input'));
   });
   canvas.addEventListener('pointerdown',event=>{
@@ -613,13 +926,15 @@ function fitting() {
   form.addEventListener('submit',event=>{
     event.preventDefault();
     const delta = changes();
-    if (!Object.values(delta).some(Boolean)) {notify('Move at least one fit slider to generate instructions.');return;}
+    if (sleeveEligible && neckline()!==startingNeck) delta.neckline=neckline();
+    if (!Object.values(delta).some(Boolean)) {notify('Change a fit slider or the neckline style to generate instructions.');return;}
     const tools = 'Measuring tape, pins or clips, tailor’s chalk, seam ripper, matching thread, sewing machine, iron and press cloth. Keep shears handy for a confirmed hem alteration.';
     const {steps,visuals} = guide(pattern,delta,body());
-    const summary = Object.entries(delta).filter(([,amount])=>amount).map(([key,amount])=>garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
-    fittingDraft = {garment:pattern,tools,steps,visuals,summary,modelId:fitModel,changes:adjustments()};
+    const summary = Object.entries(delta).filter(([,amount])=>amount).map(([key,amount])=>key==='neckline'?amount+' neckline':garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
+    const fabric={name:pickedFabric(),...material()};
+    fittingDraft = {garment:pattern,tools,steps,visuals,summary,modelId:fitModel,changes:adjustments(),fabric};
     fitGuide.hidden = false;
-    fitGuide.innerHTML = `<h2>Tailoring instructions</h2><p class="tight">${escape(pattern.name)} · ${escape(body().name)} · ${escape(summary)}</p><p class="tight"><strong>Tools and materials</strong> ${tools}</p>${sewingVisuals.tools(tools)}${sewingVisuals.steps(steps,visuals)}<form id="save-fit-form"><label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(pattern.family?pattern.name:pattern.name+' fitted')}" ${pattern.family?'readonly':''}></label><button>Save revision and create work order</button></form>`;
+    fitGuide.innerHTML = `<h2>Tailoring instructions</h2><p class="tight">${escape(pattern.name)} · ${escape(body().name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p><p class="tight"><strong>Tools and materials</strong> ${tools}</p>${sewingVisuals.tools(tools)}${sewingVisuals.steps(steps,visuals)}<form id="save-fit-form"><label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(pattern.family?pattern.name:pattern.name+' fitted')}" ${pattern.family?'readonly':''}></label><button>Save revision and create work order</button></form>`;
     fitGuide.querySelector('#save-fit-form').addEventListener('submit',event=>{
       event.preventDefault();
       const name = new FormData(event.target).get('garmentName').trim();
@@ -629,10 +944,11 @@ function fitting() {
     fitGuide.scrollIntoView({block:'nearest'});
   });
   draw();
+  reportFit();
 }
 function saveFit(name) {
   if (!fittingDraft) return;
-  const {garment,tools,steps,visuals,summary,modelId,changes} = fittingDraft;
+  const {garment,tools,steps,visuals,summary,modelId,changes,fabric} = fittingDraft;
   const base = basePattern(garment);
   const id = 'alteration-'+createId();
   const family = garment.family || id;
@@ -644,10 +960,10 @@ function saveFit(name) {
     model:base.id,color:garment.color,design:garment.design,reference:garment.reference,fabric:'Existing garment and compatible fabric if an extension is needed.',
     tools,steps,visuals,rebuildSteps,rebuildVisuals,
     buildFabric:garment.buildFabric || garment.fabric,buildTools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
-    fit:{modelId,changes,source:garment.id}};
+    fit:{modelId,changes,fabric,source:garment.id}};
   state.custom.push(plan);
   state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:name+' · Revision '+revision,pattern:id,
-    due:'',notes:getModel(modelId).name+' · '+summary,done:[]});
+    due:'',notes:getModel(modelId).name+' · '+fabric.name+' · '+fabric.gsm+' g/m² · '+summary,done:[]});
   save('Revision and work order saved');
   fittingDraft = undefined;
   fitPattern = id;
