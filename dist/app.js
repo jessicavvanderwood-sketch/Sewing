@@ -908,7 +908,7 @@ window.addEventListener('hashchange',()=>{
 render();
 
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register('./sw.js').catch(error => {
+  navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch(error => {
     console.warn('Offline dashboard setup was unavailable.', error);
   });
 }

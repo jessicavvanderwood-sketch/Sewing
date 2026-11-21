@@ -1,8 +1,8 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v4';
-const files = ['./', './index.html', './style.css', './app.js', './atelier.jpg',
+const cacheName = cachePrefix + 'v5';
+const files = ['./', './index.html', './style.css?v=5', './app.js?v=5', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
-  './visuals.js', './fit.js', './design.js', './photo.js', './camera.js', './models.js', './brother-cp2160f.jpg',
+  './visuals.js?v=5', './fit.js?v=5', './design.js?v=5', './photo.js?v=5', './camera.js?v=5', './models.js?v=5', './brother-cp2160f.jpg',
   ...Array.from({length:12},(_,index)=>'./tools/tool-'+index+'.jpg')];
 
 self.addEventListener('install', event => {
@@ -23,7 +23,7 @@ self.addEventListener('fetch', event => {
       !url.href.startsWith(self.registration.scope)) return;
 
   event.respondWith(
-    fetch(request).catch(async () => {
+    fetch(request,{cache:'no-cache'}).catch(async () => {
       const cache = await caches.open(cacheName);
       return await cache.match(request) ||
         (request.mode === 'navigate' ? await cache.match('./') : Response.error());
