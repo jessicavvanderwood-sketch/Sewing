@@ -310,7 +310,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const context = canvas.getContext('2d');
   const width = canvas.width;
   const height = canvas.height;
-  const scale = Math.min(height * (thumbnail && pattern ? .44 : .345),width*.57);
+  const scale = Math.min(height * (thumbnail && pattern ? .44 : .345)/Math.max(1,(body.height||168)/174),width*.57);
   const cx = width/2;
   const cy = height*(thumbnail && pattern ? .49 : .51);
   const faces = [];
@@ -324,7 +324,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const spin = Math.cos(angle);
   const sine = Math.sin(angle);
   const tilt = -.105;
+  const tall=fabricFit.clamp((body.height||168)/168,.85,1.14);
+  const inseamBias=body.inseam && body.height ? fabricFit.clamp(body.inseam/body.height-.452,-.075,.075)*2.1:0;
   const project = ([x,y,z]) => {
+    const legBlend=y<.2?Math.max(0,(y+1.23)/1.43):Math.max(0,(1.128-y)/.928);
+    y=1.128+(y-1.128)*tall-inseamBias*legBlend;
     const px = x*spin-z*sine;
     const pz = x*sine+z*spin;
     const py = y*Math.cos(tilt)-pz*Math.sin(tilt);
@@ -414,19 +418,21 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   context.ellipse(floorX,floorY+2,scale*.35,scale*.055,0,0,Math.PI*2);
   context.fill();
   const skin = color(body.skin||'#d7b69d');
-  const torso = resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,
-    {bust:modeledBust,shoulder:modeledShoulder});
+  const torso = sewingModels.shape(body,resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,
+    {bust:modeledBust,shoulder:modeledShoulder}),'torso');
   const head = [[-1.24,.015,.023],[-1.219,.065,.062],[-1.17,.084,.078],[-1.105,.084,.082],
-    [-1.047,.074,.078],[-1.004,.05,.056],[-.978,.023,.035],[-.948,.068,.065],[-.875,.069,.07]];
+    [-1.063,.082,.081],[-1.035,.072,.077],[-1.009,.057,.066],[-.986,.047,.053],[-.962,.047,.053],[-.917,.051,.058],[-.875,.065,.07]]
+    .map(([y,w,d])=>[y,w*(sewingModels.profileOf(body)==='male'?1.06:1),d]);
   const upperLeg = Math.max(.083,.112+bodyHip*.37);
-  const legBody = [[.20,upperLeg,.114],[.28,upperLeg,.119],[.38,upperLeg*.94,.108],
-    [.56,.081,.086],[.66,.069,.067],[.76,.071,.069],[.88,.056,.057],[.996,.036,.041],[1.045,.04,.039]];
+  const legBody = sewingModels.shape(body,[[.20,upperLeg,.114],[.28,upperLeg,.119],[.38,upperLeg*.94,.108],
+    [.56,.081,.086],[.66,.069,.067],[.76,.071,.069],[.88,.056,.057],[.996,.036,.041],[1.045,.04,.039]],'leg');
   const foot = [[1.014,.031,.037],[1.054,.058,.086],[1.096,.059,.103],[1.116,.052,.094],[1.128,.009,.029]];
-  const armBody = [[-.728,.027,.046,.19],[-.668,.058,.064,.244],[-.52,.052,.052,.285],
+  const armBody = sewingModels.shape(body,[[-.728,.027,.046,.19],[-.668,.058,.064,.244],[-.52,.052,.052,.285],
     [-.365,.045,.044,.317],[-.28,.043,.041,.33],[-.14,.032,.032,.35],
-    [-.038,.026,.026,.367],[-.006,.032,.03,.373],[.055,.036,.027,.384],[.103,.019,.015,.397],[.123,.005,.005,.40]];
+    [-.038,.026,.026,.367],[-.006,.032,.03,.373],[.055,.036,.027,.384],[.103,.019,.015,.397],[.123,.005,.005,.40]],'arm');
   const legSpacing = .116 + bodyHip*.24;
   const shoulders = modeledShoulder/240;
+  const armScale=fabricFit.clamp((body.arm||56)/56,.78,1.27);
   const torsoMove=rig.torso;
   const legMove=rig.leg;
   const skirtMove=(point,theta)=>rig.skirt(point,theta,analysis?.material);
@@ -437,8 +443,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const elbowAngle=pose.sit*.7+pose.reach*.22+pose.arm*.17;
     return ([x,y,z])=>{
       const u=x*side-pivot;
-      let v=y+.68;
-      const forearm=Math.max(0,y+.28);
+      let v=(y+.68)*armScale;
+      const forearm=Math.max(0,y+.28)*armScale;
       v-=forearm*(1-Math.cos(elbowAngle));
       z+=forearm*Math.sin(elbowAngle);
       const sagittalY=v*Math.cos(reach)-z*Math.sin(reach);
@@ -486,7 +492,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
       }
     } else mesh(expanded(torso),skin,0,false,false,false,torsoMove,null,visibleTorso);
-    mesh(head,skin,0,false,false,false,torsoMove);
+    mesh(head,skin,0,false,false,false,(point,theta)=>{
+      const [x,y,z]=point;
+      const nose=Math.max(0,1-Math.abs(y+1.075)/.042)*Math.max(0,Math.sin(theta))**24*.023;
+      return torsoMove([x,y,z+nose]);
+    });
     for (const side of [-1,1]) {
       const arms=armBody.map(([y,w,d,x])=>[y,w,d,side*(x+shoulders)]);
       mesh(expanded(arms),skin,0,false,false,false,armMove(side));
@@ -565,16 +575,20 @@ let fitRevision = null;
 
 function models() {
   const visible = allModels().filter(model=>isArchived('models',model.id)===showArchivedModels);
-  view.innerHTML = heading('Model Library','Choose a saved model, enter your measurements, or shape a custom form with your camera.')+
+  view.innerHTML = heading('Model Library','Choose a female or male form, enter your measurements, or shape a custom form with your camera.')+
     `<div class="section-head"><h2>${showArchivedModels?'Archived models':'Saved models'}</h2><div class="actions"><button class="secondary" data-action="toggle-model-archive">${showArchivedModels?'Show active':'Show archive'}</button><button data-action="add-model">＋ Add custom model</button></div></div>
-    <div class="patterns">${visible.length?visible.map(model=>`<article class="card pattern"><div class="pattern-art"><canvas width="350" height="155" data-form="${escape(model.id)}" role="img" aria-label="${escape(model.name)} preview"></canvas></div><div class="pattern-body"><h3>${escape(model.name)}</h3><p>${model.mesh?'Imported OBJ':model.scan?'Camera-shaped form':'Measurement-based form'} · Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm</p>${sewingModels.summary(model)?`<p>${sewingModels.summary(model)}</p>`:''}<div class="actions">${showArchivedModels?'':`<button data-action="choose-model" data-id="${escape(model.id)}">Fit a garment</button>${state.models.includes(model)?`<button class="secondary" data-action="edit-model" data-id="${escape(model.id)}">Edit</button>`:''}`}<button class="secondary" data-action="archive-model" data-id="${escape(model.id)}">${showArchivedModels?'Restore':'Archive'}</button></div></div></article>`).join(''):'<p>No models in this view.</p>'}</div>`;
+    <div class="patterns">${visible.length?visible.map(model=>`<article class="card pattern"><div class="pattern-art"><canvas width="350" height="155" data-form="${escape(model.id)}" role="img" aria-label="${escape(model.name)} preview"></canvas></div><div class="pattern-body"><h3>${escape(model.name)}</h3><p>${sewingModels.profiles[sewingModels.profileOf(model)]} · ${model.mesh?'Imported OBJ':model.scan?'Camera-shaped form':'Measurement-based form'} · Chest ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm</p>${sewingModels.summary(model)?`<p>${sewingModels.summary(model)}</p>`:''}<div class="actions">${showArchivedModels?'':`<button data-action="choose-model" data-id="${escape(model.id)}">Fit a garment</button>${state.models.includes(model)?`<button class="secondary" data-action="edit-model" data-id="${escape(model.id)}">Edit</button>`:''}`}<button class="secondary" data-action="archive-model" data-id="${escape(model.id)}">${showArchivedModels?'Restore':'Archive'}</button></div></div></article>`).join(''):'<p>No models in this view.</p>'}</div>`;
   for (const canvas of view.querySelectorAll('canvas')) drawModel(canvas,null,-.34,{},getModel(canvas.dataset.form),true);
 }
 
 function addModel(existing) {
   const starting = existing || getModel('studio-form');
+  const fields=(optional)=>Object.entries(sewingModels.dimensions).filter(([key])=>sewingModels.extra.has(key)===optional)
+    .map(([key,[label,min,max]])=>`<label class="field">${label} (cm)<input type="number" name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${optional?'':'required'}></label>`).join('');
   showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
-    <div class="fields">${Object.entries(sewingModels.dimensions).map(([key,[label,min,max]])=>`<label class="field">${label} (cm)${sewingModels.extra.has(key)?' · optional':''}<input type="number" name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${sewingModels.extra.has(key)?'':'required'}></label>`).join('')}</div>
+    <label class="field">Starting profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
+    <div class="fields">${fields(false)}</div>
+    <details class="design-options"><summary>More measurements (optional)</summary><div class="fields tight">${fields(true)}</div></details>
     <details class="design-options"><summary>Shape your form with a camera</summary>
       <p class="tight">Stand head to toe against a plain, contrasting background. Wear fitted clothes and keep your arms down and a little away from your torso. Capture one front view and one side view. Use the same camera position for both.</p>
       <p class="tight">Your measurements set the sizing. Only the outline is kept. Camera frames stay on this device and aren’t saved.</p>
@@ -595,13 +609,19 @@ function addModel(existing) {
   const readDimensions = data=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>data.get(key)?[[key,Number(data.get(key))]]:[]));
   function preview() {
     const data = new FormData(form);
-    drawModel(canvas,null,-.24,{}, {...readDimensions(data),scan,skin:color(data.get('skin'))},true);
+    drawModel(canvas,null,-.24,{}, {...readDimensions(data),profile:data.get('profile'),scan,skin:color(data.get('skin'))},true);
   }
   modalCleanup = modelCamera.setup(form,scan,next=>{
     scan=next;
     preview();
   });
-  form.addEventListener('input',preview);
+  form.addEventListener('input',event=>{
+    if (event.target.name==='profile' && !existing) {
+      const preset=sewingModels.starter[event.target.value];
+      for (const key of Object.keys(sewingModels.dimensions)) form.elements.namedItem(key).value=preset[key]||'';
+    }
+    preview();
+  });
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     const data = new FormData(form);
@@ -617,7 +637,7 @@ function addModel(existing) {
       } catch (problem) { error.textContent = problem.message; return; }
     }
     if (!form.isConnected || !modal.open) return;
-    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(data),mesh,scan,skin:color(data.get('skin'))};
+    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(data),profile:data.get('profile'),mesh,scan,skin:color(data.get('skin'))};
     if (existing) state.models = state.models.map(model=>model.id===item.id?item:model);
     else state.models.push(item);
     save(existing?'Model updated':'Model added');
@@ -709,8 +729,7 @@ function fitSummary(delta) {
     key==='sleeves'?(amount?'Add sleeves':'Remove sleeves'):garmentFit.fields[key][0]+' '+adjustmentText(amount)).join(' · ');
 }
 function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBody) {
-  const dimensions=[['bust','Chest / bust'],['waist','Waist'],['hip','Hip / seat'],['shoulder','Shoulder span'],
-    ['height','Height'],['arm','Shoulder to wrist'],['inseam','Inseam']];
+  const dimensions=Object.entries(sewingModels.dimensions).map(([key,[label]])=>[key,label]);
   const cm=value=>value==null?'—':value+' cm';
   const rows=dimensions.filter(([key])=>body[key] || sourceBody[key]).map(([key,label])=>[
     label,...(make?[]:[cm(sourceBody[key])]),cm(body[key])
@@ -1132,7 +1151,7 @@ function designStudio() {
     const spec = studioDesign.silhouettes[designDraft.model];
     settings.innerHTML = `<div class="fields">${select('cut','Silhouette',spec.cuts)}${select('length','Finished length',spec.lengths)}</div>
       ${studioDesign.isBodice(designDraft.model)?`<div class="fields">${select('neckline','Neckline',studioDesign.necklines)}${select('sleeve','Sleeves',studioDesign.sleeves)}</div>`:''}
-      <div class="fields"><label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label>${select('fabric','Fabric',studioDesign.fabrics)}</div>
+      <div class="fields"><label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label>${select('fabric','Fabric',Object.keys(fabricFit.fabrics))}</div>
       <details class="design-options"${open?' open':''}><summary>Finishes, pockets and fit</summary>
         <div class="fields tight">${select('closure','Closure',studioDesign.closureChoices(designDraft.model))}${select('pocket','Pockets',studioDesign.pocketChoices(designDraft.model))}
         ${select('finish','Hem finish',studioDesign.finishes)}${select('tone','Color layout',studioDesign.tones)}

@@ -59,3 +59,5 @@ The preview is a garment fitting aid. It uses procedural body and garment meshes
 Use **Sculpt with handles** to select a part of the garment. Drag the on-model handles to edit widths, depths, and lengths or use the arrow keys on a focused handle. Adjustments stay synchronized with the sliders and tailoring work order. **Undo drag** reverses the last handle adjustment.
 
 In **3D Fitting Room**, choose **Make a new garment** to save the current design and a construction work order. **Tailor between revisions** can compare the current fit against the source garment or use a saved revision as the destination. Fitting-room work orders include a measurement sheet, fabric, tools, and ordered illustrated steps. Cut-piece dimensions and seam allowances come from the selected sewing pattern.
+
+The Model Library has six starter forms, including male and female profiles. Optional torso and limb measurements affect the shape and can be saved with fitting revisions. The avatars remain measurement-driven fitting forms. Design Studio and the fitting room share 39 fabric choices with illustrative presets.

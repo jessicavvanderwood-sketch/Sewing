@@ -3,14 +3,45 @@
 const fabricFit = (() => {
   // Illustrative stretch allowances at the onset of high restriction, by direction.
   const fabrics = {
-    'Rigid denim':     {cross:.022,length:.015,power:1.1,gsm:410,bend:0.68},
-    'Cotton poplin':   {cross:.027,length:.018,power:1.15,gsm:130,bend:0.44},
-    'Linen blend':     {cross:.036,length:.022,power:1.2,gsm:175,bend:0.42},
-    'Medium-weight twill':{cross:.035,length:.024,power:1.2,gsm:245,bend:.55},
-    'Fluid woven crepe':  {cross:.052,length:.032,power:1.3,gsm:160,bend:0.18},
-    'Stretch denim':   {cross:.15,length:.04,power:1.45,gsm:315,bend:0.52},
-    'Cotton jersey':   {cross:.26,length:.13,power:1.65,gsm:190,bend:0.24},
-    'Four-way stretch':{cross:.45,length:.36,power:1.8,gsm:225,bend:0.21}
+    'Cotton poplin':{cross:0.027,length:0.018,power:1.15,gsm:130,bend:0.44},
+    'Cotton lawn':{cross:0.02,length:0.014,power:1.15,gsm:85,bend:0.27},
+    'Cotton voile':{cross:0.027,length:0.019,power:1.2,gsm:67,bend:0.2},
+    'Cotton oxford':{cross:0.02,length:0.015,power:1.1,gsm:160,bend:0.55},
+    'Cotton seersucker':{cross:0.05,length:0.025,power:1.28,gsm:145,bend:0.37},
+    'Chambray':{cross:0.03,length:0.02,power:1.18,gsm:145,bend:0.43},
+    'Linen blend':{cross:0.036,length:0.022,power:1.2,gsm:175,bend:0.42},
+    'Medium-weight linen':{cross:0.026,length:0.018,power:1.14,gsm:210,bend:0.45},
+    'Viscose challis':{cross:0.055,length:0.033,power:1.34,gsm:115,bend:0.18},
+    'Tencel twill':{cross:0.042,length:0.028,power:1.28,gsm:195,bend:0.3},
+    'Medium-weight twill':{cross:0.035,length:0.024,power:1.2,gsm:245,bend:0.55},
+    'Cotton canvas':{cross:0.015,length:0.01,power:1.07,gsm:300,bend:0.68},
+    'Corduroy':{cross:0.028,length:0.017,power:1.16,gsm:285,bend:0.58},
+    'Lightweight rigid denim':{cross:0.025,length:0.018,power:1.14,gsm:245,bend:0.52},
+    'Rigid denim':{cross:0.022,length:0.015,power:1.1,gsm:410,bend:0.68},
+    'Heavy rigid denim':{cross:0.016,length:0.011,power:1.06,gsm:510,bend:0.72},
+    'Stretch denim':{cross:0.15,length:0.04,power:1.45,gsm:315,bend:0.52},
+    'Wool suiting':{cross:0.053,length:0.028,power:1.28,gsm:240,bend:0.42},
+    'Wool coating':{cross:0.045,length:0.027,power:1.19,gsm:490,bend:0.68},
+    'Stretch woven suiting':{cross:0.15,length:0.06,power:1.4,gsm:225,bend:0.39},
+    'Fluid woven crepe':{cross:0.052,length:0.032,power:1.3,gsm:160,bend:0.18},
+    'Silk charmeuse':{cross:0.031,length:0.022,power:1.22,gsm:85,bend:0.17},
+    'Silk chiffon':{cross:0.025,length:0.016,power:1.16,gsm:45,bend:0.16},
+    'Silk organza':{cross:0.016,length:0.012,power:1.08,gsm:50,bend:0.68},
+    'Silk dupioni':{cross:0.02,length:0.015,power:1.1,gsm:125,bend:0.64},
+    'Woven satin':{cross:0.028,length:0.016,power:1.1,gsm:155,bend:0.3},
+    'Woven velvet':{cross:0.045,length:0.025,power:1.24,gsm:245,bend:0.39},
+    'Stretch velvet':{cross:0.25,length:0.09,power:1.55,gsm:245,bend:0.31},
+    'Cotton jersey':{cross:0.26,length:0.13,power:1.65,gsm:190,bend:0.24},
+    'Cotton-spandex jersey':{cross:0.49,length:0.29,power:1.72,gsm:220,bend:0.23},
+    'Rib knit':{cross:0.55,length:0.16,power:1.73,gsm:235,bend:0.22},
+    'Interlock knit':{cross:0.31,length:0.14,power:1.55,gsm:240,bend:0.38},
+    'Ponte knit':{cross:0.28,length:0.12,power:1.52,gsm:320,bend:0.48},
+    'French terry':{cross:0.22,length:0.1,power:1.48,gsm:310,bend:0.42},
+    'Sweatshirt fleece':{cross:0.18,length:0.07,power:1.44,gsm:330,bend:0.51},
+    'Stretch mesh':{cross:0.47,length:0.36,power:1.72,gsm:110,bend:0.18},
+    'Nylon-spandex activewear':{cross:0.53,length:0.4,power:1.8,gsm:240,bend:0.25},
+    'Swimwear tricot':{cross:0.52,length:0.44,power:1.83,gsm:195,bend:0.2},
+    'Four-way stretch':{cross:0.45,length:0.36,power:1.8,gsm:225,bend:0.21}
   };
 
   const poses = {
@@ -41,8 +72,8 @@ const fabricFit = (() => {
       add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*pose.reach+.036*pose.arm),.032*pose.reach+.025*pose.arm);
       add('armhole','Armhole',around(38,2.2,'armhole',.035*pose.reach+.095*pose.arm),.05*pose.arm);
       if (changes.hasSleeves) {
-        add('sleeve','Upper sleeve',around((body.bust||92)*.32,3.5,'sleeveWidth',.060*pose.arm+.035*pose.reach),.021*pose.arm+.022*pose.reach);
-        add('cuff','Sleeve opening',around((body.bust||92)*.20,3.5,'cuff',.022*pose.arm));
+        add('sleeve','Upper sleeve',around(body.upperArm||(body.bust||92)*.32,3.5,'sleeveWidth',.060*pose.arm+.035*pose.reach),.021*pose.arm+.022*pose.reach);
+        add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*pose.arm));
       }
     }
     add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit),.013*pose.sit+gravity);
@@ -50,8 +81,8 @@ const fabricFit = (() => {
       add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit),.045*pose.sit+gravity);
     }
     if (legs) {
-      add('thigh','Thigh / knee',around((body.hip||98)*.54,5,'thigh',.086*pose.sit),.07*pose.sit);
-      add('leg','Lower leg',around((body.hip||98)*.35,4,'leg',.02*pose.sit));
+      add('thigh','Thigh / knee',around(body.thigh||(body.hip||98)*.54,5,'thigh',.086*pose.sit),.07*pose.sit);
+      add('leg','Lower leg',around(body.calf||(body.hip||98)*.35,4,'leg',.02*pose.sit));
       add('rise','Crotch / rise',0,stretch(28+pose.sit*4,30+(changes.rise||0)));
     }
     return regions;
