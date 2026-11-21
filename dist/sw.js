@@ -1,8 +1,8 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v3';
+const cacheName = cachePrefix + 'v4';
 const files = ['./', './index.html', './style.css', './app.js', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
-  './visuals.js', './fit.js', './design.js', './photo.js', './models.js', './brother-cp2160f.jpg',
+  './visuals.js', './fit.js', './design.js', './photo.js', './camera.js', './models.js', './brother-cp2160f.jpg',
   ...Array.from({length:12},(_,index)=>'./tools/tool-'+index+'.jpg')];
 
 self.addEventListener('install', event => {

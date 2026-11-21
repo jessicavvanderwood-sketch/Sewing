@@ -41,3 +41,9 @@ Tool photos show representative examples. The Brother machine photo links to the
 Open **Design Studio** to combine a silhouette, length, neckline, sleeves, color, and fabric. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
 
 Select **Fit to model** to use a saved model’s chest, waist, hip and shoulder measurements in the preview and work order. The construction plan adds your selected wearing ease to the applicable finished measurement. A front-view JPG, PNG, or WebP can suggest a garment type, silhouette, sleeve presence and color from visible pixels. Use a well-lit, flat garment on a plain contrasting background. The analysis and thumbnail stay in your browser. Review the suggested design and provide details the photo cannot establish. Use a compatible base pattern and a test garment to establish sizing and cutting shapes.
+
+## Personal models and archives
+
+In **Model Library**, add a model and enter your measurements. Height, inseam, and shoulder-to-wrist length are optional. You can edit your measurements later. In a supported browser, **Shape your form with a camera** captures front and side outlines to approximate your body shape. It uses camera permission and HTTPS. It keeps the derived outline and the measurements in this browser. It does not store photographs, calculate measurements from the camera, or reconstruct a face.
+
+**Show archive** in the Model and Pattern Libraries reveals archived entries and their Restore buttons. In a named garment's revision picker, you can archive the selected revision or the garment's full revision history. Existing work orders can still use archived garments and saved revisions.

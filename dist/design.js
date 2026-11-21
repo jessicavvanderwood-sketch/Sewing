@@ -45,7 +45,8 @@ const studioDesign = (() => {
     const upper = isBodice(design.model);
     const fitArea = upper?'chest or bust':'hip or seat';
     const target = (upper?model.bust:model.hip)+design.ease;
-    add('measure',`Use the ${model.name} model measurements. Chest / bust ${model.bust} cm, waist ${model.waist} cm, hip / seat ${model.hip} cm and shoulder span ${model.shoulder} cm. Choose a compatible ${spec.label.toLowerCase()} block in the matching size. With ${design.ease} cm of target ease, aim for ${target} cm around the finished ${fitArea}. Check minimum ease, movement and balance on a test garment. Trace and mark grainlines, matching points and seam allowances.`);
+    const additional = sewingModels.summary(model);
+    add('measure',`Use the ${model.name} model measurements. Chest / bust ${model.bust} cm, waist ${model.waist} cm, hip / seat ${model.hip} cm and shoulder span ${model.shoulder} cm.${additional?' Additional measurements: '+additional+'.':''} Choose a compatible ${spec.label.toLowerCase()} block in the matching size. With ${design.ease} cm of target ease, aim for ${target} cm around the finished ${fitArea}. Check minimum ease, movement and balance on a test garment. Trace and mark grainlines, matching points and seam allowances.`);
     add('designCut',`Draw the ${style} silhouette and mark the ${design.length.toLowerCase()} finish while fitting the test garment. Make width changes on seam lines, then blend the curves, walk the adjoining seams to check they match, and restore seam and hem allowances. Keep the grainline straight and transfer matching marks to the new outline.`);
     if (isBodice(design.model)) {
       add('neck',`Draw the ${design.neckline.toLowerCase()} neckline on the traced front. Keep both halves symmetrical and test coverage and head clearance with the selected closure. Trace a matching facing or plan a compatible binding. Staystitch the cut neckline before handling it.`);

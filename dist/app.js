@@ -51,7 +51,8 @@ const initial = {
   ],
   next:3,
   custom:[],
-  models:[]
+  models:[],
+  archive:{models:[],patterns:[]}
 };
 
 const createId = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
@@ -72,10 +73,25 @@ const getPattern = id => allPatterns().find(pattern => pattern.id === id);
 const getOrderPattern = order => order.snapshot || getPattern(order.pattern);
 const allModels = () => [...sewingModels.defaults,...state.models];
 const getModel = id => allModels().find(model => model.id === id) || allModels()[0];
+const isArchived = (key,id) => state.archive[key].includes(id);
+const activeChoices = (items,key,selected) => items.filter(item=>item.id===selected || !isArchived(key,item.id));
+const modelOptions = selected => activeChoices(allModels(),'models',selected).map(model=>option(model.id,model.name+(isArchived('models',model.id)?' · Archived':''),selected)).join('');
+let showArchivedModels=false;
+let showArchivedPatterns=false;
+function moveArchive(key,ids,restoring) {
+  const matches = new Set(ids);
+  state.archive[key] = restoring
+    ? state.archive[key].filter(item=>!matches.has(item))
+    : [...new Set([...state.archive[key],...ids])];
+  save(restoring?'Restored to library':'Moved to archive');
+}
+function archiveItem(key,id) {
+  moveArchive(key,[id],isArchived(key,id));
+}
 const basePattern = pattern => patterns.find(base => base.id === (pattern.model || pattern.id)) || patterns[0];
 const hasSleeves = pattern => pattern.fit?.changes.hasSleeves ?? Boolean(pattern.sleeves);
 const option = (value,name,selected) => `<option value="${escape(value)}"${value===selected?' selected':''}>${escape(name)}</option>`;
-const options = selected => allPatterns().map(p => option(p.id,p.name+(p.revision?' · Revision '+p.revision:''),selected)).join('');
+const options = selected => activeChoices(allPatterns(),'patterns',selected).map(p => option(p.id,p.name+(p.revision?' · Revision '+p.revision:''),selected)).join('');
 const heading = (title,description) => `<div class="page-title"><h1>${title}</h1><p>${description}</p></div>`;
 const color = value => /^#[\da-f]{6}$/i.test(value) ? value : '#752c40';
 let noticeTimer;
@@ -104,7 +120,7 @@ function orderTable(orders) {
 }
 function overview() {
   const complete = state.orders.filter(o => o.done.length === getOrderPattern(o).steps.length).length;
-  const stats = [['▤',new Set(allPatterns().map(p=>p.family||p.id)).size,'Library styles'],['▣',state.orders.length-complete,'Open work orders'],['✓',complete,'Completed orders']];
+  const stats = [['▤',new Set(activeChoices(allPatterns(),'patterns').map(p=>p.family||p.id)).size,'Library styles'],['▣',state.orders.length-complete,'Open work orders'],['✓',complete,'Completed orders']];
   view.innerHTML = `<section class="hero"><div><div class="eyebrow">THE SEWING STUDIO</div><h1>Jessica’s Sewing<br>Dashboard</h1><p>Manage your patterns, plan the next make, and refine the fit in one workspace.</p><a class="button" href="#library">Browse patterns</a></div></section>
     <div class="stats">${stats.map(([icon,count,label])=>`<div class="stat"><span class="icon" aria-hidden="true">${icon}</span><div><b>${count}</b><span>${label}</span></div></div>`).join('')}</div>
     <section><div class="section-head"><h2>Studio tools</h2></div><div class="features">${features.map(([key,icon,description])=>`<a class="card feature" href="#${key}"><span class="icon" aria-hidden="true">${icon}</span><h3>${titles[key]}</h3><p>${description}</p></a>`).join('')}</div></section>
@@ -157,14 +173,14 @@ function brand() {
   });
 }
 function library() {
-  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><button data-action="add-pattern">＋ Add style</button></div><div class="patterns" id="patterns"></div>`;
+  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><button data-action="add-pattern">＋ Add style</button></div><div class="patterns" id="patterns"></div>`;
   const search = document.querySelector('#pattern-search');
   const filter = document.querySelector('#pattern-filter');
   const container = document.querySelector('#patterns');
   function results() {
     const query = search.value.trim().toLowerCase();
     const latest = new Map();
-    for (const p of allPatterns()) latest.set(p.family || p.id,p);
+    for (const p of allPatterns().filter(item=>isArchived('patterns',item.id)===showArchivedPatterns)) latest.set(p.family || p.id,p);
     const matches = [...latest.values()].filter(p => (!filter.value || p.type===filter.value) && [p.name,p.type,p.cut].join(' ').toLowerCase().includes(query));
     container.innerHTML = matches.length ? matches.map(p=>`<article class="card pattern"><div class="pattern-art"><canvas width="360" height="155" data-pattern="${escape(p.id)}" role="img" aria-label="${escape(p.cut)} illustration"></canvas></div><div class="pattern-body"><span class="badge">${escape(p.type)}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${p.revision?'Revision '+p.revision:escape(p.level)}</p><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">View ${p.fit?'tailoring guide':'construction guide'}</button> <button class="secondary" data-action="fit" data-id="${escape(p.id)}">${p.fit?'Revise fit':'Alter garment'}</button></div></article>`).join('') : '<p>No styles match your search.</p>';
     for (const canvas of container.querySelectorAll('canvas')) drawModel(canvas,getPattern(canvas.dataset.pattern),-.35,getPattern(canvas.dataset.pattern).fit?.changes || {hasSleeves:hasSleeves(getPattern(canvas.dataset.pattern))}, {},true);
@@ -176,14 +192,20 @@ function library() {
 function orders() {
   view.innerHTML = heading('Work Orders','Create a work order and check off the construction steps as you sew.') + orderTable(state.orders);
 }
+let modalCleanup;
+modal.addEventListener('close',()=>{
+  if (!modal.open) {modalCleanup?.();modalCleanup=undefined;}
+});
 function showDialog(title, body) {
+  modalCleanup?.();
+  modalCleanup=undefined;
   modal.innerHTML = `<div class="dialog-head"><h2>${escape(title)}</h2><button class="secondary close" type="button" data-action="close" aria-label="Close dialog">×</button></div>${body}`;
   if (!modal.open) modal.showModal();
 }
 function patternDetails(pattern) {
-  const revisions = pattern.family ? allPatterns().filter(p=>p.family===pattern.family).sort((a,b)=>b.revision-a.revision) : [];
+  const revisions = pattern.family ? allPatterns().filter(p=>p.family===pattern.family && isArchived('patterns',p.id)===isArchived('patterns',pattern.id)).sort((a,b)=>b.revision-a.revision) : [];
   const revisionPicker = revisions.length ? `<label class="field">Revision<select id="revision-picker">${revisions.map(p=>option(p.id,'Revision '+p.revision,p.id===pattern.id?p.id:null)).join('')}</select></label>` : '';
-  showDialog(pattern.name,`${revisionPicker}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button><button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">${pattern.revision?'Revise this fit':'Open fitting room'}</button>${pattern.design?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}</div>`);
+  showDialog(pattern.name,`${revisionPicker}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button><button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">${pattern.revision?'Revise this fit':'Open fitting room'}</button>${pattern.design?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}<button class="secondary" data-action="archive-pattern" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore':pattern.revision?'Archive this revision':'Archive garment'}</button>${revisions.length>1?`<button class="secondary" data-action="archive-family" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore all revisions':'Archive all revisions'}</button>`:''}</div>`);
   modal.querySelector('#revision-picker')?.addEventListener('change',event=>patternDetails(getPattern(event.target.value)));
 }
 function addPattern() {
@@ -202,6 +224,10 @@ function addPattern() {
   });
 }
 function newOrder(id,existing) {
+  if (!id && !existing && !activeChoices(allPatterns(),'patterns').length) {
+    showDialog('New work order','<p>Add or restore a garment in the Pattern Library to create a work order.</p><a class="button tight" href="#library">Open Pattern Library</a>');
+    return;
+  }
   showDialog(existing ? 'Edit work order' : 'New work order', `<form id="order-form"><label class="field">Work order name<input name="title" required maxlength="120" value="${escape(existing?.title || (getPattern(id)?.revision?getPattern(id).name+' · Revision '+getPattern(id).revision:''))}"></label><label class="field">Pattern<select name="pattern" ${(existing?.done.length || existing?.snapshot || getPattern(id)?.revision) ? 'disabled' : ''}>${options(existing?.pattern || id)}</select></label><label class="field">Due date<input type="date" name="due" value="${escape(existing?.due || '')}"></label><label class="field">Fabric, sizing or fitting notes<textarea name="notes" rows="4" maxlength="7000">${escape(existing?.notes || '')}</textarea></label><button>Save work order</button></form>`);
   const form = document.querySelector('#order-form');
   form.addEventListener('submit',event => {
@@ -345,7 +371,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
         const light = Math.round(Math.max(-40,Math.min(40,depth*65)));
         faces.push({points:corners,depth,paint:`rgb(${208+light},${173+light},${151+light})`});
       }
-    } else mesh(resize(mannequin,bodyWaist,bodyHip,0,{bust:modeledBust,shoulder:modeledShoulder}),'#d7b69d');
+    } else mesh(resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,{bust:modeledBust,shoulder:modeledShoulder}),color(body.skin||'#d7b69d'));
   }
   if (pattern) mesh(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,{...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0)},true),color(pattern.color),0,model==='top'||model==='dress',true,true);
   if (changes.hasSleeves && (model==='dress'||model==='top')) {
@@ -391,14 +417,44 @@ let fitModel = 'studio-form';
 let fitRevision = null;
 
 function models() {
-  view.innerHTML = heading('Model Library','Choose a dress form or add a custom 3D model before fitting a garment.')+
-    `<div class="section-head"><h2>Dress forms</h2><button data-action="add-model">＋ Add custom model</button></div><div class="patterns">${allModels().map(model=>`<article class="card pattern"><div class="pattern-art"><canvas width="350" height="155" data-form="${escape(model.id)}" role="img" aria-label="${escape(model.name)} preview"></canvas></div><div class="pattern-body"><h3>${escape(model.name)}</h3><p>${model.mesh?'Imported OBJ':'Measurement-based form'} · Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm</p><button data-action="choose-model" data-id="${escape(model.id)}">Fit a garment</button></div></article>`).join('')}</div>`;
+  const visible = allModels().filter(model=>isArchived('models',model.id)===showArchivedModels);
+  view.innerHTML = heading('Model Library','Choose a saved model, enter your measurements, or shape a custom form with your camera.')+
+    `<div class="section-head"><h2>${showArchivedModels?'Archived models':'Saved models'}</h2><div class="actions"><button class="secondary" data-action="toggle-model-archive">${showArchivedModels?'Show active':'Show archive'}</button><button data-action="add-model">＋ Add custom model</button></div></div>
+    <div class="patterns">${visible.length?visible.map(model=>`<article class="card pattern"><div class="pattern-art"><canvas width="350" height="155" data-form="${escape(model.id)}" role="img" aria-label="${escape(model.name)} preview"></canvas></div><div class="pattern-body"><h3>${escape(model.name)}</h3><p>${model.mesh?'Imported OBJ':model.scan?'Camera-shaped form':'Measurement-based form'} · Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm</p>${sewingModels.summary(model)?`<p>${sewingModels.summary(model)}</p>`:''}<div class="actions">${showArchivedModels?'':`<button data-action="choose-model" data-id="${escape(model.id)}">Fit a garment</button>${state.models.includes(model)?`<button class="secondary" data-action="edit-model" data-id="${escape(model.id)}">Edit</button>`:''}`}<button class="secondary" data-action="archive-model" data-id="${escape(model.id)}">${showArchivedModels?'Restore':'Archive'}</button></div></div></article>`).join(''):'<p>No models in this view.</p>'}</div>`;
   for (const canvas of view.querySelectorAll('canvas')) drawModel(canvas,null,-.34,{},getModel(canvas.dataset.form),true);
 }
 
-function addModel() {
-  showDialog('Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" required></label><div class="fields">${Object.entries(sewingModels.dimensions).map(([key,[label,min,max]])=>`<label class="field">${label} (cm)<input type="number" name="${key}" min="${min}" max="${max}" value="${getModel('studio-form')[key]}" step="0.5" required></label>`).join('')}</div><label class="field">Optional 3D torso file (.obj)<input type="file" name="mesh" accept=".obj"></label><p class="muted">Use a low-poly torso with Y pointing up and the front facing +Z. The preview aligns it by its bounds. Enter real measurements for the tailoring guide.</p><p id="model-error" class="tight" role="alert"></p><button class="tight">Save model</button></form>`);
+function addModel(existing) {
+  const starting = existing || getModel('studio-form');
+  showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
+    <div class="fields">${Object.entries(sewingModels.dimensions).map(([key,[label,min,max]])=>`<label class="field">${label} (cm)${sewingModels.extra.has(key)?' · optional':''}<input type="number" name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${sewingModels.extra.has(key)?'':'required'}></label>`).join('')}</div>
+    <details class="design-options"><summary>Shape your form with a camera</summary>
+      <p class="tight">Stand head to toe against a plain, contrasting background. Wear fitted clothes and keep your arms down and a little away from your torso. Capture one front view and one side view. Use the same camera position for both.</p>
+      <p class="tight">Your measurements set the sizing. Only the outline is kept. Camera frames stay on this device and aren’t saved.</p>
+      <video class="model-camera" muted autoplay playsinline hidden aria-label="Live camera preview"></video>
+      <p class="tight" role="status">${existing?.scan?'This model has a saved outline.':''}</p>
+      <div class="actions tight"><button type="button" data-camera-start>Turn camera on</button><button type="button" class="secondary" data-camera-front>Capture front</button><button type="button" class="secondary" data-camera-side>Capture side</button><button type="button" class="secondary" data-camera-stop>Turn off</button><button type="button" class="secondary" data-camera-clear>Clear outline</button></div>
+      <label class="field tight">Form skin tone<input type="color" name="skin" value="${color(existing?.skin || '#d7b69d')}"></label>
+      <canvas id="model-scan-preview" class="model-scan-preview" width="300" height="157" role="img" aria-label="Preview of the shaped dress form"></canvas>
+    </details>
+    <details class="design-options"><summary>Import a 3D torso instead</summary><label class="field tight">Optional 3D torso file (.obj)<input type="file" name="mesh" accept=".obj"></label>
+      <p>Use a low-poly torso with Y pointing up and the front facing +Z. An imported mesh takes priority over a camera outline.</p>
+      ${existing?.mesh?'<label class="sleeve-choice tight"><input type="checkbox" name="removeMesh"> Remove the saved OBJ mesh</label>':''}
+    </details>
+    <p id="model-error" class="tight" role="alert"></p><button>Save model</button></form>`);
   const form = document.querySelector('#model-form');
+  const canvas = form.querySelector('#model-scan-preview');
+  let scan = existing?.scan || null;
+  const readDimensions = data=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>data.get(key)?[[key,Number(data.get(key))]]:[]));
+  function preview() {
+    const data = new FormData(form);
+    drawModel(canvas,null,-.24,{}, {...readDimensions(data),scan,skin:color(data.get('skin'))},true);
+  }
+  modalCleanup = modelCamera.setup(form,scan,next=>{
+    scan=next;
+    preview();
+  });
+  form.addEventListener('input',preview);
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     const data = new FormData(form);
@@ -406,17 +462,22 @@ function addModel() {
     const error = form.querySelector('#model-error');
     if (!name) { error.textContent = 'Enter a model name.'; return; }
     const file = data.get('mesh');
-    let mesh;
+    let mesh = data.has('removeMesh')?undefined:existing?.mesh;
     if (file.size) {
       try {
         if (!/\.obj$/i.test(file.name) || file.size>1000000) throw Error('Choose an OBJ file under 1 MB.');
         mesh = sewingModels.parseObj(await file.text());
       } catch (problem) { error.textContent = problem.message; return; }
     }
-    const dimensions = Object.fromEntries(Object.keys(sewingModels.dimensions).map(key=>[key,Number(data.get(key))]));
-    state.models.push({id:'form-'+Date.now().toString(36),name,...dimensions,mesh});
-    save('Model added');
+    if (!form.isConnected || !modal.open) return;
+    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(data),mesh,scan,skin:color(data.get('skin'))};
+    if (existing) state.models = state.models.map(model=>model.id===item.id?item:model);
+    else state.models.push(item);
+    save(existing?'Model updated':'Model added');
+    modalCleanup?.();
+    modalCleanup=undefined;
     modal.close();
+    showArchivedModels=false;
     models();
   });
 }
@@ -424,7 +485,7 @@ function addModel() {
 function startFit(id,modelId) {
   fitPattern = id;
   fitRevision = getPattern(id).fit || null;
-  fitModel = modelId || fitRevision?.modelId || getPattern(id).design?.fitModelId || fitModel;
+  fitModel = modelId || fitRevision?.modelId || getPattern(id).design?.fitModelId || (!isArchived('models',fitModel)?fitModel:activeChoices(allModels(),'models')[0]?.id) || fitModel;
   if (modal.open) modal.close();
   if (location.hash==='#fitting') render();
   else location.hash='fitting';
@@ -476,9 +537,9 @@ function fitting() {
   const modelType = basePattern(pattern).id;
   const sleeveEligible = ['dress','top'].includes(modelType);
   view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div></section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
-    <label class="field">3D model<select name="model">${allModels().map(model=>option(model.id,model.name,fitModel)).join('')}</select></label>
+    <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
     <p class="model-link"><a href="#models">Open Model Library</a></p>
-    <label class="field">Garment<select name="pattern">${allPatterns().map(p=>option(p.id,p.name+(p.revision?' · Revision '+p.revision:''),fitPattern)).join('')}</select></label>
+    <label class="field">Garment<select name="pattern">${options(fitPattern)}</select></label>
     ${sleeveEligible?`<label class="sleeve-choice"><input name="sleeves" type="checkbox" ${hasSleeves(pattern)?'checked':''}> Show sleeves and sleeve adjustments</label>`:''}
     ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:''}
     <div id="fit-sliders"></div>
@@ -602,7 +663,7 @@ function designStudio() {
       <canvas id="design-model" role="img" aria-label="Three-dimensional design preview"></canvas>
       <div class="viewer-footer"><label class="field design-rotate">Rotate preview <input type="range" id="design-angle" min="-180" max="180" value="-21" aria-label="Rotate preview"></label></div>
     </div><div class="panel"><form id="design-form">
-      <label class="field">Fit to model<select name="fitModelId">${allModels().map(model=>option(model.id,model.name,designDraft.fitModelId)).join('')}</select></label>
+      <label class="field">Fit to model<select name="fitModelId">${modelOptions(designDraft.fitModelId)}</select></label>
       <p class="model-link"><a href="#models">Open Model Library</a></p><p id="design-measurements" class="fit-baseline"></p>
       <details class="design-options"><summary>Start from a garment photo</summary>
         <label class="field tight">Upload a front-view photo<input type="file" id="design-photo" accept="image/jpeg,image/png,image/webp"></label>
@@ -723,6 +784,7 @@ function designStudio() {
     const {name:_,reference,...design} = designDraft;
     const item = {id:'design-'+createId(),...studioDesign.make(design,name,body()),reference};
     state.custom.push(item);
+    showArchivedPatterns=false;
     if (event.submitter?.value==='order') state.orders.unshift({
       id:'WO-'+String(state.next++).padStart(3,'0'),title:name,pattern:item.id,due:'',notes:'Fitted to '+body().name+'.'+(reference?' Check the design details against the reference photo.':''),done:[]
     });
@@ -816,6 +878,18 @@ document.addEventListener('click',event=>{
     case 'edit-order': newOrder(undefined,state.orders.find(o=>o.id===id)); break;
     case 'fit': startFit(id); break;
     case 'add-model': addModel(); break;
+    case 'edit-model': addModel(getModel(id)); break;
+    case 'toggle-model-archive': showArchivedModels=!showArchivedModels;models();break;
+    case 'toggle-pattern-archive': showArchivedPatterns=!showArchivedPatterns;library();break;
+    case 'archive-model': archiveItem('models',id);models();break;
+    case 'archive-pattern': archiveItem('patterns',id);modal.close();library();break;
+    case 'archive-family': {
+      const family = getPattern(id).family;
+      moveArchive('patterns',allPatterns().filter(item=>item.family===family).map(item=>item.id),isArchived('patterns',id));
+      modal.close();
+      library();
+      break;
+    }
     case 'choose-model': startFit(fitPattern,id); break;
     case 'copy-design': {
       const source = getPattern(id);

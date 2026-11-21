@@ -5,7 +5,7 @@ const garmentPhoto = (() => {
   const colorDistance = (a,b) => Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
   const channelHex = n => Math.round(n).toString(16).padStart(2,'0');
 
-  function analyze(data,width,height) {
+  function foreground(data,width,height) {
     const pixel = i => data.subarray(i*4,i*4+4);
     const frame = [];
     for (let y=0;y<height;y++) {
@@ -49,6 +49,12 @@ const garmentPhoto = (() => {
       left[y]=Math.min(x,left[y]);
       right[y]=Math.max(x,right[y]);
     }
+    return {left,right,silhouette,largest};
+  }
+
+  function analyze(data,width,height) {
+    const {left,right,silhouette,largest} = foreground(data,width,height);
+    if (!largest) return {};
     const rows = right.map((edge,y)=>Math.max(0,edge-left[y]+1));
     const top=rows.findIndex(Boolean), bottom=rows.findLastIndex(Boolean), span=bottom-top+1;
     const minX=Math.min(...left), maxX=Math.max(...right), across=maxX-minX+1;
@@ -107,5 +113,5 @@ const garmentPhoto = (() => {
       URL.revokeObjectURL(url);
     }
   }
-  return {analyze,read};
+  return {analyze,foreground,read};
 })();

@@ -34,3 +34,6 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-options p{font-size:14px}
 .design-rotate{width:100%;margin:0}.design-rotate input[type=range]{min-height:26px}
 .design-reference{margin:8px 0;max-width:180px}.design-reference img{display:block;max-width:100%;max-height:170px;border-radius:6px;object-fit:contain}.design-reference figcaption{font-size:13px;color:var(--muted);margin-top:4px}
+
+.model-camera{display:block;margin:12px 0;width:100%;max-height:280px;background:#3a202a;border-radius:8px;object-fit:contain}
+.model-camera[hidden]{display:none}.model-scan-preview{display:block;width:min(100%,300px);height:auto;margin:10px 0 0;background:#f0e3d9;border-radius:8px}

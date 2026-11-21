@@ -10,8 +10,14 @@ const sewingModels = (() => {
     bust:['Chest / bust',65,160],
     waist:['Waist',55,145],
     hip:['Hip / seat',65,175],
-    shoulder:['Shoulder span',28,58]
+    shoulder:['Shoulder span',28,58],
+    height:['Height',110,225],
+    inseam:['Inseam',45,115],
+    arm:['Shoulder to wrist',35,85]
   };
+
+  const extra = new Set(['height','inseam','arm']);
+  const summary = model => [...extra].filter(key=>model[key]).map(key=>dimensions[key][0]+' '+model[key]+' cm').join(' · ');
 
   function parseObj(content) {
     const vertices = [];
@@ -48,5 +54,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,parseObj};
+  return {defaults,dimensions,extra,summary,parseObj};
 })();
