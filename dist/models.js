@@ -38,6 +38,18 @@ const sewingModels = (() => {
   const extra = new Set(Object.keys(dimensions).slice(4));
   const profiles={female:'Female',male:'Male'};
   const profileOf=model=>model.profile==='male'?'male':'female';
+  const cups=['A','B','C','D','DD','DDD / E','F','G'];
+  function bustShape(model,x,y,front) {
+    if (profileOf(model)!=='female' || front<=0) return 0;
+    const cup=cups.indexOf(model.cup);
+    const measured=model.underbust && model.bust
+      ? Math.max(0,Math.min(6,(model.bust-model.underbust-8)/2.5)):2;
+    const projection=.012+(cup<0?measured:cup)*.008;
+    const center=.46;
+    const horizontal=Math.exp(-(((Math.abs(x)-center)/.33)**2));
+    const vertical=Math.exp(-(((y+.49)/.125)**2));
+    return projection*horizontal*vertical*front;
+  }
   function shape(model,rings,part) {
     const ref=starter[profileOf(model)];
     const k=(key,coefficient)=>((model[key]??ref[key])-starter.female[key])*coefficient;
@@ -96,5 +108,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,extra,profiles,profileOf,starter,shape,summary,parseObj};
+  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustShape,shape,summary,parseObj};
 })();

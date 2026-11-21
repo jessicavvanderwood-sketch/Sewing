@@ -98,6 +98,125 @@ const sewingVisuals = (() => {
     ].find(([test]) => test.test(step))?.[1];
   }
 
+  const wovenSetup = 'For a stable woven seam, select centered straight stitch 01 with foot J. Start at the 2.5 mm default length. Use scraps of the same layers to check stitch balance and seam strength.';
+  const operations = {
+    measure:[
+      'Set the measuring tape flat around the body at the measurement point. Hold it level, close it without pulling the body inward, and read where the zero end crosses the tape.',
+      'Write down the body measurement and the intended finished garment measurement separately. Subtract the body measurement from the finished measurement to check the ease.',
+      'On a test garment, clip or pin at the planned seam line. Stand, sit and move, then mark any areas that pull with chalk.'
+    ],
+    grain:[
+      'Prewash and dry as planned for the finished garment. Press by setting the iron down and lifting it. Avoid sliding it over fabric that shifts easily.',
+      'Spread the fabric on the cutting board. Identify the selvage and place the pattern grainline parallel to it. Measure from both ends of the grainline to the selvage and adjust until the distances match.',
+      'Mark mirrored pieces and check the direction of any nap or print. Place weights inside the pattern edges so the pieces stay flat during cutting.'
+    ],
+    cut:[
+      'Circle the correct size line and confirm whether the printed outline already contains seam and hem allowances.',
+      'Place the pattern on the fabric and secure it. Insert the lower blade of the fabric shears flat against the board, keep your other hand clear, and cut with steady strokes along the verified line.',
+      'Keep matched pieces together. Transfer notches, dart points and closure marks using a chalk method tested on scrap.'
+    ],
+    marks:[
+      'Match the pattern edges to the fabric. Hold the piece flat and mark each notch through the paper with tailor’s chalk or another tested removable marker.',
+      'Mark dart points or pocket placement on both mirrored pieces. Remove the paper and check the marks against the original before continuing.'
+    ],
+    open:[
+      'Lay the garment inside out on a lit table. Mark the start and end of the stitches to be removed.',
+      'Hold the fabric flat with one hand. Slip the short point of the seam ripper under a single stitch, with the blade facing away from your hand. Cut a few stitches at a time.',
+      'Pull out loose thread and press the opened seam flat. Check the remaining seam allowance before changing the seam line.'
+    ],
+    take:[
+      'Turn the garment inside out and mark the original stitch line. Measure the specified amount into the garment from that line at the fitting point.',
+      'Use chalk to connect the new mark to the unchanged seam. Match the adjustment on corresponding sides or layers as specified.',
+      'Pin or clip the new line, baste it, and check fit while moving. Confirm the new line before trimming any excess.'
+    ],
+    let:[
+      'Unpick the required section. Measure from the original line toward the raw edge by the amount listed for each layer.',
+      'Check the fabric remaining beyond the new line. If it is too narrow for the fabric and seam finish, plan an insert or change the distribution before sewing.',
+      'Draw a smooth line back to the unchanged seam, baste, and test on the wearer before final stitching.'
+    ],
+    blend:[
+      'Mark the widest part of the change and where it should return to the original seam. Use a ruler or smooth curve to join them without a sudden angle.',
+      'Set the pieces together and align matching marks. Pin perpendicular to the seam and remove each pin before it reaches the needle.',
+      'Baste, try on the garment, and correct any puckers before permanent sewing.'
+    ],
+    seam:[
+      wovenSetup,
+      'Place the fabric layers as specified, usually right sides together. Line up the matching marks and hold the raw edge against the seam allowance guide.',
+      'Raise the foot, slide the layers underneath, lower the foot, and start slowly. Keep a hand on each side of the fabric to guide it without pulling.',
+      'Remove pins before the needle reaches them. Secure the stitch ends as the pattern directs and press the seam in the specified direction.'
+    ],
+    darts:[
+      wovenSetup,
+      'Fold right sides together so both dart legs meet. Pin the legs in place and mark the dart point.',
+      'Sew from the wider end toward the point. Taper to the fold and secure the thread tails at the tip without making a bulky knot in the fabric.',
+      'Press the dart in the direction specified by the pattern, using a tailor’s ham if needed.'
+    ],
+    shoulder:[
+      wovenSetup,
+      'Lay the front and back right sides together. Match the neckline ends, shoulder points and any notches.',
+      'Pin the seam at the stitch line, then sew from one end to the other while keeping the edges aligned. Press as directed and recheck the armhole.'
+    ],
+    sleeve:[
+      wovenSetup,
+      'Match the sleeve’s front and back notches to the armhole and mark the shoulder point. Clip at those fixed points first.',
+      'Distribute the remaining sleeve cap evenly as the pattern directs. Baste and try the garment on before sewing the permanent seam.',
+      'Check that the sleeve hangs smoothly, the underarm is untwisted, and you can raise your arm comfortably.'
+    ],
+    facing:[
+      'Compare the facing and garment edges. Mark center front, center back, and shoulder points, then align those marks before pinning.',
+      wovenSetup,
+      'Sew on the marked line. Where the instructions call for it, trim excess seam allowance, clip curves without cutting the stitches, and understitch toward the facing.',
+      'Turn the facing inside, roll the seam slightly inward, and press over a curved surface.'
+    ],
+    zipper:[
+      'With the machine switched off, attach the compatible zipper foot. For an invisible zipper use the foot specified by the zipper and machine instructions.',
+      'Place the zipper tape against the garment opening, mark matching seams on the tape, and hand-baste or pin it.',
+      'Select a straight stitch. Turn the handwheel toward you to confirm the needle clears the foot before starting. Sew the first side slowly, then match the marks and sew the second.',
+      'Close the zipper to check alignment and movement before completing the seam below it.'
+    ],
+    band:[
+      'Mark the center and side-seam positions on the waistband. Match them to the garment and clip between those points.',
+      'Baste or pin the band in place and check it sits level while standing and sitting.',
+      'Attach and finish the band as the pattern directs. For a casing, leave an opening for the elastic and check that it has not twisted before securing it.'
+    ],
+    hemUp:[
+      'With the garment on the wearer, mark the finished length using chalk or pins. Measure around the garment at several points.',
+      'Take it off and lay it flat. Mark the hem allowance below the finished line before cutting. Check the line on both sides or legs.',
+      'Fold the allowance to the inside, press it, and baste. Confirm the new length before final stitching.'
+    ],
+    hemDown:[
+      'Mark the requested finished length below the old fold before opening the hem.',
+      'Unpick the existing stitches and press out the old crease with a press cloth. Measure how much fabric remains below the new mark.',
+      'Choose a finish that the remaining allowance can support. Baste and verify the length before sewing.'
+    ],
+    finish:[
+      'Lay the piece wrong side up. Use a ruler to mark the fold width specified by the pattern. Fold the allowance to the wrong side and set the crease with the iron.',
+      'Clip or baste the fold in place. Check that the edge is even and the hem lies flat without twisting.',
+      wovenSetup,
+      'Place the hem under the foot and sew at a steady pace, using the guide or fold as your reference. If a woven edge needs separate zigzag finishing, use stitch 04 with foot J and test the width and length on scrap first.',
+      'Remove basting, press the finished hem, and inspect the stitching on both sides.'
+    ],
+    press:[
+      'Check the iron temperature on a scrap. Use a press cloth for dark, delicate, or easily marked fabrics.',
+      'Open or direct the seam allowance as indicated. Set the iron down, lift it, and move to the next section without stretching the seam.'
+    ],
+    fit:[
+      'Remove loose pins before the fitting. Put on the garment and close it as it will be worn.',
+      'Check balance from the front, side and back. Sit, reach, and walk as appropriate. Note the exact place and direction of pulling before changing a seam.',
+      'Transfer any final marks to the garment or paper pattern and recheck symmetry.'
+    ]
+  };
+  const equivalent = {designCut:'cut',layer:'seam',sew:'seam',topstitch:'seam',neck:'facing',neckFill:'facing',
+    sleeveCap:'sleeve',armhole:'sleeve',rise:'blend',taper:'blend',pocket:'marks',pocketPatch:'marks',button:'marks',colorBlock:'grain'};
+  function operationDetails(step,id) {
+    const instructions=operations[id] || operations[equivalent[id]];
+    const actions=instructions || step.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)?.map(item=>item.trim()).filter(Boolean);
+    if (!actions || actions.length<2) return '';
+    return `<details class="wo-how"><summary>How to do this step</summary><ol>${actions.map(action=>`<li>${escape(action)}</li>`).join('')}</ol></details>`;
+  }
+  function machineGuide() {
+    return '<details class="wo-how wo-machine"><summary>Brother CP2160F setup and stitch settings</summary><ol><li>Switch the machine off to insert the needle and set up the thread. Use a compatible SA156 Class 15 bobbin and raise the presser foot before threading the upper thread.</li><li>For a stable woven seam, use centered straight stitch <strong>01</strong>, foot <strong>J</strong>, and start at <strong>2.5 mm</strong> stitch length.</li><li>For zigzag edge finishing, select <strong>04</strong> with foot <strong>J</strong>. Its defaults are <strong>3.5 mm wide</strong> and <strong>1.4 mm long</strong>. Adjust only after checking a scrap.</li><li>For a stretchy seam, use a compatible needle and test a narrow zigzag or the stitch required by your pattern. Pull the sewn scrap to check that the stitches stretch with it.</li><li>Use the foot, needle and seam type required by the project. When changing feet or adjusting stitch width, turn the handwheel toward you to confirm needle clearance before using the pedal.</li></ol><p><a href="https://support.brother.com/g/b/manualtop.aspx?c=us&amp;lang=en&amp;prod=hf_cp2160feus" target="_blank" rel="noopener">Brother CP2160F manual and stitch chart</a></p></details>';
+  }
   function steps(items, ids) {
     return '<ol class="steps illustrated-steps">'+items.map((step,index)=>
       '<li><p>'+escape(step)+'</p>'+diagram(ids?.[index] || identify(step))+'</li>'
@@ -109,5 +228,5 @@ const sewingVisuals = (() => {
     const machinePhoto = /machine/i.test(description) ? '<figure><img src="brother-cp2160f.jpg" alt="Brother CP2160F sewing machine" loading="lazy"><figcaption>Brother CP2160F sewing machine</figcaption></figure>' : '';
     return '<div class="tool-photos">'+machinePhoto+cards.map(({name,i})=>'<figure><img src="tools/tool-'+i+'.jpg" alt="'+name+'" loading="lazy"><figcaption>'+name+'</figcaption></figure>').join('')+'</div>';
   }
-  return {diagram,identify,tools,steps,basics,patterns};
+  return {diagram,identify,tools,steps,basics,patterns,operationDetails,machineGuide};
 })();

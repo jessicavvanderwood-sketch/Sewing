@@ -5,7 +5,7 @@ const studioDesign = (() => {
     dress:{label:'Dress',type:'Dresses',cuts:['Column','A-line','Full skirt'],lengths:['Above knee','Midi','Ankle']},
     top:{label:'Shirt / top',type:'Tops',cuts:['Fitted','Straight','Boxy'],lengths:['Cropped','High hip','Low hip']},
     skirt:{label:'Skirt',type:'Skirts',cuts:['Straight','A-line','Full skirt'],lengths:['Above knee','Midi','Ankle']},
-    trousers:{label:'Pants',type:'Trousers',cuts:['Tapered','Straight','Wide leg'],lengths:['Cropped','Ankle','Full length']}
+    trousers:{label:'Pants',type:'Trousers',cuts:['Tapered','Straight','Wide leg'],lengths:['Cropped','Ankle','Full length','Bermuda','Short']}
   };
   const necklines = ['Crew','Scoop','V-neck','Boat','Square'];
   const sleeves = ['Sleeveless','Short','Elbow','Long','Puff','Bell'];
@@ -32,7 +32,7 @@ const studioDesign = (() => {
 
   function measurements(design) {
     const spec = silhouettes[design.model];
-    const lower = spec.lengths.indexOf(design.length)-1;
+    const lower = ({Bermuda:-1.55,Short:-2.38})[design.length] ?? spec.lengths.indexOf(design.length)-1;
     const volume = spec.cuts.indexOf(design.cut)-1;
     return {lower,volume};
   }

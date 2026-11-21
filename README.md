@@ -61,3 +61,13 @@ Use **Sculpt with handles** to select a part of the garment. Drag the on-model h
 In **3D Fitting Room**, choose **Make a new garment** to save the current design and a construction work order. **Tailor between revisions** can compare the current fit against the source garment or use a saved revision as the destination. Fitting-room work orders include a measurement sheet, fabric, tools, and ordered illustrated steps. Cut-piece dimensions and seam allowances come from the selected sewing pattern.
 
 The Model Library has six starter forms, including male and female profiles. Optional torso and limb measurements affect the shape and can be saved with fitting revisions. The avatars remain measurement-driven fitting forms. Design Studio and the fitting room share 39 fabric choices with illustrative presets.
+
+## Categorized garment and fabric libraries
+
+The Pattern Library offers 42 in-app garments and 20 free FreeSewing references for distinct cuts, including coats, wrap pants, overalls, swimwear and corsets. Publisher references link to the original drafting, pattern, and sewing instructions. The in-app fitting tool is available for the built-in garment shapes. [FreeSewing catalog](https://freesewing.eu/designs/) · [Commercial-use FAQ](https://freesewing.eu/docs/about/faq/commercial-use/)
+
+The Fabric Library has 127 illustrative presets grouped by fabric type. Upload a JPG, PNG, or WebP swatch, then enter its weight, drape, and stretch. The fitting preview uses the uploaded photo as a repeated color and texture sample. Preset swatches and the fit map are visual approximations. Saved swatches stay in the current browser.
+
+Custom female models offer A–G visual cup profiles alongside full-bust and underbust measurements. Cup presets control projection in the avatar and do not calculate commercial bra sizes.
+
+Work Orders include search, type and progress filters, archival, garment previews, and before/after previews for tailoring orders. Expand the action-by-action guides and the Brother CP2160F settings in each work order. Use the publisher’s pattern for pattern-specific cutting dimensions and assembly instructions.

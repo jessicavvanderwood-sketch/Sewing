@@ -44,6 +44,153 @@ const fabricFit = (() => {
     'Four-way stretch':{cross:0.45,length:0.36,power:1.8,gsm:225,bend:0.21}
   };
 
+  const materialGroups = {
+    'Shirting & lightweight wovens': ['Cotton poplin', 'Cotton lawn', 'Cotton voile', 'Cotton oxford', 'Cotton seersucker', 'Chambray', 'Linen blend', 'Medium-weight linen', 'Viscose challis', 'Tencel twill', 'Cotton batiste', 'Cotton muslin', 'Double gauze', 'Cotton broadcloth', 'Cotton sateen', 'Yarn-dyed gingham', 'Brushed cotton flannel', 'Linen handkerchief weave', 'Linen-cotton shirting', 'Linen-viscose blend', 'Ramie shirting', 'Rayon twill', 'Cupro twill', 'Modal woven'],
+    'Denim, workwear & outerwear': ['Medium-weight twill', 'Cotton canvas', 'Corduroy', 'Lightweight rigid denim', 'Rigid denim', 'Heavy rigid denim', 'Stretch denim', 'Wool coating', 'Bull denim', 'Slub denim', 'Stretch black denim', 'Cotton duck', 'Waxed canvas', 'Cotton gabardine', 'Fine-wale corduroy', 'Wide-wale corduroy', 'Cotton drill', 'Wool melton', 'Boiled wool', 'Nylon ripstop', 'Coated rainwear nylon', 'Technical softshell'],
+    'Suiting & tailored wovens': ['Wool suiting', 'Stretch woven suiting', 'Wool worsted', 'Tropical wool', 'Wool flannel', 'Wool herringbone', 'Wool tweed', 'Wool gabardine', 'Wool crepe', 'Linen suiting', 'Polyester suiting', 'Stretch gabardine', 'Cotton-linen suiting'],
+    'Silk, eveningwear & sheer': ['Fluid woven crepe', 'Silk charmeuse', 'Silk chiffon', 'Silk organza', 'Silk dupioni', 'Woven satin', 'Woven velvet', 'Stretch velvet', 'Silk habotai', 'Silk georgette', 'Silk crepe de chine', 'Silk twill', 'Silk faille', 'Silk taffeta', 'Silk shantung', 'Duchess satin', 'Mikado', 'Jacquard brocade', 'Viscose satin', 'Polyester chiffon', 'Soft tulle', 'Guipure lace'],
+    'Knits & sweatshirt fabrics': ['Cotton jersey', 'Cotton-spandex jersey', 'Rib knit', 'Interlock knit', 'Ponte knit', 'French terry', 'Sweatshirt fleece', 'Modal jersey', 'Viscose jersey', 'Wool jersey', 'Merino jersey', 'Linen jersey', 'Bamboo-viscose jersey', 'Heavy cotton interlock', 'Intarsia sweater knit', 'Waffle knit', 'Hacci sweater knit', 'Cotton piqué knit', 'Polar fleece', 'Sherpa fleece', 'Scuba double knit'],
+    'Activewear & swim': ['Stretch mesh', 'Nylon-spandex activewear', 'Swimwear tricot', 'Four-way stretch', 'Compression powernet', 'Power mesh', 'Recycled swim jersey', 'Brushed activewear jersey', 'High-compression tricot', 'Lightweight lining tricot', 'Athletic interlock', 'Stretch scuba', 'Two-way stretch performance woven'],
+    'Lining, lace & specialty': ['Bemberg lining', 'Acetate lining', 'Polyester lining', 'Stretch lining', 'Cotton pocketing', 'Chantilly lace', 'Stretch lace', 'Embroidered mesh', 'Eyelet cotton', 'Quilted cotton', 'Faux suede', 'Garment-weight faux leather'],
+  };
+  const extraPresets = [
+    ['Cotton batiste', 65, 0.02, 0.01, 0.26],
+    ['Cotton muslin', 110, 0.02, 0.01, 0.47],
+    ['Double gauze', 125, 0.05, 0.03, 0.23],
+    ['Cotton broadcloth', 120, 0.02, 0.01, 0.48],
+    ['Cotton sateen', 175, 0.03, 0.02, 0.35],
+    ['Yarn-dyed gingham', 120, 0.02, 0.01, 0.4],
+    ['Brushed cotton flannel', 185, 0.04, 0.02, 0.38],
+    ['Linen handkerchief weave', 115, 0.03, 0.02, 0.32],
+    ['Linen-cotton shirting', 150, 0.03, 0.02, 0.39],
+    ['Linen-viscose blend', 170, 0.04, 0.03, 0.24],
+    ['Ramie shirting', 120, 0.02, 0.01, 0.47],
+    ['Rayon twill', 170, 0.05, 0.03, 0.28],
+    ['Cupro twill', 130, 0.04, 0.03, 0.22],
+    ['Modal woven', 125, 0.04, 0.03, 0.21],
+    ['Bull denim', 360, 0.02, 0.01, 0.67],
+    ['Slub denim', 390, 0.02, 0.01, 0.63],
+    ['Stretch black denim', 340, 0.18, 0.05, 0.46],
+    ['Cotton duck', 375, 0.01, 0.01, 0.72],
+    ['Waxed canvas', 380, 0.01, 0.01, 0.76],
+    ['Cotton gabardine', 240, 0.03, 0.02, 0.55],
+    ['Fine-wale corduroy', 235, 0.03, 0.02, 0.45],
+    ['Wide-wale corduroy', 350, 0.03, 0.02, 0.57],
+    ['Cotton drill', 285, 0.03, 0.02, 0.59],
+    ['Wool melton', 510, 0.03, 0.02, 0.77],
+    ['Boiled wool', 380, 0.17, 0.08, 0.64],
+    ['Nylon ripstop', 85, 0.02, 0.01, 0.53],
+    ['Coated rainwear nylon', 125, 0.02, 0.01, 0.62],
+    ['Technical softshell', 310, 0.18, 0.1, 0.61],
+    ['Wool worsted', 220, 0.04, 0.03, 0.44],
+    ['Tropical wool', 185, 0.04, 0.03, 0.35],
+    ['Wool flannel', 280, 0.05, 0.03, 0.42],
+    ['Wool herringbone', 265, 0.04, 0.03, 0.48],
+    ['Wool tweed', 340, 0.05, 0.03, 0.61],
+    ['Wool gabardine', 245, 0.04, 0.03, 0.52],
+    ['Wool crepe', 215, 0.06, 0.04, 0.34],
+    ['Linen suiting', 240, 0.03, 0.02, 0.52],
+    ['Polyester suiting', 225, 0.03, 0.02, 0.49],
+    ['Stretch gabardine', 250, 0.14, 0.05, 0.5],
+    ['Cotton-linen suiting', 240, 0.04, 0.02, 0.5],
+    ['Silk habotai', 58, 0.02, 0.01, 0.2],
+    ['Silk georgette', 62, 0.05, 0.03, 0.18],
+    ['Silk crepe de chine', 82, 0.05, 0.03, 0.2],
+    ['Silk twill', 95, 0.03, 0.02, 0.34],
+    ['Silk faille', 155, 0.02, 0.01, 0.57],
+    ['Silk taffeta', 105, 0.02, 0.01, 0.68],
+    ['Silk shantung', 110, 0.02, 0.01, 0.58],
+    ['Duchess satin', 235, 0.02, 0.01, 0.63],
+    ['Mikado', 220, 0.02, 0.01, 0.68],
+    ['Jacquard brocade', 255, 0.02, 0.01, 0.7],
+    ['Viscose satin', 145, 0.04, 0.03, 0.24],
+    ['Polyester chiffon', 50, 0.03, 0.02, 0.18],
+    ['Soft tulle', 48, 0.12, 0.04, 0.27],
+    ['Guipure lace', 190, 0.03, 0.02, 0.51],
+    ['Modal jersey', 170, 0.45, 0.23, 0.19],
+    ['Viscose jersey', 175, 0.48, 0.24, 0.18],
+    ['Wool jersey', 180, 0.32, 0.14, 0.25],
+    ['Merino jersey', 170, 0.37, 0.17, 0.24],
+    ['Linen jersey', 165, 0.25, 0.13, 0.25],
+    ['Bamboo-viscose jersey', 205, 0.49, 0.29, 0.18],
+    ['Heavy cotton interlock', 280, 0.28, 0.12, 0.43],
+    ['Intarsia sweater knit', 280, 0.35, 0.15, 0.31],
+    ['Waffle knit', 240, 0.34, 0.17, 0.34],
+    ['Hacci sweater knit', 175, 0.42, 0.21, 0.23],
+    ['Cotton piqué knit', 210, 0.22, 0.09, 0.42],
+    ['Polar fleece', 270, 0.21, 0.09, 0.41],
+    ['Sherpa fleece', 340, 0.19, 0.07, 0.53],
+    ['Scuba double knit', 325, 0.29, 0.19, 0.65],
+    ['Compression powernet', 240, 0.34, 0.24, 0.36],
+    ['Power mesh', 135, 0.42, 0.28, 0.29],
+    ['Recycled swim jersey', 205, 0.52, 0.42, 0.25],
+    ['Brushed activewear jersey', 245, 0.48, 0.36, 0.27],
+    ['High-compression tricot', 285, 0.43, 0.31, 0.42],
+    ['Lightweight lining tricot', 100, 0.44, 0.32, 0.2],
+    ['Athletic interlock', 220, 0.42, 0.3, 0.34],
+    ['Stretch scuba', 290, 0.38, 0.26, 0.53],
+    ['Two-way stretch performance woven', 160, 0.18, 0.02, 0.4],
+    ['Bemberg lining', 78, 0.03, 0.02, 0.18],
+    ['Acetate lining', 85, 0.02, 0.01, 0.27],
+    ['Polyester lining', 75, 0.02, 0.01, 0.28],
+    ['Stretch lining', 95, 0.24, 0.11, 0.23],
+    ['Cotton pocketing', 115, 0.02, 0.01, 0.41],
+    ['Chantilly lace', 65, 0.08, 0.04, 0.22],
+    ['Stretch lace', 115, 0.35, 0.14, 0.23],
+    ['Embroidered mesh', 110, 0.09, 0.04, 0.45],
+    ['Eyelet cotton', 135, 0.03, 0.02, 0.44],
+    ['Quilted cotton', 290, 0.02, 0.01, 0.65],
+    ['Faux suede', 225, 0.08, 0.04, 0.49],
+    ['Garment-weight faux leather', 330, 0.08, 0.03, 0.6],
+  ];
+  for (const [name,gsm,cross,length,bend] of extraPresets) {
+    fabrics[name]={gsm,cross,length,bend,power:cross>.14?1.58:1.2};
+  }
+  const categoryOf = name => Object.keys(materialGroups).find(category=>materialGroups[category].includes(name));
+  function weave(name,category=categoryOf(name)) {
+    if (/satin|charmeuse|lining|silk/i.test(name)) return 'satin';
+    if (/mesh|tulle|lace/i.test(name)) return 'mesh';
+    if (/knit|activewear|swim/.test((category||'').toLowerCase())) return 'knit';
+    if (/denim|twill|gabardine|suiting/.test(name.toLowerCase())) return 'twill';
+    return 'plain';
+  }
+  async function readSwatch(file) {
+    const url=URL.createObjectURL(file);
+    try {
+      const photo=new Image();
+      photo.src=url;
+      await photo.decode();
+      const canvas=document.createElement('canvas');
+      const edge=Math.min(photo.naturalWidth,photo.naturalHeight);
+      canvas.width=canvas.height=320;
+      const context=canvas.getContext('2d');
+      context.fillStyle='#fff';
+      context.fillRect(0,0,320,320);
+      context.drawImage(photo,(photo.naturalWidth-edge)/2,(photo.naturalHeight-edge)/2,edge,edge,0,0,320,320);
+      return canvas.toDataURL('image/jpeg',.8);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  const swatches=new Map();
+  function sample(photo,u,v,redraw) {
+    if (!photo) return null;
+    if (!swatches.has(photo)) {
+      swatches.set(photo,null);
+      const image=new Image();
+      image.onload=()=>{
+        const canvas=document.createElement('canvas');
+        canvas.width=canvas.height=64;
+        const context=canvas.getContext('2d',{willReadFrequently:true});
+        context.drawImage(image,0,0,64,64);
+        swatches.set(photo,context.getImageData(0,0,64,64).data);
+        redraw?.();
+      };
+      image.src=photo;
+    }
+    const pixels=swatches.get(photo);
+    if (!pixels) return null;
+    const index=((Math.floor(v*64)&63)*64+(Math.floor(u*64)&63))*4;
+    return [pixels[index],pixels[index+1],pixels[index+2]];
+  }
   const poses = {
     stand:{name:'Standing',sit:0,arm:0,reach:0},
     sit:{name:'Sitting',sit:1,arm:.12,reach:.20},
@@ -185,5 +332,5 @@ const fabricFit = (() => {
   }
   const posePoint=(point,pose,part='body')=>rig(pose)[part==='leg'?'leg':'torso'](point);
 
-  return {fabrics,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
+  return {fabrics,materialGroups,categoryOf,weave,readSwatch,sample,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
 })();
