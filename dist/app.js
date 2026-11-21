@@ -213,7 +213,7 @@ function materialLibrary() {
   view.innerHTML=heading('Fabric Library','Browse fabric presets or upload a swatch to use in your designs.')+
     `<div class="toolbar"><label class="field">Search fabrics<input id="fabric-search" type="search" placeholder="Search by fabric name"></label>
     <label class="field">Category<select id="fabric-category"><option value="">All fabrics</option>${Object.keys(fabricFit.materialGroups).map(key=>option(key,key)).join('')}</select></label>
-    <button class="secondary" data-action="fabric-archive-toggle">${showArchivedFabrics?'Show active':'Show archive'}</button><button data-action="upload-fabric">＋ Upload fabric swatch</button></div>
+    <button class="secondary" data-action="fabric-archive-toggle">${showArchivedFabrics?'Show active':'Show archive'}</button><button data-action="upload-fabric">＋ Add fabric</button></div>
     <p id="fabric-count" class="muted tight"></p><div class="patterns" id="fabric-results"></div>`;
   const search=document.querySelector('#fabric-search'), category=document.querySelector('#fabric-category');
   const results=document.querySelector('#fabric-results');
@@ -235,45 +235,207 @@ function materialLibrary() {
 }
 
 function uploadFabric() {
-  showDialog('Upload fabric swatch',`<form id="fabric-form">
-    <label class="field">Fabric name<input name="name" maxlength="100" required></label>
-    <label class="field">Swatch photo (JPEG, PNG or WebP)<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required></label>
-    <label class="field">Category<select name="category">${Object.keys(fabricFit.materialGroups).map(key=>option(key,key)).join('')}</select></label>
-    <div class="fields"><label class="field">Weight (g/m²)<input name="gsm" type="number" min="45" max="900" value="150" required></label>
-    <label class="field">Drape<select name="bend"><option value=".2">Fluid</option><option value=".42" selected>Balanced</option><option value=".65">Structured</option></select></label>
-    <label class="field">Crosswise stretch (%)<input name="cross" type="number" min="0" max="100" step=".1" value="3" required></label>
-    <label class="field">Lengthwise stretch (%)<input name="length" type="number" min="0" max="100" step=".1" value="2" required></label></div>
-    <p class="muted">Use a close-up photo in even light. Your photo and measurements stay in this browser.</p>
-    <p class="tight" role="alert"></p><button class="tight">Save fabric</button></form>`);
+  showDialog('Add fabric',`<form id="fabric-form">
+    <section class="swatch-capture" aria-labelledby="swatch-title">
+      <strong id="swatch-title">Swatch photo</strong>
+      <p>Lay the fabric flat in even light and fill the square with texture.</p>
+      <div class="swatch-frame" hidden>
+        <video muted playsinline autoplay hidden aria-label="Live fabric camera"></video>
+        <img alt="Fabric swatch preview" hidden>
+      </div>
+      <div class="actions tight">
+        <button type="button" id="swatch-camera">Open camera</button>
+        <button type="button" id="swatch-capture" hidden disabled>Take photo</button>
+        <button type="button" class="secondary" id="swatch-stop" hidden>Close camera</button>
+        <button type="button" class="secondary" id="swatch-file-button">Choose photo</button>
+        <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" hidden aria-label="Choose swatch photo">
+      </div>
+      <p id="swatch-status" role="status" class="muted tight"></p>
+    </section>
+    <div class="fields tight">
+      <label class="field">Fabric name<input name="name" maxlength="100" placeholder="e.g. Oat linen from my stash" required></label>
+      <label class="field">Fabric type<select name="category">${Object.keys(fabricFit.materialGroups).map(key=>option(key,key)).join('')}</select></label>
+    </div>
+    <details class="design-options">
+      <summary>Weight, drape and stretch</summary>
+      <div class="fields tight">
+        <label class="field">Weight (g/m²)<input name="gsm" type="number" min="45" max="900" required></label>
+        <label class="field">Drape<select name="bend"><option value=".2">Fluid</option><option value=".42">Balanced</option><option value=".65">Structured</option></select></label>
+        <label class="field">Crosswise stretch (%)<input name="cross" type="number" min="0" max="100" step=".1" required></label>
+        <label class="field">Lengthwise stretch (%)<input name="length" type="number" min="0" max="100" step=".1" required></label>
+      </div>
+    </details>
+    <p id="swatch-settings" class="muted"></p>
+    <p class="muted tight">Your swatch stays in this browser.</p>
+    <p class="tight" role="alert"></p><button type="submit" class="tight">Save fabric</button></form>`);
+
   const form=modal.querySelector('#fabric-form');
-  form.addEventListener('submit',async event=>{
+  const field=name=>form.elements.namedItem(name);
+  const frame=form.querySelector('.swatch-frame');
+  const video=frame.querySelector('video');
+  const image=frame.querySelector('img');
+  const start=form.querySelector('#swatch-camera');
+  const snap=form.querySelector('#swatch-capture');
+  const stop=form.querySelector('#swatch-stop');
+  const fileButton=form.querySelector('#swatch-file-button');
+  const status=form.querySelector('#swatch-status');
+  const settings=form.querySelector('#swatch-settings');
+  const error=form.querySelector('[role=alert]');
+  const saveButton=form.querySelector('[type=submit]');
+  let photo='';
+  let stream;
+  let generation=0;
+  let customSettings=false;
+
+  function showSettings() {
+    const label=customSettings?'Your settings':'Starting estimates for this fabric type';
+    settings.textContent=`${label} · ${field('gsm').value} g/m² · ${field('bend').selectedOptions[0].textContent} · ${field('cross').value}% crosswise · ${field('length').value}% lengthwise`;
+  }
+  function setDefaults() {
+    const exemplar=fabricFit.materialGroups[field('category').value][0];
+    const preset=fabricFit.fabrics[exemplar];
+    field('gsm').value=preset.gsm;
+    field('bend').value=preset.bend<.31?'.2':preset.bend<.55?'.42':'.65';
+    field('cross').value=Math.round(preset.cross*1000)/10;
+    field('length').value=Math.round(preset.length*1000)/10;
+    customSettings=false;
+    showSettings();
+  }
+  setDefaults();
+  field('category').addEventListener('change',setDefaults);
+  for (const key of ['gsm','bend','cross','length']) field(key).addEventListener('input',()=>{
+    customSettings=true;
+    showSettings();
+  });
+
+  function releaseCamera() {
+    generation++;
+    const active=stream;
+    stream=undefined;
+    active?.getTracks().forEach(track=>track.stop());
+    video.srcObject=null;
+  }
+  modalCleanup=releaseCamera;
+  const stillOpen=()=>form.isConnected && modal.open;
+  function showStill() {
+    video.hidden=snap.hidden=stop.hidden=true;
+    snap.disabled=true;
+    start.hidden=false;
+    start.disabled=false;
+    start.textContent=photo?'Retake photo':'Open camera';
+    frame.hidden=image.hidden=!photo;
+    if (photo) image.src=photo;
+  }
+  video.addEventListener('loadeddata',()=>{
+    snap.disabled=!stream || !video.videoWidth;
+  });
+  start.onclick=async()=>{
+    if (!navigator.mediaDevices?.getUserMedia) {
+      status.textContent='Camera is unavailable in this view. Choose a photo from your device.';
+      return;
+    }
+    const attempt=++generation;
+    start.disabled=true;
+    status.textContent='Waiting for camera permission…';
+    error.textContent='';
+    try {
+      const next=await navigator.mediaDevices.getUserMedia({
+        audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}}
+      });
+      if (attempt!==generation || !stillOpen()) {
+        next.getTracks().forEach(track=>track.stop());
+        return;
+      }
+      stream=next;
+      video.srcObject=stream;
+      frame.hidden=video.hidden=snap.hidden=stop.hidden=false;
+      image.hidden=start.hidden=true;
+      await video.play();
+      if (attempt!==generation || !stillOpen()) return;
+      snap.disabled=!video.videoWidth;
+      status.textContent='Fill the square with fabric, then select Take photo.';
+      for (const track of stream.getVideoTracks?.() || []) track.addEventListener('ended',()=>{
+        if (attempt!==generation || !stillOpen()) return;
+        releaseCamera();
+        showStill();
+        status.textContent='The camera disconnected. Open it again or choose a photo.';
+      });
+    } catch (problem) {
+      if (attempt!==generation || !stillOpen()) return;
+      releaseCamera();
+      showStill();
+      status.textContent=problem.name==='NotAllowedError'
+        ? 'Camera access was declined. Allow camera access in your browser or choose a photo.'
+        : 'The camera could not start. Choose a photo or try again.';
+    }
+  };
+  snap.onclick=()=>{
+    if (!stream || !video.videoWidth || !video.videoHeight) return;
+    try {
+      photo=fabricFit.captureSwatch(video);
+      releaseCamera();
+      showStill();
+      status.textContent='Photo captured. Retake it or save this fabric.';
+    } catch {
+      status.textContent='The photo could not be captured. Try again or choose a photo.';
+    }
+  };
+  stop.onclick=()=>{
+    releaseCamera();
+    showStill();
+    status.textContent=photo?'Previous photo kept.':'Camera closed.';
+  };
+  fileButton.onclick=()=>field('photo').click();
+  field('photo').addEventListener('change',async()=>{
+    const file=field('photo').files[0];
+    if (!file) return;
+    if (!file.size || file.size>15000000 || !['image/jpeg','image/png','image/webp'].includes(file.type)) {
+      error.textContent='Choose a JPEG, PNG or WebP under 15 MB.';
+      field('photo').value='';
+      return;
+    }
+    releaseCamera();
+    showStill();
+    const attempt=generation;
+    error.textContent='';
+    saveButton.disabled=true;
+    start.disabled=true;
+    status.textContent='Loading photo…';
+    try {
+      const next=await fabricFit.readSwatch(file);
+      if (attempt!==generation || !stillOpen()) return;
+      photo=next;
+      showStill();
+      status.textContent='Photo ready. Check the crop before saving.';
+    } catch {
+      if (attempt===generation && stillOpen()) {
+        error.textContent='The swatch could not be read.';
+        status.textContent='';
+      }
+    } finally {
+      if (attempt===generation && stillOpen()) {
+        field('photo').value='';
+        start.disabled=saveButton.disabled=false;
+      }
+    }
+  });
+  form.addEventListener('submit',event=>{
     event.preventDefault();
     const data=new FormData(form);
     const name=data.get('name').trim();
-    const error=form.querySelector('[role=alert]');
     if (!name || allFabrics().some(item=>item.name.toLowerCase()===name.toLowerCase())) {
       error.textContent='Enter a unique fabric name.';return;
     }
-    const file=data.get('photo');
-    if (!file?.size || file.size>15000000 || !['image/jpeg','image/png','image/webp'].includes(file.type)) {
-      error.textContent='Choose a JPEG, PNG or WebP under 15 MB.';return;
-    }
-    const button=form.querySelector('button');
-    button.disabled=true;
-    try {
-      const photo=await fabricFit.readSwatch(file);
-      if (!form.isConnected || !modal.open) return;
-      const cross=Number(data.get('cross'))/100;
-      state.fabrics.unshift({name,photo,category:data.get('category'),gsm:Number(data.get('gsm')),
-        cross,length:Number(data.get('length'))/100,bend:Number(data.get('bend')),power:cross>.14?1.58:1.2});
-      save('Fabric swatch saved');
-      modal.close();
-      showArchivedFabrics=false;
-      materialLibrary();
-    } catch {
-      error.textContent='The swatch could not be read.';
-      button.disabled=false;
-    }
+    if (!photo) {error.textContent='Take or choose a swatch photo before saving.';return;}
+    const cross=Number(data.get('cross'))/100;
+    state.fabrics.unshift({name,photo,category:data.get('category'),gsm:Number(data.get('gsm')),
+      cross,length:Number(data.get('length'))/100,bend:Number(data.get('bend')),power:cross>.14?1.58:1.2});
+    releaseCamera();
+    modalCleanup=undefined;
+    save('Fabric swatch saved');
+    modal.close();
+    showArchivedFabrics=false;
+    materialLibrary();
   });
 }
 function library() {

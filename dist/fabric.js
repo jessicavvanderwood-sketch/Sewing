@@ -154,20 +154,25 @@ const fabricFit = (() => {
     if (/denim|twill|gabardine|suiting/.test(name.toLowerCase())) return 'twill';
     return 'plain';
   }
+  function squareSwatch(source,width,height) {
+    const edge=Math.min(width,height);
+    if (!edge) throw Error('Swatch image is not ready.');
+    const canvas=document.createElement('canvas');
+    canvas.width=canvas.height=320;
+    const context=canvas.getContext('2d');
+    context.fillStyle='#fff';
+    context.fillRect(0,0,320,320);
+    context.drawImage(source,(width-edge)/2,(height-edge)/2,edge,edge,0,0,320,320);
+    return canvas.toDataURL('image/jpeg',.8);
+  }
+  const captureSwatch=video=>squareSwatch(video,video.videoWidth,video.videoHeight);
   async function readSwatch(file) {
     const url=URL.createObjectURL(file);
     try {
       const photo=new Image();
       photo.src=url;
       await photo.decode();
-      const canvas=document.createElement('canvas');
-      const edge=Math.min(photo.naturalWidth,photo.naturalHeight);
-      canvas.width=canvas.height=320;
-      const context=canvas.getContext('2d');
-      context.fillStyle='#fff';
-      context.fillRect(0,0,320,320);
-      context.drawImage(photo,(photo.naturalWidth-edge)/2,(photo.naturalHeight-edge)/2,edge,edge,0,0,320,320);
-      return canvas.toDataURL('image/jpeg',.8);
+      return squareSwatch(photo,photo.naturalWidth,photo.naturalHeight);
     } finally { URL.revokeObjectURL(url); }
   }
   const swatches=new Map();
@@ -347,5 +352,5 @@ const fabricFit = (() => {
   }
   const posePoint=(point,pose,part='body')=>rig(pose)[part==='leg'?'leg':'torso'](point);
 
-  return {fabrics,materialGroups,categoryOf,weave,readSwatch,sample,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
+  return {fabrics,materialGroups,categoryOf,weave,readSwatch,captureSwatch,sample,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
 })();

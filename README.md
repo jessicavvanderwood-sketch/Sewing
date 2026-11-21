@@ -79,3 +79,5 @@ The Model Library uses barefoot height and body inseam to place the head, crotch
 Work order figures mark common assembly and fold steps. Enter the pattern’s seam allowance and hem turns under **Pattern allowances for the figures** to label the diagrams with project values. Tailoring figures can also label saved seam shifts and hem moves. The figures indicate where to measure and are not cutting templates.
 
 For female models, enter full bust and underbust together for the projection estimate. Bra size is optional and can help if underbust is missing. Use **Side view** in the model editor to check the shape. An optional projection measurement is available for fine-tuning.
+
+In **Fabric Library → Add fabric**, use **Open camera → Take photo** to capture a square swatch in the app, or choose an existing image. Preview or retake it before saving. Choose a fabric type for starting estimates, and expand **Weight, drape and stretch** to enter measured values. The app requests camera permission when opened, and stops the stream after a capture or when the dialog closes.
