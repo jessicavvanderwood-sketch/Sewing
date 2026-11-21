@@ -1038,7 +1038,7 @@ function addModel(existing) {
       </details>
     </div>
     <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="560" height="410" role="img" aria-label="Model shape preview"></canvas>
-      <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button><button type="button" class="secondary" data-model-angle="3.14">Back view</button></div>
+      <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="0.65">Three-quarter view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button><button type="button" class="secondary" data-model-angle="3.14">Back view</button></div>
     </div>
     <details class="design-options"${starting.height||starting.inseam?' open':''}><summary>Length and other measurements (optional)</summary>
     <div class="measurement-help">
