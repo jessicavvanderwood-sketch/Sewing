@@ -430,13 +430,34 @@ function showNewOrders() {
   showArchivedOrders=false;
   Object.assign(orderFilters,{query:'',kind:'',status:''});
 }
+const workAllowanceFields={seam:'Seam allowance',first:'First hem turn',second:'Second hem turn'};
+function allowanceEditor(order) {
+  return `<details class="design-options wo-allowances"><summary>Pattern allowances for the figures</summary>
+    <form id="allowance-form" class="tight">
+      <p>Use the allowances from your pattern. Leave a field blank when it varies across seams or when the hem uses a different finish.</p>
+      <div class="fields tight">${Object.entries(workAllowanceFields).map(([key,label])=>
+        `<label class="field">${label} (cm)<input type="number" data-length-input name="${key}" min="0.05" max="30" value="${order.allowances?.[key]??''}"></label>`
+      ).join('')}</div><button type="submit">Save figure measurements</button>
+    </form></details>`;
+}
+
 function orderDetails(order) {
   const pattern = getOrderPattern(order);
-  showDialog(order.title,`${orderPreview(order)}<p>${order.id} · ${escape(pattern.name)}</p>${order.notes ? `<p class="tight" style="white-space:pre-wrap">${escape(order.notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${referenceLinks(getPattern(order.pattern))}${sewingVisuals.tools(pattern.tools)}${fitMeasurementTable(pattern.measurements)}${sewingVisuals.machineGuide()}<h3 class="tight">Step checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p><ol class="check-list">${pattern.steps.map((step,index)=>{
+  showDialog(order.title,`${orderPreview(order)}<p>${order.id} · ${escape(pattern.name)}</p>${order.notes ? `<p class="tight" style="white-space:pre-wrap">${escape(order.notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${referenceLinks(getPattern(order.pattern))}${sewingVisuals.tools(pattern.tools)}${fitMeasurementTable(pattern.measurements)}${workFigures.bodySheet(pattern.measurements)}${allowanceEditor(order)}${sewingVisuals.machineGuide()}<h3 class="tight">Step checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p><ol class="check-list">${pattern.steps.map((step,index)=>{
     const visual=(pattern.visuals || sewingVisuals.patterns[pattern.id])?.[index] || sewingVisuals.identify(step);
-    return `<li><label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>${sewingVisuals.diagram(visual)}${sewingVisuals.operationDetails(step,visual)}</li>`;
+    return `<li><label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>${workFigures.forStep(step,visual,order,pattern) || sewingVisuals.diagram(visual)}${sewingVisuals.operationDetails(step,visual)}</li>`;
   }).join('')}</ol><button class="secondary" data-action="edit-order" data-id="${order.id}">Edit work order</button> <button class="secondary" data-action="archive-order" data-id="${order.id}">${isArchived('orders',order.id)?'Restore':'Archive'} work order</button>`);
   drawOrderPreviews(modal);
+  modal.querySelector('#allowance-form').addEventListener('submit',event=>{
+    event.preventDefault();
+    order.allowances=Object.fromEntries([...event.currentTarget.elements].filter(input=>input.name && input.value)
+      .map(input=>[input.name,studioUnits.lengthValue(input)]));
+    save('Figure measurements saved');
+    const scroll=modal.scrollTop;
+    orderDetails(order);
+    modal.querySelector('.wo-allowances').open=true;
+    modal.scrollTop=scroll;
+  });
   modal.querySelector('.check-list').addEventListener('change',event => {
     if (!event.target.matches('input')) return;
     order.done = [...modal.querySelectorAll('.check-list input:checked')].map(box=>Number(box.value));
@@ -778,14 +799,26 @@ function models() {
 
 function addModel(existing) {
   const starting = existing || getModel('studio-form');
-  const fields=(optional)=>Object.entries(sewingModels.dimensions).filter(([key])=>sewingModels.extra.has(key)===optional)
-    .map(([key,[label,min,max]])=>`<label class="field">${label} (cm)<input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${optional?'':'required'}></label>`).join('');
+  const field=(key,[label,min,max],required=false)=>`<label class="field">${label} (cm)<input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${required?'required':''}></label>`;
+  const fields=(optional)=>Object.entries(sewingModels.dimensions).filter(([key])=>sewingModels.extra.has(key)===optional &&
+    !['underbust','bustProjection'].includes(key)).map(([key,dimensions])=>field(key,dimensions,!optional)).join('');
   showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
     <label class="field">Starting profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
     <div class="fields">${fields(false)}</div>
-    <label class="field" id="cup-field"${sewingModels.profileOf(starting)==='male'?' hidden':''}>Bust cup profile
-      <select name="cup"><option value="">From bust and underbust</option>${sewingModels.cups.map(cup=>option(cup,cup,existing?.cup)).join('')}</select>
-    </label>
+    <div id="cup-field"${sewingModels.profileOf(starting)==='male'?' hidden':''}>
+      <div class="fields">${field('underbust',sewingModels.dimensions.underbust)}
+        <label class="field">Bra size (optional)<input name="braSize" maxlength="20" value="${escape(existing?.braSize||'')}" placeholder="e.g. 34DD"></label>
+      </div><p class="muted">Measure around the rib cage just below the bust. Full bust and underbust shape the preview. A bra size can help when underbust is missing.</p>
+      <details class="design-options tight"><summary>Fine-tune bust shape</summary>
+        <label class="field tight">Bra sizing system<select name="braSystem">${['Unspecified','US','UK','EU','Other'].map(system=>option(system,system,existing?.braSystem)).join('')}</select></label>
+        ${field('bustProjection',sewingModels.dimensions.bustProjection)}
+        <p class="muted">Optional projection is the horizontal depth from the front of the rib cage to the fullest point, viewed from the side.</p>
+        <label class="field tight">Visual cup fallback<select name="cup"><option value="">Estimate from available measurements or bra size</option>${sewingModels.cups.map(cup=>option(cup,cup,existing?.cup)).join('')}</select></label>
+      </details>
+    </div>
+    <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="300" height="210" role="img" aria-label="Model shape preview"></canvas>
+      <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button></div>
+    </div>
     <details class="design-options"${starting.height||starting.inseam?' open':''}><summary>Length and other measurements (optional)</summary>
     <div class="measurement-help">
       <svg viewBox="0 0 190 168" role="img" aria-label="Body measurement landmarks from shoulder, waist and crotch to floor">
@@ -806,7 +839,6 @@ function addModel(existing) {
       <p class="tight" role="status">${existing?.scan?'This model has a saved outline.':''}</p>
       <div class="actions tight"><button type="button" data-camera-start>Turn camera on</button><button type="button" class="secondary" data-camera-front>Capture front</button><button type="button" class="secondary" data-camera-side>Capture side</button><button type="button" class="secondary" data-camera-stop>Turn off</button><button type="button" class="secondary" data-camera-clear>Clear outline</button></div>
       <label class="field tight">Form skin tone<input type="color" name="skin" value="${color(existing?.skin || '#d7b69d')}"></label>
-      <canvas id="model-scan-preview" class="model-scan-preview" width="300" height="157" role="img" aria-label="Preview of the shaped dress form"></canvas>
     </details>
     <details class="design-options"><summary>Import a 3D torso instead</summary><label class="field tight">Optional 3D torso file (.obj)<input type="file" name="mesh" accept=".obj"></label>
       <p>Use a low-poly torso with Y pointing up and the front facing +Z. An imported mesh takes priority over a camera outline.</p>
@@ -816,13 +848,17 @@ function addModel(existing) {
   const form = document.querySelector('#model-form');
   const canvas = form.querySelector('#model-scan-preview');
   let scan = existing?.scan || null;
+  let previewAngle=-.45;
+  for (const button of form.querySelectorAll('[data-model-angle]')) button.onclick=()=>{
+    previewAngle=Number(button.dataset.modelAngle);preview();
+  };
   const readDimensions=()=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>{
     const metric=studioUnits.lengthValue(form.elements.namedItem(key));
     return metric==null?[]:[[key,metric]];
   }));
   function preview() {
     const data = new FormData(form);
-    drawModel(canvas,null,-.24,{}, {...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),scan,skin:color(data.get('skin'))},true);
+    drawModel(canvas,null,previewAngle,{}, {...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),scan,skin:color(data.get('skin'))},true);
   }
   modalCleanup = modelCamera.setup(form,scan,next=>{
     scan=next;
@@ -854,7 +890,8 @@ function addModel(existing) {
     const measurements=readDimensions();
     const issue=sewingModels.measurementIssue({...measurements,profile:data.get('profile')});
     if (issue) {error.textContent=issue;return;}
-    const item = {id:existing?.id || 'form-'+createId(),name,...measurements,profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',mesh,scan,skin:color(data.get('skin'))};
+    const item = {id:existing?.id || 'form-'+createId(),name,...measurements,profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',braSize:data.get('profile')==='female'?data.get('braSize').trim():'',
+      braSystem:data.get('profile')==='female'?data.get('braSystem'):'',mesh,scan,skin:color(data.get('skin'))};
     if (existing) state.models = state.models.map(model=>model.id===item.id?item:model);
     else state.models.push(item);
     save(existing?'Model updated':'Model added');

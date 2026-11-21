@@ -28,6 +28,7 @@ const sewingModels = (() => {
     arm:['Shoulder to wrist',35,85],
     neck:['Neck circumference',24,57],
     underbust:['Underbust / rib cage',53,152],
+    bustProjection:['Bust projection',1,12],
     highHip:['High hip circumference',60,160],
     thigh:['Thigh circumference',30,94],
     knee:['Knee circumference',24,62],
@@ -41,15 +42,24 @@ const sewingModels = (() => {
   const profiles={female:'Female',male:'Male'};
   const profileOf=model=>model.profile==='male'?'male':'female';
   const cups=['A','B','C','D','DD','DDD / E','F','G'];
+  function bustProjection(model) {
+    if (profileOf(model)!=='female') return 0;
+    if (Number.isFinite(model.bustProjection) && model.bustProjection>0) return model.bustProjection;
+    const full=model.bust||starter.female.bust;
+    const rib=model.underbust||starter.female.underbust;
+    if (!model.underbust) {
+      const braCup=model.braSize?.trim().toUpperCase().match(/^[0-9]+\s*([A-G]{1,3})$/)?.[1];
+      const visualCup=({E:'DDD / E',DDD:'DDD / E',FF:'F'})[braCup]||braCup;
+      const cup=cups.indexOf(model.cup||visualCup);
+      if (cup>=0) return 2.7+cup*.67;
+    }
+    return Math.max(1.8,Math.min(8.5,2.1+Math.max(0,full-rib-6)*.29));
+  }
   function bustShape(model,x,y,front) {
-    if (profileOf(model)!=='female' || front<=0) return 0;
-    const cup=cups.indexOf(model.cup);
-    const measured=model.underbust && model.bust
-      ? Math.max(0,Math.min(6,(model.bust-model.underbust-8)/2.5)):2;
-    const projection=.012+(cup<0?measured:cup)*.008;
-    const center=.46;
-    const horizontal=Math.exp(-(((Math.abs(x)-center)/.33)**2));
-    const vertical=Math.exp(-(((y+.49)/.125)**2));
+    if (front<=0) return 0;
+    const projection=bustProjection(model)*2.368/168;
+    const horizontal=Math.exp(-(((Math.abs(x)-.36)/.47)**2));
+    const vertical=Math.exp(-(((y+.49)/.14)**2));
     return projection*horizontal*vertical*front;
   }
   function shape(model,rings,part) {
@@ -60,7 +70,7 @@ const sewingModels = (() => {
     return rings.map(([y,w,d,...rest])=>{
       let width=0,depth=0;
       if (part==='torso') {
-        width=k('neck',.002)*at(y,-.9,.14)+k('underbust',.0013)*at(y,-.45,.14)+k('highHip',.0014)*at(y,-.04,.16);
+        width=k('neck',.002)*at(y,-.9,.14)+k('underbust',.0013)*at(y,-.34,.15)+k('highHip',.0014)*at(y,-.04,.16);
         depth=width*.65+(male?-.012:.009)*at(y,-.6,.19)+(male?-.007:.008)*at(y,.16,.22);
       } else if (part==='leg') {
         width=k('thigh',.0017)*at(y,.31,.26)+k('knee',.0016)*at(y,.655,.17)+
@@ -141,5 +151,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustShape,shape,proportions,measurementIssue,summary,parseObj};
+  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustProjection,bustShape,shape,proportions,measurementIssue,summary,parseObj};
 })();

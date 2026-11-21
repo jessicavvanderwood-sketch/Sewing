@@ -75,3 +75,7 @@ Work Orders include search, type and progress filters, archival, garment preview
 Use the **Units** selector in the header to switch between centimeters and inches for garment lengths, model measurements, fit adjustments, and work orders. The preference stays in the current browser. Saved measurements retain their original precision when switching views.
 
 The Model Library uses barefoot height and body inseam to place the head, crotch, and floor. Optional waist-to-floor and shoulder-to-waist measurements locate the waist and shoulder. The model editor includes a measurement diagram. These lengths are used by the pose rig, and existing saved profiles update from the measurements they already contain.
+
+Work order figures mark common assembly and fold steps. Enter the pattern’s seam allowance and hem turns under **Pattern allowances for the figures** to label the diagrams with project values. Tailoring figures can also label saved seam shifts and hem moves. The figures indicate where to measure and are not cutting templates.
+
+For female models, enter full bust and underbust together for the projection estimate. Bra size is optional and can help if underbust is missing. Use **Side view** in the model editor to check the shape. An optional projection measurement is available for fine-tuning.
