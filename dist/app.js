@@ -1,0 +1,464 @@
+'use strict';
+
+const patterns = [
+  {id:'dress',name:'The Studio Dress',type:'Dresses',cut:'Sleeveless A-line',level:'Intermediate',color:'#82354d',fabric:'2.5 m medium-weight cotton, linen or crepe',tools:'Machine, iron, shears, clips, zipper foot, matching thread, 55 cm invisible zipper',steps:[
+    'Prewash and press the fabric. Compare bust, waist and hip measurements to your selected A-line pattern and make a test bodice.',
+    'Lay out the selected pattern on grain. Cut front and back panels, facings, and interfacing. Transfer darts, notches and zipper marks.',
+    'Sew and press the darts. Join the shoulder seams and staystitch the neckline and armholes along the seam allowance.',
+    'Apply interfacing to the facings. Finish the neckline and armholes with the facing method specified by your pattern, then understitch where accessible.',
+    'Baste and fit the side seams. Stitch and finish them, then install the invisible zipper and close the remaining center-back seam.',
+    'Let the skirt hang before leveling the hem. Turn, press and stitch the hem, then verify the zipper and final fit.'
+  ]},
+  {id:'top',name:'The Linen Shell',type:'Tops',cut:'Boxy sleeveless shell',level:'Beginner',color:'#ac735c',fabric:'1.3 m woven linen or cotton',tools:'Machine, iron, shears, pins, marking chalk, matching thread, bias tape',steps:[
+    'Prewash and press the fabric. Compare bust and shoulder measurements with your shell pattern and confirm the head fits through the neckline.',
+    'Cut front and back pieces on grain. Transfer the notches and mark the right side of each piece.',
+    'Staystitch the neckline. Join, finish and press the shoulder seams.',
+    'Baste the side seams and check movement. Adjust the fit, stitch the side seams and finish the raw edges.',
+    'Bind the neckline and armholes with bias tape. Press the binding and stitch it neatly in place.',
+    'Level the hem, turn the raw edge twice, press and stitch. Check that the garment hangs evenly.'
+  ]},
+  {id:'skirt',name:'The Everyday Skirt',type:'Skirts',cut:'A-line midi',level:'Beginner',color:'#755269',fabric:'1.8 m stable woven fabric',tools:'Machine, iron, shears, pins, zipper foot, interfacing, matching thread, zipper',steps:[
+    'Prewash and press the fabric. Choose an A-line skirt pattern using waist and hip measurements, then check wearing ease.',
+    'Cut the panels and waistband on grain. Mark darts, notches, zipper placement and the hem allowance.',
+    'Sew the darts and press them toward the center. Baste the seams and fit through the waist and hips.',
+    'Stitch and finish the seams, leaving the zipper opening free. Install the zipper and close the seam below it.',
+    'Interface the waistband. Attach it, finish its inside edge and add the closure specified in your pattern.',
+    'Check the hem while worn. Mark a level hem, turn and press the allowance, then stitch and inspect.'
+  ]},
+  {id:'trousers',name:'The Workroom Trouser',type:'Trousers',cut:'Straight leg',level:'Advanced',color:'#60464c',fabric:'2.2 m twill or suiting',tools:'Machine, iron, tailor’s ham, shears, zipper foot, interfacing, zipper, hook and bar',steps:[
+    'Prewash and press the fabric. Make a toile from a straight-leg pattern and check the rise, waist, hips and movement.',
+    'Cut the leg panels, pockets, fly pieces and waistband on grain. Mark matching points and reinforce pocket openings.',
+    'Construct the pockets and sew the darts or pleats. Baste the side seams, inseams and rise for a fitting.',
+    'Finalize the fitted seams, then construct the zipper fly in the sequence specified by the pattern.',
+    'Interface and attach the waistband. Add the closure, finish raw edges and press through a press cloth.',
+    'Check the length with the intended shoes. Mark both legs independently, turn and stitch the hems, then press the creases.'
+  ]}
+];
+
+const initial = {
+  brand:{name:'Jessica’s Sewing',tagline:'Made with care, fitted with intention.',primary:'#752c40',accent:'#c49399',neutral:'#f2e5dd',notes:'',logo:''},
+  orders:[
+    {id:'WO-001',title:'Studio dress sample',pattern:'dress',due:'',notes:'Use the first toile to check waist placement.',done:[0,1]},
+    {id:'WO-002',title:'Linen shell prototype',pattern:'top',due:'',notes:'',done:[]}
+  ],
+  next:3,
+  custom:[]
+};
+
+const storageKey = 'jessicas-sewing-v1';
+let state = structuredClone(initial);
+try {
+  const saved = JSON.parse(localStorage.getItem(storageKey));
+  if (saved) state = {...state, ...saved, brand:{...initial.brand,...saved.brand}};
+} catch {}
+const view = document.querySelector('#view');
+const modal = document.querySelector('#modal');
+const notice = document.querySelector('#notice');
+const titles = {overview:'Overview',brand:'Brand Kit',library:'Pattern Library',orders:'Work Orders',fitting:'3D Fitting Room'};
+const features = [['brand','◈','Define your palette, logo and brand voice.'],['library','▤','Browse garment styles, cuts and construction guides.'],['fitting','◇','Preview fit changes and plan your alterations.']];
+const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const allPatterns = () => [...patterns, ...state.custom];
+const getPattern = id => allPatterns().find(pattern => pattern.id === id);
+const basePattern = pattern => patterns.find(base => base.id === (pattern.model || pattern.id)) || patterns[0];
+const option = (value,name,selected) => `<option value="${escape(value)}"${value===selected?' selected':''}>${escape(name)}</option>`;
+const options = selected => allPatterns().map(p => option(p.id,p.name,selected)).join('');
+const heading = (title,description) => `<div class="page-title"><h1>${title}</h1><p>${description}</p></div>`;
+const color = value => /^#[\da-f]{6}$/i.test(value) ? value : '#752c40';
+let noticeTimer;
+function save(message) {
+  try {
+    localStorage.setItem(storageKey,JSON.stringify(state));
+    if (message) notify(message);
+  } catch {
+    notify('Browser storage is unavailable or full. These changes are available for this session.');
+  }
+}
+function notify(message) {
+  notice.textContent = message;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { notice.textContent = ''; },4000);
+}
+function orderTable(orders) {
+  if (!orders.length) return '<div class="card empty"><p>Your work orders will appear here.</p></div>';
+  return `<div class="card table"><table><thead><tr><th scope="col">Work order</th><th scope="col">Pattern</th><th scope="col">Due date</th><th scope="col">Status</th><th scope="col">Progress</th><th scope="col"><span class="muted">Details</span></th></tr></thead><tbody>${orders.map(order => {
+    const pattern = getPattern(order.pattern);
+    const done = order.done.length;
+    const total = pattern.steps.length;
+    const status = done === total ? 'Complete' : done ? 'In progress' : 'Queued';
+    return `<tr><td><strong>${escape(order.title)}</strong><br><span class="muted">${order.id}</span></td><td>${escape(pattern.name)}</td><td>${order.due ? new Date(order.due+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) : '—'}</td><td><span class="badge ${done === total ? 'done' : ''}">${status}</span></td><td>${done} / ${total} steps</td><td><button class="secondary" data-action="order" data-id="${order.id}">Open</button></td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+function overview() {
+  const complete = state.orders.filter(o => o.done.length === getPattern(o.pattern).steps.length).length;
+  const stats = [['▤',allPatterns().length,'Library styles'],['▣',state.orders.length-complete,'Open work orders'],['✓',complete,'Completed orders']];
+  view.innerHTML = `<section class="hero"><div><div class="eyebrow">THE SEWING STUDIO</div><h1>Jessica’s Sewing<br>Dashboard</h1><p>Manage your patterns, plan the next make, and refine the fit in one workspace.</p><a class="button" href="#library">Browse patterns</a></div></section>
+    <div class="stats">${stats.map(([icon,count,label])=>`<div class="stat"><span class="icon" aria-hidden="true">${icon}</span><div><b>${count}</b><span>${label}</span></div></div>`).join('')}</div>
+    <section><div class="section-head"><h2>Studio tools</h2></div><div class="features">${features.map(([key,icon,description])=>`<a class="card feature" href="#${key}"><span class="icon" aria-hidden="true">${icon}</span><h3>${titles[key]}</h3><p>${description}</p></a>`).join('')}</div></section>
+    <section class="section"><div class="section-head"><h2>Recent work orders</h2><a href="#orders">View all</a></div>${orderTable(state.orders.slice(0,4))}</section>`;
+}
+function brand() {
+  const b = state.brand;
+  view.innerHTML = heading('Brand Kit','Keep your logo, colors and brand guidelines together.') + `<div class="split"><form id="brand-form" class="panel">
+    <label class="field">Brand name<input required maxlength="80" name="name" value="${escape(b.name)}"></label>
+    <label class="field">Tagline<input maxlength="140" name="tagline" value="${escape(b.tagline)}"></label>
+    <div class="fields">${[['primary','Primary'],['accent','Accent'],['neutral','Neutral']].map(([key,label])=>`<label class="field">${label}<input type="color" name="${key}" value="${color(b[key])}"></label>`).join('')}</div>
+    <label class="field">Logo (PNG, JPEG or WebP, up to 1 MB)<input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
+    ${b.logo ? '<label class="field"><span><input style="min-height:auto;width:auto" type="checkbox" name="removeLogo"> Remove saved logo</span></label>' : ''}
+    <label class="field">Brand guidelines<textarea name="notes" rows="4" maxlength="5000">${escape(b.notes)}</textarea></label><button>Save brand kit</button></form><div class="panel brand-preview" id="brand-preview"></div></div>`;
+  const form = document.querySelector('#brand-form');
+  const preview = document.querySelector('#brand-preview');
+  function update() {
+    const data = new FormData(form);
+    const logo = !data.has('removeLogo') && /^data:image\/(png|jpeg|webp);base64,[\da-z+/=]+$/i.test(b.logo) ? b.logo : '';
+    preview.style.background = color(data.get('neutral'));
+    preview.innerHTML = `<div>${logo ? `<img src="${logo}" alt="Brand logo">` : ''}<h2 style="color:${color(data.get('primary'))}">${escape(data.get('name'))}</h2><p>${escape(data.get('tagline'))}</p><div class="swatches">${['primary','accent','neutral'].map(key=>`<span title="${color(data.get(key))}" style="background:${color(data.get(key))}"></span>`).join('')}</div></div>`;
+  }
+  update();
+  form.addEventListener('input',update);
+  form.addEventListener('submit',async event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const file = data.get('logo');
+    let logo = data.has('removeLogo') ? '' : b.logo;
+    if (file.size) {
+      if (file.size > 1048576 || !['image/png','image/jpeg','image/webp'].includes(file.type)) {
+        notify('Choose a PNG, JPEG or WebP logo under 1 MB.');
+        return;
+      }
+      try {
+        logo = await new Promise((resolve,reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      } catch {
+        notify('The selected logo could not be read.');
+        return;
+      }
+    }
+    state.brand = {name:data.get('name').trim()||b.name,tagline:data.get('tagline'),primary:data.get('primary'),accent:data.get('accent'),neutral:data.get('neutral'),notes:data.get('notes'),logo};
+    save('Brand kit saved');
+    if (form.isConnected) brand();
+  });
+}
+function library() {
+  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${patterns.map(p=>option(p.type,p.type)).join('')}</select></label><button data-action="add-pattern">＋ Add style</button></div><div class="patterns" id="patterns"></div>`;
+  const search = document.querySelector('#pattern-search');
+  const filter = document.querySelector('#pattern-filter');
+  const container = document.querySelector('#patterns');
+  function results() {
+    const query = search.value.trim().toLowerCase();
+    const matches = allPatterns().filter(p => (!filter.value || p.type===filter.value) && [p.name,p.type,p.cut].join(' ').toLowerCase().includes(query));
+    container.innerHTML = matches.length ? matches.map(p=>`<article class="card pattern"><div class="pattern-art"><canvas width="360" height="155" data-pattern="${escape(p.id)}" role="img" aria-label="${escape(p.cut)} illustration"></canvas></div><div class="pattern-body"><span class="badge">${escape(p.type)}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${escape(p.level)}</p><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">View construction guide</button></div></article>`).join('') : '<p>No styles match your search.</p>';
+    for (const canvas of container.querySelectorAll('canvas')) drawModel(canvas,getPattern(canvas.dataset.pattern),-.35,{}, {},true);
+  }
+  search.addEventListener('input',results);
+  filter.addEventListener('change',results);
+  results();
+}
+function orders() {
+  view.innerHTML = heading('Work Orders','Create a work order and check off the construction steps as you sew.') + orderTable(state.orders);
+}
+function showDialog(title, body) {
+  modal.innerHTML = `<div class="dialog-head"><h2>${escape(title)}</h2><button class="secondary close" type="button" data-action="close" aria-label="Close dialog">×</button></div>${body}`;
+  if (!modal.open) modal.showModal();
+}
+function patternDetails(pattern) {
+  showDialog(pattern.name,`<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p><ol class="steps">${pattern.steps.map(s=>`<li>${escape(s)}</li>`).join('')}</ol><div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">Create work order</button><button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">Open fitting room</button></div>`);
+}
+function addPattern() {
+  showDialog('Add a style',`<form id="pattern-form"><label class="field">Style name<input required maxlength="100" name="name"></label><div class="fields"><label class="field">Garment type<select name="model">${patterns.map(p=>option(p.id,p.type)).join('')}</select></label><label class="field">Clothing cut<input required maxlength="100" name="cut"></label></div><label class="field">Skill level<select name="level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label><label class="field">Fabric and quantity<input required maxlength="200" name="fabric"></label><label class="field">Tools and notions<textarea required maxlength="2000" name="tools" rows="2"></textarea></label><label class="field">Construction steps (one per line)<textarea required maxlength="10000" name="steps" rows="6"></textarea></label><button>Save style</button></form>`);
+  document.querySelector('#pattern-form').addEventListener('submit',event => {
+    event.preventDefault();
+    const data = new FormData(event.target);
+    const read = key => data.get(key).trim();
+    const steps = read('steps').split(/\n/).map(s=>s.trim()).filter(Boolean);
+    if (!read('name') || !read('cut') || !read('tools') || !read('fabric') || !steps.length) { notify('Fill in each style field and add a construction step.'); return; }
+    const base = getPattern(read('model'));
+    state.custom.push({id:'custom-'+Date.now().toString(36),model:base.id,type:base.type,color:base.color,name:read('name'),cut:read('cut'),level:read('level'),fabric:read('fabric'),tools:read('tools'),steps});
+    save('Style added');
+    modal.close();
+    library();
+  });
+}
+function newOrder(id,existing) {
+  showDialog(existing ? 'Edit work order' : 'New work order', `<form id="order-form"><label class="field">Work order name<input name="title" required maxlength="120" value="${escape(existing?.title || '')}"></label><label class="field">Pattern<select name="pattern" ${existing?.done.length ? 'disabled' : ''}>${options(existing?.pattern || id)}</select></label><label class="field">Due date<input type="date" name="due" value="${escape(existing?.due || '')}"></label><label class="field">Fabric, sizing or fitting notes<textarea name="notes" rows="4" maxlength="7000">${escape(existing?.notes || '')}</textarea></label><button>Save work order</button></form>`);
+  const form = document.querySelector('#order-form');
+  form.addEventListener('submit',event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const title = data.get('title').trim();
+    if (!title) { notify('Enter a work order name.'); return; }
+    const details = {title,pattern:data.get('pattern') || existing.pattern,due:data.get('due'),notes:data.get('notes')};
+    const order = existing || {id:'WO-'+String(state.next++).padStart(3,'0'),done:[]};
+    Object.assign(order,details);
+    if (!existing) state.orders.unshift(order);
+    save('Work order saved');
+    modal.close();
+    if (location.hash === '#orders') orders();
+    else location.hash = 'orders';
+  });
+}
+function orderDetails(order) {
+  const pattern = getPattern(order.pattern);
+  showDialog(order.title,`<p>${order.id} · ${escape(pattern.name)}</p>${order.notes ? `<p class="tight" style="white-space:pre-wrap">${escape(order.notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p><h3 class="tight">Construction checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p><ol class="check-list">${pattern.steps.map((step,index)=>`<li><label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label></li>`).join('')}</ol><button class="secondary" data-action="edit-order" data-id="${order.id}">Edit work order</button>`);
+  modal.querySelector('.check-list').addEventListener('change',event => {
+    if (!event.target.matches('input')) return;
+    order.done = [...modal.querySelectorAll('.check-list input:checked')].map(box=>Number(box.value));
+    save();
+    document.querySelector('#order-progress').textContent = `${order.done.length} of ${pattern.steps.length} steps completed`;
+    render();
+  });
+}
+
+const mannequin = [[-.9,.075,.07],[-.79,.09,.085],[-.75,.21,.105],[-.63,.255,.133],[-.45,.206,.128],[-.25,.155,.104],[-.04,.194,.127],[.16,.232,.14],[.3,.192,.13]];
+const dress = [[-.75,.225,.122],[-.64,.266,.145],[-.45,.222,.142],[-.25,.168,.115],[-.04,.209,.139],[.16,.246,.154],[.4,.298,.19],[.64,.35,.225],[.84,.399,.251]];
+const shells = {
+  dress,
+  top:[[-.75,.225,.122],[-.64,.267,.147],[-.45,.237,.154],[-.25,.23,.15],[-.04,.243,.161],[.15,.262,.168]],
+  skirt:dress.slice(4).map(([y,x,z],i)=>i===0?[-.25,.166,.114]:[y,x,z]),
+  trousers:[[-.25,.169,.114],[-.04,.209,.143],[.16,.246,.154],[.35,.24,.144]]
+};
+
+function drawModel(canvas,pattern,angle,changes,body,thumbnail=false) {
+  const context = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  const scale = height * (thumbnail ? .44 : .41);
+  const cx = width/2;
+  const cy = height*(thumbnail ? .49 : .47);
+  const faces = [];
+  const model = basePattern(pattern).id;
+  const segments = 38;
+  const spin = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const tilt = -.105;
+  const project = ([x,y,z]) => {
+    const px = x*spin-z*sine;
+    const pz = x*sine+z*spin;
+    const py = y*Math.cos(tilt)-pz*Math.sin(tilt);
+    const depth = y*Math.sin(tilt)+pz*Math.cos(tilt);
+    const perspective = 3.7/(3.7-depth);
+    return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
+  };
+  function mesh(rings,hex,offset=0,neck=false,detail=false) {
+    const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
+    function point(ring,index,ringIndex) {
+      const [y,w,d] = ring;
+      const theta = index*2*Math.PI/segments;
+      const x = Math.cos(theta);
+      const z = Math.sin(theta);
+      const neckline = neck && ringIndex===0 ? Math.max(0,1-(Math.abs(x)/.56)**2)*.115*(z>0?1:.5) : 0;
+      const fold = detail ? Math.max(0,y-.1)*.016*Math.sin(theta*9) : 0;
+      return project([offset+x*(w+fold),y+neckline,z*(d+fold)]);
+    }
+    for (let ring=0;ring<rings.length-1;ring++) {
+      for (let i=0;i<segments;i++) {
+        if (neck && ring===0 && (i>=17&&i<=21 || i<2 || i>=36)) continue;
+        const points = [point(rings[ring],i,ring),point(rings[ring],i+1,ring),point(rings[ring+1],i+1,ring+1),point(rings[ring+1],i,ring+1)];
+        const [a,b,c] = points;
+        if ((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]) >= 0) continue;
+        const theta = (i+.5)*2*Math.PI/segments+angle;
+        const light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
+        const depth = points.reduce((sum,p)=>sum+p[2],0)/4;
+        const paint = channels.map(c=>Math.max(0,Math.min(255,Math.round(c*light))));
+        faces.push({points,depth,paint:'rgb('+paint.join(',')+')',seam:detail&&(i===0||i===19||ring===rings.length-2)});
+      }
+    }
+  }
+  const waistDelta = (changes.waist || 0)/450;
+  const hipDelta = (changes.hip || 0)/450;
+  const bodyWaist = ((body.waist || 74)-74)/450;
+  const bodyHip = ((body.hip || 98)-98)/450;
+  const lengthDelta = (changes.length || 0)/95;
+  const waistWeight = y=>Math.max(0,1-Math.abs(y+.25)/.32);
+  const hipWeight = y=>Math.max(0,1-Math.abs(y-.16)/.38);
+  function resize(rings,waist,hip,length=0) {
+    return rings.map(([y,w,d],index)=>{
+      const widthChange = waistWeight(y)*waist+hipWeight(y)*hip;
+      const heightChange = index===0 ? 0 : length*(index/(rings.length-1))**2;
+      return [y+heightChange,w+widthChange,d+widthChange*.68];
+    });
+  }
+  context.clearRect(0,0,width,height);
+  context.fillStyle='#3a1e271f';
+  context.beginPath();
+  context.ellipse(cx,height*.91,scale*.41,scale*.065,0,0,Math.PI*2);
+  context.fill();
+  if (!thumbnail) {
+    mesh([[.2,.014,.014],[.89,.014,.014]],'#6d5150');
+    mesh(resize(mannequin,bodyWaist,bodyHip),'#d7b69d');
+  }
+  mesh(resize(shells[model],waistDelta,hipDelta,model==='trousers'?0:lengthDelta),color(pattern.color),0,model==='top'||model==='dress',true);
+  if (model==='trousers') {
+    const leg = [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]];
+    for (const side of [-1,1]) mesh(resize(leg,0,hipDelta,lengthDelta),color(pattern.color),side*.12,false,true);
+  }
+  for (const face of faces.sort((a,b)=>a.depth-b.depth)) {
+    context.beginPath();
+    face.points.forEach(([x,y],index)=>index?context.lineTo(x,y):context.moveTo(x,y));
+    context.closePath();
+    context.fillStyle = face.paint;
+    context.fill();
+    context.lineWidth = .85;
+    context.strokeStyle = face.paint;
+    context.stroke();
+    if (face.seam) {
+      const [a,b,c] = face.points;
+      context.beginPath();
+      context.moveTo(...b.slice(0,2));
+      context.lineTo(...(Math.abs(a[1]-b[1])<.5?a:c).slice(0,2));
+      context.strokeStyle = '#28121f42';
+      context.lineWidth = .55;
+      context.stroke();
+    }
+  }
+}
+
+let fitPattern = 'dress';
+let fittingDraft;
+const adjustmentText = n => (n>0?'+':'')+n+' cm';
+function guide(pattern,changes,body) {
+  const {waist,hip,length} = changes;
+  const model = basePattern(pattern).id;
+  const steps = [
+    `Measure the garment and the wearer at the same reference points. The form is set to a ${body.waist} cm waist and ${body.hip} cm hip. Compare the finished garment measurements with those values and allow enough wearing ease for the fabric and style.`,
+    'Turn the garment inside out and mark the original stitching lines. If a lining, facing or waistband blocks the seam, open only the section needed for access.'
+  ];
+  if (waist || hip) {
+    for (const [area,amount] of [['waist',waist],['hip',hip]]) {
+      if (!amount) continue;
+      const allowance = Math.abs(amount)/4;
+      steps.push(amount<0
+        ? `At the ${area}, take in ${Math.abs(amount)} cm total. When both side seams share the change equally, mark ${allowance} cm inward from the original stitching line on both layers at each side seam. Refit the waistband if the waist edge changes.`
+        : `At the ${area}, let out ${amount} cm total. When both side seams share the change equally, the new line moves ${allowance} cm toward the raw edges on both layers at each side seam. Check that the remaining seam allowance is sufficient for the fabric and finish. If it is too narrow, plan inserts or a different seam distribution before proceeding.`);
+    }
+    steps.push('Blend the new stitching lines smoothly into the unchanged seams. Baste both sides, then try on the garment while standing, sitting and moving. Check symmetry and distribute the adjustment differently if a zipper, pocket or design seam affects the fit.');
+    steps.push('Stitch the confirmed lines, finish the raw edges and press. Refit and reattach any opened lining, facing or waistband.');
+  }
+  if (length) {
+    const target = model==='trousers'?'both trouser legs':'the garment';
+    steps.push(length<0
+      ? `Try on ${target} with the intended shoes if applicable. Mark the new finished hem ${Math.abs(length)} cm above the old hem. Add the hem allowance below the new line before trimming and keep the original finish in mind.`
+      : `Mark the new finished hem ${length} cm below the old hem. Unpick and press the existing hem. Confirm there is enough fabric for a secure finish. Use a faced hem to preserve available length, or add a cuff or extension if the existing fabric is insufficient.`);
+    steps.push('Baste and check the hem level while worn. Stitch the hem, then press with a suitable press cloth.');
+  }
+  steps.push('Check the finished measurements, ease, closures and hem before trimming any remaining excess or closing the lining.');
+  return steps;
+}
+function fitting() {
+  const pattern = getPattern(fitPattern);
+  view.innerHTML = heading('3D Fitting Room','Rotate the dress form and plan measured changes to the garment.') + `<div class="split"><section class="panel viewer"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div></section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form"><label class="field">Garment<select name="pattern">${options(fitPattern)}</select></label><div class="fields"><label class="field">Form waist (cm)<input name="formWaist" type="number" min="55" max="120" value="74" required></label><label class="field">Form hip (cm)<input name="formHip" type="number" min="75" max="145" value="98" required></label></div>${[['waist','Waist circumference',12],['hip','Hip circumference',12],['length','Hem length',15]].map(([key,label,max])=>`<label class="field"><span>${label} <output id="${key}-value">0 cm</output></span><input name="${key}" type="range" min="-${max}" max="${max}" step="0.5" value="0"></label>`).join('')}<p class="muted" style="font-size:14px;margin-bottom:13px">The preview uses a simplified dress form and garment shape. Verify fit and seam allowances on the actual garment.</p><div class="actions"><button>Generate tailoring instructions</button><button type="reset" class="secondary">Reset fit</button></div></form></section></div><section id="fit-guide" class="panel instructions" hidden></section>`;
+  const form = document.querySelector('#fitting-form');
+  const canvas = document.querySelector('#model');
+  const fitGuide = document.querySelector('#fit-guide');
+  let angle = 0;
+  let pointer;
+  const value = key => Number(form.elements.namedItem(key).value);
+  const changes = () => ({waist:value('waist'),hip:value('hip'),length:value('length')});
+  const body = () => ({waist:value('formWaist'),hip:value('formHip')});
+  function draw() {
+    if (!canvas.isConnected) return;
+    const ratio = Math.min(window.devicePixelRatio||1,2);
+    canvas.width = Math.round(canvas.clientWidth*ratio);
+    canvas.height = Math.round(canvas.clientHeight*ratio);
+    drawModel(canvas,getPattern(fitPattern),angle,changes(),body());
+  }
+  const size = new ResizeObserver(draw);
+  size.observe(canvas);
+  fitCleanup = () => size.disconnect();
+  form.addEventListener('input',event=>{
+    if (event.target.name==='pattern') fitPattern = event.target.value;
+    for (const [key,n] of Object.entries(changes())) document.querySelector('#'+key+'-value').textContent = adjustmentText(n);
+    fittingDraft = undefined;
+    fitGuide.hidden = true;
+    draw();
+  });
+  form.addEventListener('reset',event=>{
+    event.preventDefault();
+    for (const key of ['waist','hip','length','formWaist','formHip']) {
+      const field = form.elements.namedItem(key);
+      field.value = field.defaultValue;
+    }
+    form.dispatchEvent(new Event('input'));
+  });
+  canvas.addEventListener('pointerdown',event=>{
+    pointer = {id:event.pointerId,x:event.clientX};
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove',event=>{
+    if (pointer?.id!==event.pointerId) return;
+    angle += (event.clientX-pointer.x)*.016;
+    pointer.x = event.clientX;
+    draw();
+  });
+  canvas.addEventListener('lostpointercapture',()=>{ pointer = undefined; });
+  canvas.addEventListener('keydown',event=>{
+    if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    angle += event.key==='ArrowLeft'?-.2:.2;
+    draw();
+  });
+  document.querySelector('#reset-view').onclick = ()=>{angle=0;draw();};
+  form.addEventListener('submit',event=>{
+    event.preventDefault();
+    const delta = changes();
+    if (!Object.values(delta).some(Boolean)) {notify('Move at least one fit slider to generate instructions.');return;}
+    const garment = getPattern(fitPattern);
+    const tools = 'Measuring tape, pins or clips, tailor’s chalk, seam ripper, matching thread, sewing machine, iron and press cloth. Keep shears handy for a confirmed hem alteration.';
+    const steps = guide(garment,delta,body());
+    const summary = Object.entries(delta).filter(([,amount])=>amount).map(([key,amount])=>key+' '+adjustmentText(amount)).join(' · ');
+    fittingDraft = {garment,tools,steps,summary};
+    fitGuide.hidden = false;
+    fitGuide.innerHTML = `<h2>Tailoring instructions</h2><p class="tight">${escape(garment.name)} · ${escape(summary)}</p><p class="tight"><strong>Tools</strong> ${tools}</p><ol class="steps">${steps.map(step=>`<li>${escape(step)}</li>`).join('')}</ol><button data-action="save-fit">Save as a work order</button>`;
+    fitGuide.scrollIntoView({block:'nearest'});
+  });
+  draw();
+}
+function saveFit() {
+  if (!fittingDraft) return;
+  const {garment,tools,steps,summary} = fittingDraft;
+  const base = basePattern(garment);
+  const plan = {id:'alteration-'+Date.now().toString(36),name:garment.name+' alteration',type:garment.type,level:'Intermediate',cut:garment.cut,model:base.id,color:garment.color,fabric:'Existing garment and compatible fabric if an extension is needed.',tools,steps};
+  state.custom.push(plan);
+  state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:plan.name,pattern:plan.id,due:'',notes:summary,done:[]});
+  save('Alteration work order saved');
+  fittingDraft = undefined;
+  location.hash = 'orders';
+}
+
+let fitCleanup;
+function render() {
+  fitCleanup?.();
+  fitCleanup = undefined;
+  const route = location.hash.slice(1);
+  const page = Object.hasOwn(titles,route)?route:'overview';
+  document.querySelector('#page-name').textContent = titles[page];
+  for (const link of document.querySelectorAll('nav a')) {
+    if (link.hash === '#'+page) link.setAttribute('aria-current','page');
+    else link.removeAttribute('aria-current');
+  }
+  ({overview,brand,library,orders,fitting})[page]();
+}
+document.addEventListener('click',event=>{
+  const button = event.target.closest('[data-action]');
+  if (!button) return;
+  const id = button.dataset.id;
+  switch (button.dataset.action) {
+    case 'close': modal.close(); break;
+    case 'new': newOrder(id); break;
+    case 'pattern': patternDetails(getPattern(id)); break;
+    case 'add-pattern': addPattern(); break;
+    case 'order': orderDetails(state.orders.find(o=>o.id===id)); break;
+    case 'edit-order': newOrder(undefined,state.orders.find(o=>o.id===id)); break;
+    case 'fit': fitPattern=id; modal.close(); location.hash='fitting'; break;
+    case 'save-fit': saveFit(); break;
+  }
+});
+window.addEventListener('hashchange',()=>{
+  if (modal.open) modal.close();
+  render();
+  window.scrollTo(0,0);
+});
+render();
