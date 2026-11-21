@@ -1,5 +1,5 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v2';
+const cacheName = cachePrefix + 'v3';
 const files = ['./', './index.html', './style.css', './app.js', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
   './visuals.js', './fit.js', './design.js', './photo.js', './models.js', './brother-cp2160f.jpg',

@@ -424,7 +424,7 @@ function addModel() {
 function startFit(id,modelId) {
   fitPattern = id;
   fitRevision = getPattern(id).fit || null;
-  fitModel = modelId || fitRevision?.modelId || fitModel;
+  fitModel = modelId || fitRevision?.modelId || getPattern(id).design?.fitModelId || fitModel;
   if (modal.open) modal.close();
   if (location.hash==='#fitting') render();
   else location.hash='fitting';
@@ -594,7 +594,7 @@ function saveFit(name) {
   location.hash = 'orders';
 }
 
-let designDraft = {...studioDesign.defaults(),name:'',reference:''};
+let designDraft = {...studioDesign.defaults(),name:'',reference:'',fitModelId:'studio-form'};
 
 function designStudio() {
   view.innerHTML = heading('Design Studio','Combine garment details into a new design, or use a photo to suggest a starting shape.')+`
@@ -602,6 +602,8 @@ function designStudio() {
       <canvas id="design-model" role="img" aria-label="Three-dimensional design preview"></canvas>
       <div class="viewer-footer"><label class="field design-rotate">Rotate preview <input type="range" id="design-angle" min="-180" max="180" value="-21" aria-label="Rotate preview"></label></div>
     </div><div class="panel"><form id="design-form">
+      <label class="field">Fit to model<select name="fitModelId">${allModels().map(model=>option(model.id,model.name,designDraft.fitModelId)).join('')}</select></label>
+      <p class="model-link"><a href="#models">Open Model Library</a></p><p id="design-measurements" class="fit-baseline"></p>
       <details class="design-options"><summary>Start from a garment photo</summary>
         <label class="field tight">Upload a front-view photo<input type="file" id="design-photo" accept="image/jpeg,image/png,image/webp"></label>
         <p>Lay the garment flat against a plain, contrasting background and include all its edges. Photo analysis runs in your browser.</p>
@@ -621,6 +623,13 @@ function designStudio() {
   const photo = document.querySelector('#design-photo');
   const photoStatus = document.querySelector('#photo-status');
   const reference = document.querySelector('#design-reference');
+  const measurementSummary = document.querySelector('#design-measurements');
+  const body = () => getModel(designDraft.fitModelId);
+  function showMeasurements() {
+    const model = body();
+    const target = studioDesign.isBodice(designDraft.model)?['bust',model.bust]:['hip',model.hip];
+    measurementSummary.textContent = `Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm · Shoulders ${model.shoulder} cm. Finished ${target[0]} target ${target[1]+Number(designDraft.ease)} cm.`;
+  }
   const select = (key,label,items) => `<label class="field">${label}<select name="${key}">${items.map(item=>option(item,item,designDraft[key])).join('')}</select></label>`;
   function settingsForModel(open=false) {
     const spec = studioDesign.silhouettes[designDraft.model];
@@ -649,20 +658,21 @@ function designStudio() {
     canvas.width = Math.round(canvas.clientWidth*ratio);
     canvas.height = Math.round(canvas.clientHeight*ratio);
     const item = {model:designDraft.model,design:designDraft,color:designDraft.primary};
-    drawModel(canvas,item,Number(angle.value)*Math.PI/180,{hasSleeves:studioDesign.isSleeved(designDraft)},getModel(fitModel));
+    drawModel(canvas,item,Number(angle.value)*Math.PI/180,{hasSleeves:studioDesign.isSleeved(designDraft)},body());
   }
   function updateGuide() {
     if (!guide.open) return;
-    const item = studioDesign.make(designDraft,designDraft.name);
+    const item = studioDesign.make(designDraft,designDraft.name,body());
     guide.querySelector('#design-guide-content').innerHTML = `<p class="tight"><strong>Fabric</strong> ${escape(item.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(item.tools)}</p>${sewingVisuals.tools(item.tools)}${sewingVisuals.steps(item.steps,item.visuals)}`;
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
-    designDraft = {...studioDesign.defaults(model),name:designDraft.name,reference:designDraft.reference,primary:designDraft.primary,accent:designDraft.accent};
+    designDraft = {...studioDesign.defaults(model),name:designDraft.name,reference:designDraft.reference,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent};
     settingsForModel();
   }
   settingsForModel();
   refreshReference();
+  showMeasurements();
   const size = new ResizeObserver(preview);
   size.observe(canvas);
   fitCleanup = () => size.disconnect();
@@ -673,6 +683,7 @@ function designStudio() {
     if (!field.name || field.type==='file') return;
     if (field.name==='model') changeModel(field.value);
     else designDraft[field.name] = field.type==='number'?Number(field.value):field.value;
+    showMeasurements();
     preview();
     updateGuide();
   });
@@ -695,6 +706,7 @@ function designStudio() {
       designDraft.reference=result.thumbnail;
       settingsForModel();
       refreshReference();
+      showMeasurements();
       photoStatus.textContent=result.model
         ? 'Starting shape suggested. Review the garment type and silhouette, then choose the neckline, fabric, and closure yourself.'
         : 'Photo added. The outline was unclear, so choose a garment type and silhouette yourself.';
@@ -709,13 +721,13 @@ function designStudio() {
     const name = form.elements.namedItem('name').value.trim();
     if (!name) {notify('Enter a garment name.');return;}
     const {name:_,reference,...design} = designDraft;
-    const item = {id:'design-'+createId(),...studioDesign.make(design,name),reference};
+    const item = {id:'design-'+createId(),...studioDesign.make(design,name,body()),reference};
     state.custom.push(item);
     if (event.submitter?.value==='order') state.orders.unshift({
-      id:'WO-'+String(state.next++).padStart(3,'0'),title:name,pattern:item.id,due:'',notes:reference?'Confirm the details against your reference photo and personal measurements.':'',done:[]
+      id:'WO-'+String(state.next++).padStart(3,'0'),title:name,pattern:item.id,due:'',notes:'Fitted to '+body().name+'.'+(reference?' Check the design details against the reference photo.':''),done:[]
     });
     save(event.submitter?.value==='order'?'Garment and work order saved':'Garment saved to Pattern Library');
-    designDraft = {...studioDesign.defaults(),name:'',reference:''};
+    designDraft = {...studioDesign.defaults(),name:'',reference:'',fitModelId:design.fitModelId};
     location.hash=event.submitter?.value==='order'?'orders':'library';
   });
   preview();
@@ -807,7 +819,7 @@ document.addEventListener('click',event=>{
     case 'choose-model': startFit(fitPattern,id); break;
     case 'copy-design': {
       const source = getPattern(id);
-      designDraft = {...source.design,name:source.name+' variation',reference:source.reference || ''};
+      designDraft = {...source.design,fitModelId:source.fit?.modelId || source.design.fitModelId || 'studio-form',name:source.name+' variation',reference:source.reference || ''};
       modal.close();
       location.hash='design';
       break;
