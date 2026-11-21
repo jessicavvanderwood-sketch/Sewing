@@ -629,7 +629,7 @@ function orderDetails(order) {
   });
 }
 
-const mannequin = [[-.9,.075,.07],[-.79,.09,.085],[-.75,.21,.105],[-.63,.255,.133],[-.45,.206,.128],[-.25,.155,.104],[-.04,.194,.127],[.16,.232,.14],[.3,.192,.13]];
+const mannequin = [[-.9,.064,.058],[-.82,.087,.074],[-.755,.18,.091],[-.69,.233,.117],[-.57,.217,.127],[-.45,.191,.112],[-.25,.155,.104],[-.04,.194,.122],[.16,.226,.14],[.24,.210,.120],[.30,.175,.083]];
 const dress = [[-.75,.225,.122],[-.64,.266,.145],[-.45,.222,.142],[-.25,.168,.115],[-.04,.209,.139],[.16,.246,.154],[.4,.298,.19],[.64,.35,.225],[.84,.399,.251]];
 const shells = {
   dress,
@@ -673,11 +673,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const selectedSwatch=materialName?getFabric(materialName):null;
   const weave=materialName?fabricFit.weave(materialName,selectedSwatch?.category):'plain';
   const regions = analysis?.show ? fabricFit.estimate(pattern,model,body,changes,analysis.pose,analysis.material) : null;
-  const segments = 38;
   const spin = Math.cos(angle);
   const sine = Math.sin(angle);
   const tilt = -.105;
   const proportions=sewingModels.proportions(body);
+  const bustGeometry=sewingModels.bustGeometry(body,proportions);
   const project = ([x,y,z]) => {
     const px = x*spin-z*sine;
     const pz = x*sine+z*spin;
@@ -687,6 +687,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
   };
   function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
+    const segments = hex===skin && !detail ? 54 : 38;
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
     function point(ring,theta,ringIndex) {
       const [y,w,d,center=0] = ring;
@@ -702,8 +703,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const neckline = neck ? Math.max(0,1-(y-rings[0][0])/.70)* outline*(z>0?frontDepth:fabricFit.clamp(.0575+(changes.backNeck||0)/92,.012,.25)) : 0;
       const fold = detail ? Math.max(0,y-.34)*.008*Math.sin(theta*9) : 0;
       const slope = neck?Math.abs(x)*(changes.shoulderSlope||0)/120*Math.max(0,1-ringIndex/5):0;
-      const projectedBust=(part==='torso-skin'||neck)?sewingModels.bustShape(body,x,y,z):0;
-      const vertex=[offset+center+x*(w+fold),y+neckline+slope,z*(d+fold)+projectedBust];
+      const bustWidth=neck && fullBody && !body.mesh ? fabricFit.envelope(torso,y)[0] || w : w;
+      const projectedBust=(part==='torso-skin'||neck)?sewingModels.bustShape(bustGeometry,x,y,z,bustWidth):0;
+      // Drop the inner pelvis a little below the outer hip to meet the thighs.
+      const pelvis=part==='torso-skin' ? Math.max(0,(y-.13)/.17)**2 : 0;
+      const pelvisY=pelvis*(.035-.095*Math.abs(x));
+      const vertex=[offset+center+x*(w+fold),y+neckline+slope+pelvisY,z*(d+fold)+projectedBust];
       return project(transform?transform(vertex,theta):vertex);
     }
     if (part && part!=='torso-skin') surfaces[part]={rings,projectPoint:point,
@@ -720,7 +725,14 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const [a,b,c] = points;
         if ((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]) >= 0) continue;
         const theta = (i+.5)*2*Math.PI/segments+angle;
-        const light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
+        let light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
+        if (hex===skin && !detail) {
+          const u=[(b[0]-a[0])/scale,(b[1]-a[1])/scale,b[2]-a[2]];
+          const v=[(c[0]-a[0])/scale,(c[1]-a[1])/scale,c[2]-a[2]];
+          const normal=[u[2]*v[1]-u[1]*v[2],u[0]*v[2]-u[2]*v[0],u[1]*v[0]-u[0]*v[1]];
+          const magnitude=Math.hypot(...normal)||1;
+          light=.70+.36*Math.max(0,(-.36*normal[0]-.48*normal[1]+.80*normal[2])/magnitude);
+        }
         const depth = points.reduce((sum,p)=>sum+p[2],0)/4;
         const contrastPanel = detail && design && fabricBody && (design.tone==='Contrast lower panel' && ring>=Math.floor(rings.length*.54) || design.finish==='Contrast hem band' && ring===rings.length-2);
         const level = regions && part ? fabricFit.levelAt(regions,band,theta-angle,part) : 0;
@@ -773,16 +785,17 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   context.ellipse(floorX,floorY+2,scale*.35,scale*.055,0,0,Math.PI*2);
   context.fill();
   const skin = color(body.skin||'#d7b69d');
-  const torso = sewingModels.shape(body,resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,
-    {bust:modeledBust,shoulder:modeledShoulder}),'torso');
+  const calibrate=(rings,part)=>sewingModels.smoothRings(sewingModels.calibrated(body,rings,part,bustGeometry));
+  const baseTorso=body.scan?modelCamera.rings(mannequin,body.scan):mannequin;
+  const torso = calibrate(resize(baseTorso,0,0,0,{shoulder:modeledShoulder}),'torso');
   const head = [[-1.24,.015,.023],[-1.219,.065,.062],[-1.17,.084,.078],[-1.105,.084,.082],
     [-1.063,.082,.081],[-1.035,.072,.077],[-1.009,.057,.066],[-.986,.047,.053],[-.962,.047,.053],[-.917,.051,.058],[-.875,.065,.07]]
     .map(([y,w,d])=>[y,w*(sewingModels.profileOf(body)==='male'?1.06:1),d]);
   const upperLeg = Math.max(.083,.112+bodyHip*.37);
-  const legBody = sewingModels.shape(body,[[.20,upperLeg,.114],[.28,upperLeg,.119],[.38,upperLeg*.94,.108],
+  const legBody = calibrate([[.145,upperLeg*.74,.086],[.205,upperLeg*.93,.109],[.30,upperLeg,.118],[.38,upperLeg*.94,.108],
     [.56,.081,.086],[.66,.069,.067],[.76,.071,.069],[.88,.056,.057],[.996,.036,.041],[1.045,.04,.039]],'leg');
   const foot = [[1.014,.031,.037],[1.054,.058,.086],[1.096,.059,.103],[1.116,.052,.094],[1.128,.009,.029]];
-  const armBody = sewingModels.shape(body,[[-.728,.027,.046,.19],[-.668,.058,.064,.244],[-.52,.052,.052,.285],
+  const armBody = calibrate([[-.728,.027,.046,.19],[-.668,.058,.064,.244],[-.52,.052,.052,.285],
     [-.365,.045,.044,.317],[-.28,.043,.041,.33],[-.14,.032,.032,.35],
     [-.038,.026,.026,.367],[-.006,.032,.03,.373],[.055,.036,.027,.384],[.103,.019,.015,.397],[.123,.005,.005,.40]],'arm');
   const legSpacing = .116 + bodyHip*.24;
@@ -868,8 +881,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const paint=skin.slice(1).match(/../g).map(channel=>fabricFit.clamp(parseInt(channel,16)+light,0,255));
         faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
       }
-    } else mesh(expanded(torso),skin,0,false,false,false,torsoMove,'torso-skin',visibleTorso);
-    mesh(fabricFit.resample(head,.021),skin,0,false,false,false,(point,theta)=>{
+    } else mesh(torso,skin,0,false,false,false,torsoMove,'torso-skin',visibleTorso);
+    mesh(sewingModels.smoothRings(head,.012),skin,0,false,false,false,(point,theta)=>{
       const [x,y,z]=point;
       const front=Math.max(0,Math.sin(theta));
       const nose=Math.exp(-(((y+1.078)/.047)**2))*front**23*.032;
@@ -883,7 +896,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         skin,side*.08,false,false,false,torsoMove);
       const arms=armBody.filter(([y])=>y<=.055).map(([y,w,d,x])=>[y,w,d,side*(x+shoulders)]);
       const moveArm=armMove(side);
-      mesh(expanded(arms),skin,0,false,false,false,moveArm);
+      mesh(arms,skin,0,false,false,false,moveArm);
       for (const [index,length] of [.056,.069,.062,.046].entries()) {
         const x=side*(.36+shoulders+index*.014);
         const fingers=[[.04,.011,.017,x],[.072,.009,.012,x+side*.006],[.05+length,.005,.006,x+side*.011],[.055+length,.002,.003,x+side*.012]];
@@ -891,7 +904,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       mesh([[.002,.014,.017,side*(.356+shoulders)],[.045,.011,.011,side*(.337+shoulders)],
         [.073,.006,.006,side*(.337+shoulders)]],skin,0,false,false,false,moveArm);
-      if (exposedLeg.length>1) mesh(expanded(exposedLeg),skin,side*legSpacing,false,false,false,legMove);
+      if (exposedLeg.length>1) mesh(exposedLeg,skin,side*legSpacing,false,false,false,legMove);
       mesh(foot,skin,side*legSpacing,false,false,false,p=>rig.foot([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
     }
   }
@@ -1003,7 +1016,7 @@ function addModel(existing) {
   const starting = existing || getModel('studio-form');
   const field=(key,[label,min,max],required=false)=>`<label class="field">${label} (cm)<input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${starting[key] || ''}" step="0.5" ${required?'required':''}></label>`;
   const fields=(optional)=>Object.entries(sewingModels.dimensions).filter(([key])=>sewingModels.extra.has(key)===optional &&
-    !['underbust','bustProjection'].includes(key)).map(([key,dimensions])=>field(key,dimensions,!optional)).join('');
+    !['underbust','bustProjection','bustSpacing','bustHeight'].includes(key)).map(([key,dimensions])=>field(key,dimensions,!optional)).join('');
   showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
     <label class="field">Starting profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
     <div class="fields">${fields(false)}</div>
@@ -1014,11 +1027,14 @@ function addModel(existing) {
       <details class="design-options tight"><summary>Fine-tune bust shape</summary>
         <label class="field tight">Bra sizing system<select name="braSystem">${['Unspecified','US','UK','EU','Other'].map(system=>option(system,system,existing?.braSystem)).join('')}</select></label>
         ${field('bustProjection',sewingModels.dimensions.bustProjection)}
-        <p class="muted">Optional projection is the horizontal depth from the front of the rib cage to the fullest point, viewed from the side.</p>
+        <p class="muted">Optional projection is the horizontal depth from the front of the rib cage to the fullest point. The preview limits depth using full bust and underbust.</p>
+        <p data-bust-depth-note class="muted" role="status" hidden></p>
+        <div class="fields">${field('bustSpacing',sewingModels.dimensions.bustSpacing)}${field('bustHeight',sewingModels.dimensions.bustHeight)}</div>
+        <p class="muted">Measure spacing straight across between the fullest points. Measure height vertically from the floor to one of those points while standing.</p>
         <label class="field tight">Visual cup fallback<select name="cup"><option value="">Estimate from available measurements or bra size</option>${sewingModels.cups.map(cup=>option(cup,cup,existing?.cup)).join('')}</select></label>
       </details>
     </div>
-    <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="300" height="210" role="img" aria-label="Model shape preview"></canvas>
+    <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="560" height="410" role="img" aria-label="Model shape preview"></canvas>
       <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button></div>
     </div>
     <details class="design-options"${starting.height||starting.inseam?' open':''}><summary>Length and other measurements (optional)</summary>
@@ -1032,6 +1048,8 @@ function addModel(existing) {
       <dl><dt>Height</dt><dd>Top of head to floor, barefoot.</dd>
       <dt>Body inseam</dt><dd>From the crotch straight down the inside of the leg to the floor, barefoot. A pants inseam stops at the hem.</dd>
       <dt>Waist to floor</dt><dd>From your natural waist straight down at the side to the floor.</dd>
+      <dt>Kneecap center to floor</dt><dd>Standing barefoot, measure vertically to the center of your kneecap.</dd>
+      <dt>Crown to chin</dt><dd>With your head level, measure the vertical distance from the top of your head to the bottom of your chin.</dd>
       <dt>Shoulder to waist</dt><dd>At the back, measure from where the neck meets the shoulder down to your natural waist.</dd></dl>
     </div><div class="fields tight">${fields(true)}</div></details>
     <details class="design-options"><summary>Shape your form with a camera</summary>
@@ -1060,7 +1078,12 @@ function addModel(existing) {
   }));
   function preview() {
     const data = new FormData(form);
-    drawModel(canvas,null,previewAngle,{}, {...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),scan,skin:color(data.get('skin'))},true);
+    const shape={...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),scan,skin:color(data.get('skin'))};
+    const depth=sewingModels.bustGeometry(shape,sewingModels.proportions(shape));
+    const note=form.querySelector('[data-bust-depth-note]');
+    note.hidden=!depth.limited;
+    if (depth.limited) note.textContent='The entered depth is too large for the preview. Check the measurement and the selected unit.';
+    drawModel(canvas,null,previewAngle,{},shape,true);
   }
   modalCleanup = modelCamera.setup(form,scan,next=>{
     scan=next;

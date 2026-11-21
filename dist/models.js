@@ -28,7 +28,11 @@ const sewingModels = (() => {
     arm:['Shoulder to wrist',35,85],
     neck:['Neck circumference',24,57],
     underbust:['Underbust / rib cage',53,152],
-    bustProjection:['Bust projection',1,12],
+    bustProjection:['Bust projection',1,20],
+    bustSpacing:['Bust point spacing',12,35],
+    bustHeight:['Bust point to floor',65,180],
+    kneeHeight:['Kneecap center to floor',25,77],
+    headLength:['Crown to chin',16,35],
     highHip:['High hip circumference',60,160],
     thigh:['Thigh circumference',30,94],
     knee:['Knee circumference',24,62],
@@ -55,47 +59,137 @@ const sewingModels = (() => {
     }
     return Math.max(1.8,Math.min(8.5,2.1+Math.max(0,full-rib-6)*.29));
   }
-  function bustShape(model,x,y,front) {
-    if (front<=0) return 0;
-    const projection=bustProjection(model)*2.368/168;
-    const horizontal=Math.exp(-(((Math.abs(x)-.36)/.47)**2));
-    const vertical=Math.exp(-(((y+.49)/.14)**2));
-    return projection*horizontal*vertical*front;
+  const unit = 2.368/168;
+  const clamp = (value,min,max)=>Math.min(max,Math.max(min,value));
+
+  function bustGeometry(model, proportions) {
+    const female=profileOf(model)==='female';
+    const {bust,underbust}=model;
+    // Projection and tape girth describe different things. Bound saved depth
+    // by the available bust-to-rib difference, including on older models.
+    const limit=underbust && bust ? clamp(1.8+Math.max(0,bust-underbust)*.31,1.8,8.5) : 8.5;
+    const depth=female?Math.min(bustProjection(model),limit):0;
+    const y=model.bustHeight ? proportions.baseAt(clamp(model.bustHeight,proportions.waist+9,proportions.shoulder-5)) : -.49;
+    return {depth,y,spacing:(model.bustSpacing||19)*unit,limited:female && model.bustProjection>limit};
   }
-  function shape(model,rings,part) {
-    const ref=starter[profileOf(model)];
-    const k=(key,coefficient)=>((model[key]??ref[key])-starter.female[key])*coefficient;
-    const male=profileOf(model)==='male';
-    const at=(y,center,range)=>Math.max(0,1-Math.abs(y-center)/range);
-    return rings.map(([y,w,d,...rest])=>{
-      let width=0,depth=0;
-      if (part==='torso') {
-        width=k('neck',.002)*at(y,-.9,.14)+k('underbust',.0013)*at(y,-.34,.15)+k('highHip',.0014)*at(y,-.04,.16);
-        depth=width*.65+(male?-.012:.009)*at(y,-.6,.19)+(male?-.007:.008)*at(y,.16,.22);
-      } else if (part==='leg') {
-        width=k('thigh',.0017)*at(y,.31,.26)+k('knee',.0016)*at(y,.655,.17)+
-          k('calf',.0017)*at(y,.76,.19)+k('ankle',.0016)*at(y,1.015,.14);
-        depth=width*.86+.007*at(y,.76,.13);
-      } else {
-        width=k('upperArm',.0018)*at(y,-.60,.25)+k('wrist',.0016)*at(y,-.04,.20);
-        depth=width*.85;
+
+  function bustShape(geometry,x,y,front,width) {
+    if (front<=0 || !geometry.depth) return 0;
+    const center=clamp(geometry.spacing/(2*width),.29,.68);
+    const lobe=side=>Math.exp(-(((x-side*center)/.24)**2)/2);
+    const horizontal=lobe(-1)+lobe(1);
+    const falloff=y<geometry.y?.143:.103;
+    const vertical=Math.exp(-(((y-geometry.y)/falloff)**2));
+    return geometry.depth*unit*horizontal*vertical*front**1.5;
+  }
+
+  // A taut tape spans concavities such as the center of the bust.
+  function tapePerimeter(width,depth,offset) {
+    const points=Array.from({length:72},(_,i)=>{
+      const theta=i*Math.PI/36;
+      const x=Math.cos(theta),z=Math.sin(theta);
+      return [x*width,z*depth+offset(x,z)];
+    }).sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+    const cross=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+    const half=points=>{
+      const hull=[];
+      for (const p of points) {
+        while (hull.length>=2 && cross(hull.at(-2),hull.at(-1),p)<=0) hull.pop();
+        hull.push(p);
       }
-      return [y,Math.max(.008,w+width),Math.max(.008,d+depth),...rest];
+      return hull.slice(0,-1);
+    };
+    const hull=half(points).concat(half(points.reverse()));
+    return hull.reduce((sum,p,i)=>sum+Math.hypot(p[0]-hull.at(i-1)[0],p[1]-hull.at(i-1)[1]),0);
+  }
+
+  function fitSection(row,target,geometry) {
+    if (!target) return row;
+    const [y,w,d,...rest]=row;
+
+    if (!geometry?.depth || Math.abs(y-geometry.y)>.35) {
+      const h=((w-d)/(w+d))**2;
+      const ellipse=Math.PI*(w+d)*(1+3*h/(10+Math.sqrt(4-3*h)));
+      const ratio=target*unit/ellipse;
+      return [y,w*ratio,d*ratio,...rest];
+    }
+    let low=.18, high=4;
+    for (let i=0;i<16;i++) {
+      const ratio=(low+high)/2;
+      const offset=(x,z)=>bustShape(geometry,x,y,z,w*ratio);
+      if (tapePerimeter(w*ratio,d*ratio,offset)<target*unit) low=ratio;
+      else high=ratio;
+    }
+    const ratio=(low+high)/2;
+    return [y,w*ratio,d*ratio,...rest];
+  }
+
+  function calibrated(model,rings,part,geometry) {
+    const sections=part==='torso'
+      ? [['neck',-.9],['bust',geometry.y],['underbust',Math.min(-.27,geometry.y+.12)],['waist',-.25],['highHip',-.04],['hip',.16]]
+      : part==='leg' ? [['thigh',.31],['knee',.655],['calf',.76],['ankle',1.015]]
+      : [['upperArm',-.60],['wrist',-.038]];
+    const levels=sections.filter(([key,y])=>model[key] && y>=rings[0][0] && y<=rings.at(-1)[0]);
+    const sample=y=>{
+      const j=Math.max(1,rings.findIndex(row=>row[0]>=y));
+      const a=rings[j-1],b=rings[j];
+      return a.map((value,i)=>value+(b[i]-value)*(y-a[0])/(b[0]-a[0]));
+    };
+    const adjustments=levels.map(([key,y])=>{
+      const row=sample(y);
+      const fitted=fitSection(row,model[key],part==='torso'?geometry:null);
+      return [y,fitted[1]/row[1]];
+    });
+    const anchors=new Map([[rings[0][0],1],[rings.at(-1)[0],1],...adjustments]);
+    const ordered=[...anchors].sort((a,b)=>a[0]-b[0]);
+    const ys=[...new Set([...rings.map(row=>row[0]),...ordered.map(row=>row[0])])].sort((a,b)=>a-b);
+    return ys.map(y=>{
+      const j=Math.max(1,ordered.findIndex(row=>row[0]>=y));
+      const [a,b]=ordered.slice(j-1,j+1);
+      const t=(y-a[0])/(b[0]-a[0]);
+      const ratio=a[1]+(b[1]-a[1])*t*t*(3-2*t);
+      const [,w,d,...rest]=sample(y);
+      return [y,w*ratio,d*ratio,...rest];
     });
   }
+
+  function smoothRings(rings,step=.027) {
+    const slope=(i,axis)=>{
+      const a=rings[Math.max(0,i-1)], b=rings[i], c=rings[Math.min(i+1,rings.length-1)];
+      const before=(b[axis]-a[axis])/(b[0]-a[0]||1);
+      const after=(c[axis]-b[axis])/(c[0]-b[0]||1);
+      return before*after>0 ? 2*before*after/(before+after) : 0;
+    };
+    return rings.flatMap((row,i)=>{
+      const next=rings[i+1];
+      if (!next) return [row];
+      const span=next[0]-row[0];
+      const count=Math.max(1,Math.ceil(span/step));
+      return Array.from({length:count},(_,j)=>{
+        const t=j/count;
+        return row.map((value,axis)=>{
+          if (!axis) return value+span*t;
+          const d=next[axis]-value;
+          return value+d*t*t*(3-2*t)+span*t*(1-t)*((1-t)*slope(i,axis)-t*slope(i+1,axis));
+        });
+      });
+    });
+  }
+
   function proportions(model) {
     const floor=1.128, top=-1.24;
     const height=model.height || starter[profileOf(model)].height;
-    const toWorld=2.368/168;
+    const toWorld=unit;
     const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
     const crotch=clamp(model.inseam||height*.448,height*.29,height*.59);
     const waist=clamp(model.waistToFloor||crotch+height*.142,crotch+height*.07,height*.74);
     const shoulder=clamp(model.shoulderToWaist?waist+model.shoulderToWaist:height*.824,
       waist+height*.10,height*.89);
-    const chin=clamp(height*.865,shoulder+height*.025,height*.925);
+    const chin=clamp(height-(model.headLength||height*.135),shoulder+height*.025,height*.925);
+    const knee=clamp(model.kneeHeight||crotch*.515,height*.16,crotch*.76);
     const anchors=[
       [top,height],[-.986,chin],[-.73,shoulder],[-.25,waist],[.30,crotch],
-      [.655,crotch*.515],[1.045,height*.035],[floor,0]
+      [.655,knee],[1.045,height*.035],[floor,0]
     ].map(([base,aboveFloor])=>[base,floor-aboveFloor*toWorld]);
     function yAt(value) {
       const next=anchors.findIndex(([at])=>at>value);
@@ -103,7 +197,13 @@ const sewingModels = (() => {
       const [a,b]=anchors.slice(hi-1,hi+1);
       return a[1]+(b[1]-a[1])*(value-a[0])/(b[0]-a[0]);
     }
-    return {yAt,height,crotch,waist,shoulder};
+    const baseAt=aboveFloor=>{
+      const world=floor-aboveFloor*toWorld;
+      const hi=Math.max(1,anchors.findIndex(([,y])=>y>=world));
+      const [a,b]=anchors.slice(hi-1,hi+1);
+      return a[0]+(b[0]-a[0])*(world-a[1])/(b[1]-a[1]);
+    };
+    return {yAt,baseAt,height,crotch,waist,shoulder,knee,chin};
   }
   function measurementIssue(model) {
     const {height,inseam,waistToFloor,shoulderToWaist}=model;
@@ -151,5 +251,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustProjection,bustShape,shape,proportions,measurementIssue,summary,parseObj};
+  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustProjection,bustGeometry,bustShape,calibrated,smoothRings,proportions,measurementIssue,summary,parseObj};
 })();

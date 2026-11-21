@@ -81,3 +81,7 @@ Work order figures mark common assembly and fold steps. Enter the pattern’s se
 For female models, enter full bust and underbust together for the projection estimate. Bra size is optional and can help if underbust is missing. Use **Side view** in the model editor to check the shape. An optional projection measurement is available for fine-tuning.
 
 In **Fabric Library → Add fabric**, use **Open camera → Take photo** to capture a square swatch in the app, or choose an existing image. Preview or retake it before saving. Choose a fabric type for starting estimates, and expand **Weight, drape and stretch** to enter measured values. The app requests camera permission when opened, and stops the stream after a capture or when the dialog closes.
+
+The measurement-based fitting form places adjustable landmarks for the waist, crotch, knee, chin, and bust. Cross sections are scaled to their entered girths. At the bust, the model estimates the path of a taut tape around the section, including the added front volume. Optional bust spacing and height place the two rounded contours. The form estimates shape from these measurements and can vary from a person's scan.
+
+Modeling references include the [ISO 8559-1 apparel measurement definitions](https://gso-sims-preview-doc-aws.s3-eu-west-1.amazonaws.com/gso-iso-8559-1-2017-en.html), the [GarmentCodeData body measurement method](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/07721.pdf), and [SMPL's scan-trained body shape and pose research](https://is.mpg.de/publications/smpl-2015).
