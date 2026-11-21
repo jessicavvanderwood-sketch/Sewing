@@ -54,7 +54,7 @@ try {
 const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
 const notice = document.querySelector('#notice');
-const titles = {overview:'Overview',brand:'Brand Kit',library:'Pattern Library',orders:'Work Orders',fitting:'3D Fitting Room'};
+const titles = {overview:'Overview',brand:'Brand Kit',library:'Pattern Library',orders:'Work Orders',fitting:'3D Fitting Room',basics:'Sewing Basics'};
 const features = [['brand','◈','Define your palette, logo and brand voice.'],['library','▤','Browse garment styles, cuts and construction guides.'],['fitting','◇','Preview fit changes and plan your alterations.']];
 const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const allPatterns = () => [...patterns, ...state.custom];
@@ -428,6 +428,61 @@ function saveFit() {
   location.hash = 'orders';
 }
 
+const basicLessons = [
+  {
+    title:'Set up the sewing machine',
+    tools:'Sewing machine and manual, compatible bobbin, all-purpose polyester thread, a new universal 80/12 needle, and two layers of cotton scrap.',
+    steps:[
+      'Switch the machine off while inserting the needle. Follow the manual for which way the flat side faces, then tighten the needle clamp.',
+      'Wind and insert the bobbin as your manual shows. Raise the presser foot and bring the needle to its highest point before threading the upper thread. Check that it passes through the take-up lever.',
+      'Fit the general-purpose presser foot. Select a straight stitch and start with a stitch length around 2.5 mm. Set tension to the machine’s normal setting and test on scrap.',
+      'Place two layers of scrap under the foot. Lower the foot and sew slowly while guiding the fabric. Let the feed dogs move it. Backstitch a few stitches at each end to secure the seam.',
+      'Check both sides. If you see loops or skipped stitches, rethread the machine with the foot raised, check the bobbin orientation and verify that the needle is fully seated before changing tension.'
+    ]
+  },
+  {
+    title:'Measure and cut fabric',
+    tools:'Fabric cutting board, ruler, fabric chalk, pins or pattern weights, fabric shears or a rotary cutter with a compatible cutting mat, and an iron.',
+    steps:[
+      'Prewash and dry washable fabric the way you plan to care for the finished item. Press it flat before measuring.',
+      'Find the selvage, the finished edge of woven fabric. For pieces with a grainline, measure from both ends of the grainline to the selvage and adjust until the distances match.',
+      'Lay the fabric flat on the cutting board. Mark the cutting lines and check whether seam allowance is already included. Secure any paper pattern with pins or weights.',
+      'Cut along the marks with fabric shears. If the board is rated for rotary blades, use a ruler and rotary cutter on the mat, cutting away from yourself and closing the blade after each cut.',
+      'Mark matching points and seam lines where needed. Keep pieces together and label them before moving to the machine.'
+    ]
+  },
+  {
+    title:'Sew and press a straight seam',
+    tools:'Two cotton scraps, ruler or seam guide, pins or clips, machine, thread, and iron.',
+    steps:[
+      'Put the right sides of the fabric together and align the raw edges. Pin or clip the layers so they stay aligned.',
+      'Line the fabric edge up with the seam allowance mark on the needle plate. Practice with a 1 cm allowance, or use the amount specified by your project.',
+      'Lower the presser foot, backstitch, and follow the guide. Remove pins before the needle reaches them. Backstitch again at the end.',
+      'Press the seam as stitched first, then press the allowances open or to one side, as the project calls for. Finish raw edges with a zigzag stitch if the woven fabric frays.'
+    ]
+  },
+  {
+    title:'Practice project — fabric coaster',
+    tools:'Two 12 × 12 cm squares of medium-weight woven cotton, machine, matching thread, ruler, clips, shears, a blunt point turner, and iron.',
+    steps:[
+      'Measure and cut two squares. Put them right sides together and mark a 5 cm turning gap in the middle of one side.',
+      'Sew around the squares with a 1 cm seam allowance, leaving the gap open. Backstitch at both ends of the gap. At each corner, stop with the needle down, raise the foot, pivot, lower the foot and continue.',
+      'Trim the corners diagonally without cutting through the stitches. Turn the coaster through the gap and gently shape the corners with a blunt point turner.',
+      'Press the coaster flat with the gap edges folded inward by 1 cm. Topstitch 2–3 mm from the edge all the way around to close the gap.'
+    ]
+  }
+];
+
+function basics() {
+  view.innerHTML = heading('Sewing Basics','Set up your machine, cut fabric accurately, and practice on a simple coaster.') +
+    `<p class="basics-intro">Start with woven cotton scraps and a straight stitch. Use your machine’s manual for its needle, threading and bobbin setup.</p>
+    <div class="lessons">${basicLessons.map((lesson,index) => `<details class="panel lesson"${index===0?' open':''}>
+      <summary><h2>${escape(lesson.title)}</h2></summary>
+      <p class="tight"><strong>Tools and materials</strong> ${escape(lesson.tools)}</p>
+      <ol class="steps">${lesson.steps.map(step=>`<li>${escape(step)}</li>`).join('')}</ol>
+    </details>`).join('')}</div>`;
+}
+
 let fitCleanup;
 function render() {
   fitCleanup?.();
@@ -439,7 +494,7 @@ function render() {
     if (link.hash === '#'+page) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
-  ({overview,brand,library,orders,fitting})[page]();
+  ({overview,brand,library,orders,fitting,basics})[page]();
 }
 document.addEventListener('click',event=>{
   const button = event.target.closest('[data-action]');
