@@ -73,3 +73,5 @@ Custom female models offer A–G visual cup profiles alongside full-bust and und
 Work Orders include search, type and progress filters, archival, garment previews, and before/after previews for tailoring orders. Expand the action-by-action guides and the Brother CP2160F settings in each work order. Use the publisher’s pattern for pattern-specific cutting dimensions and assembly instructions.
 
 Use the **Units** selector in the header to switch between centimeters and inches for garment lengths, model measurements, fit adjustments, and work orders. The preference stays in the current browser. Saved measurements retain their original precision when switching views.
+
+The Model Library uses barefoot height and body inseam to place the head, crotch, and floor. Optional waist-to-floor and shoulder-to-waist measurements locate the waist and shoulder. The model editor includes a measurement diagram. These lengths are used by the pose rig, and existing saved profiles update from the measurements they already contain.

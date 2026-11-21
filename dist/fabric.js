@@ -280,34 +280,38 @@ const fabricFit = (() => {
     });
   }
 
-  function rig(pose) {
-    const hip=.22, knee=.655;
+  function rig(pose,mapY=y=>y) {
+    const hip=mapY(.22), knee=mapY(.655), ankle=mapY(1.045);
+    const floor=mapY(1.128);
     const thighAngle=pose.sit*1.46;
     const shinAngle=-pose.sit*.10;
     const upper=knee-hip;
-    const lower=1.045-knee;
+    const lower=ankle-knee;
     const kneeY=hip+upper*Math.cos(thighAngle);
     const kneeZ=upper*Math.sin(thighAngle);
-    const drop=1.045-kneeY-lower*Math.cos(shinAngle);
+    const drop=ankle-kneeY-lower*Math.cos(shinAngle);
     const ankleZ=kneeZ+lower*Math.sin(shinAngle);
     const lean=.14*pose.sit+.08*pose.reach;
     const rotate=(y,z,angle)=>[y*Math.cos(angle)-z*Math.sin(angle),y*Math.sin(angle)+z*Math.cos(angle)];
     function torso([x,y,z]) {
+      y=mapY(y);
       const [v,w]=rotate(y-hip,z,-lean);
       const weight=clamp((hip-y)/.44,0,1);
       return [x,mix(y,v+hip,weight)+drop,mix(z,w,weight)];
     }
     function leg([x,y,z]) {
+      y=mapY(y);
       const [a,b]=rotate(y-hip,z,thighAngle);
       const [c,d]=rotate(y-knee,z,shinAngle);
       const t=clamp((y-knee+.105)/.21,0,1);
       return [x,mix(hip+a,kneeY+c,t)+drop,mix(b,kneeZ+d,t)];
     }
     function foot([x,y,z]) {
-      return [x,y,z+ankleZ];
+      return [x,mapY(y),z+ankleZ];
     }
     function skirt([x,y,z],theta,material) {
-      if (!pose.sit || y<=hip) return torso([x,y,z]);
+      if (!pose.sit || mapY(y)<=hip) return torso([x,y,z]);
+      y=mapY(y);
       const fall=y-hip;
       const forward=(1+Math.sin(theta))*.5;
       const bend=material?.bend ?? .42;
@@ -324,9 +328,10 @@ const fabricFit = (() => {
       const zFall=softCorner*(.05+.045*bend)*(1-.45*weight);
       const sideways=Math.abs(Math.cos(theta))*blend*.035;
       const movingY=hip+drop+yOnLap+yFall+fold;
-      const excess=Math.max(0,movingY-1.105);
+      const hemLimit=floor-.023;
+      const excess=Math.max(0,movingY-hemLimit);
       const movingZ=z+zOnLap+zFall+fold*.6+excess*forward*.45;
-      return [x+Math.sign(x)*sideways*pose.sit,mix(y+drop,Math.min(1.105,movingY),pose.sit),mix(z,movingZ,pose.sit)];
+      return [x+Math.sign(x)*sideways*pose.sit,mix(y+drop,Math.min(hemLimit,movingY),pose.sit),mix(z,movingZ,pose.sit)];
     }
     return {torso,leg,foot,skirt};
   }

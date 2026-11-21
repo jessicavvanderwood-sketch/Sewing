@@ -494,11 +494,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const spin = Math.cos(angle);
   const sine = Math.sin(angle);
   const tilt = -.105;
-  const tall=fabricFit.clamp((body.height||168)/168,.85,1.14);
-  const inseamBias=body.inseam && body.height ? fabricFit.clamp(body.inseam/body.height-.452,-.075,.075)*2.1:0;
+  const proportions=sewingModels.proportions(body);
   const project = ([x,y,z]) => {
-    const legBlend=y<.2?Math.max(0,(y+1.23)/1.43):Math.max(0,(1.128-y)/.928);
-    y=1.128+(y-1.128)*tall-inseamBias*legBlend;
     const px = x*spin-z*sine;
     const pz = x*sine+z*spin;
     const py = y*Math.cos(tilt)-pz*Math.sin(tilt);
@@ -588,7 +585,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   context.fillStyle='#3a1e271f';
   context.beginPath();
   const pose = analysis?.pose || fabricFit.poses.stand;
-  const rig = fabricFit.rig(pose);
+  const rig = fabricFit.rig(pose,proportions.yAt);
   const [floorX,floorY]=project(rig.foot([0,1.127,.055]));
   context.ellipse(floorX,floorY+2,scale*.35,scale*.055,0,0,Math.PI*2);
   context.fill();
@@ -776,7 +773,7 @@ function models() {
   view.innerHTML = heading('Model Library','Choose a female or male form, enter your measurements, or shape a custom form with your camera.')+
     `<div class="section-head"><h2>${showArchivedModels?'Archived models':'Saved models'}</h2><div class="actions"><button class="secondary" data-action="toggle-model-archive">${showArchivedModels?'Show active':'Show archive'}</button><button data-action="add-model">＋ Add custom model</button></div></div>
     <div class="patterns">${visible.length?visible.map(model=>`<article class="card pattern"><div class="pattern-art"><canvas width="350" height="155" data-form="${escape(model.id)}" role="img" aria-label="${escape(model.name)} preview"></canvas></div><div class="pattern-body"><h3>${escape(model.name)}</h3><p>${sewingModels.profiles[sewingModels.profileOf(model)]} · ${model.mesh?'Imported OBJ':model.scan?'Camera-shaped form':'Measurement-based form'} · Chest ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm</p>${sewingModels.summary(model)?`<p>${sewingModels.summary(model)}</p>`:''}<div class="actions">${showArchivedModels?'':`<button data-action="choose-model" data-id="${escape(model.id)}">Fit a garment</button>${state.models.includes(model)?`<button class="secondary" data-action="edit-model" data-id="${escape(model.id)}">Edit</button>`:''}`}<button class="secondary" data-action="archive-model" data-id="${escape(model.id)}">${showArchivedModels?'Restore':'Archive'}</button></div></div></article>`).join(''):'<p>No models in this view.</p>'}</div>`;
-  for (const canvas of view.querySelectorAll('canvas')) drawModel(canvas,null,-.34,{},getModel(canvas.dataset.form),true);
+  for (const canvas of view.querySelectorAll('canvas')) drawModel(canvas,null,-.12,{},getModel(canvas.dataset.form),true);
 }
 
 function addModel(existing) {
@@ -789,7 +786,19 @@ function addModel(existing) {
     <label class="field" id="cup-field"${sewingModels.profileOf(starting)==='male'?' hidden':''}>Bust cup profile
       <select name="cup"><option value="">From bust and underbust</option>${sewingModels.cups.map(cup=>option(cup,cup,existing?.cup)).join('')}</select>
     </label>
-    <details class="design-options"><summary>More measurements (optional)</summary><div class="fields tight">${fields(true)}</div></details>
+    <details class="design-options"${starting.height||starting.inseam?' open':''}><summary>Length and other measurements (optional)</summary>
+    <div class="measurement-help">
+      <svg viewBox="0 0 190 168" role="img" aria-label="Body measurement landmarks from shoulder, waist and crotch to floor">
+        <circle cx="54" cy="22" r="12" fill="none" stroke="currentColor"/>
+        <path d="M43 39Q33 39 28 47L22 96M65 39Q75 39 80 47L86 96M43 39H65L66 73L73 90L67 151H58L54 104L50 151H41L35 90L42 73Z" fill="none" stroke="currentColor"/>
+        <path d="M91 39V73M105 73V153M119 104V153M42 73H105M54 104H119M36 153H125" fill="none" stroke="#752c40" stroke-dasharray="3 2"/>
+        <text x="95" y="47">Shoulder</text><text x="110" y="78">Waist</text><text x="124" y="108">Crotch</text><text x="130" y="156">Floor</text>
+      </svg>
+      <dl><dt>Height</dt><dd>Top of head to floor, barefoot.</dd>
+      <dt>Body inseam</dt><dd>From the crotch straight down the inside of the leg to the floor, barefoot. A pants inseam stops at the hem.</dd>
+      <dt>Waist to floor</dt><dd>From your natural waist straight down at the side to the floor.</dd>
+      <dt>Shoulder to waist</dt><dd>At the back, measure from where the neck meets the shoulder down to your natural waist.</dd></dl>
+    </div><div class="fields tight">${fields(true)}</div></details>
     <details class="design-options"><summary>Shape your form with a camera</summary>
       <p class="tight">Stand head to toe against a plain, contrasting background. Wear fitted clothes and keep your arms down and a little away from your torso. Capture one front view and one side view. Use the same camera position for both.</p>
       <p class="tight">Your measurements set the sizing. Only the outline is kept. Camera frames stay on this device and aren’t saved.</p>
@@ -842,7 +851,10 @@ function addModel(existing) {
       } catch (problem) { error.textContent = problem.message; return; }
     }
     if (!form.isConnected || !modal.open) return;
-    const item = {id:existing?.id || 'form-'+createId(),name,...readDimensions(),profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',mesh,scan,skin:color(data.get('skin'))};
+    const measurements=readDimensions();
+    const issue=sewingModels.measurementIssue({...measurements,profile:data.get('profile')});
+    if (issue) {error.textContent=issue;return;}
+    const item = {id:existing?.id || 'form-'+createId(),name,...measurements,profile:data.get('profile'),cup:data.get('profile')==='female'?data.get('cup'):'',mesh,scan,skin:color(data.get('skin'))};
     if (existing) state.models = state.models.map(model=>model.id===item.id?item:model);
     else state.models.push(item);
     save(existing?'Model updated':'Model added');

@@ -22,7 +22,9 @@ const sewingModels = (() => {
     hip:['Hip / seat',65,175],
     shoulder:['Shoulder span',28,58],
     height:['Height',110,225],
-    inseam:['Inseam',45,115],
+    inseam:['Body inseam',45,115],
+    waistToFloor:['Waist to floor',62,145],
+    shoulderToWaist:['Shoulder to waist',25,61],
     arm:['Shoulder to wrist',35,85],
     neck:['Neck circumference',24,57],
     underbust:['Underbust / rib cage',53,152],
@@ -71,7 +73,38 @@ const sewingModels = (() => {
       return [y,Math.max(.008,w+width),Math.max(.008,d+depth),...rest];
     });
   }
-  const summary = model => ['height','inseam','arm'].filter(key=>model[key]).map(key=>dimensions[key][0]+' '+model[key]+' cm').join(' · ');
+  function proportions(model) {
+    const floor=1.128, top=-1.24;
+    const height=model.height || starter[profileOf(model)].height;
+    const toWorld=2.368/168;
+    const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
+    const crotch=clamp(model.inseam||height*.448,height*.29,height*.59);
+    const waist=clamp(model.waistToFloor||crotch+height*.142,crotch+height*.07,height*.74);
+    const shoulder=clamp(model.shoulderToWaist?waist+model.shoulderToWaist:height*.824,
+      waist+height*.10,height*.89);
+    const chin=clamp(height*.865,shoulder+height*.025,height*.925);
+    const anchors=[
+      [top,height],[-.986,chin],[-.73,shoulder],[-.25,waist],[.30,crotch],
+      [.655,crotch*.515],[1.045,height*.035],[floor,0]
+    ].map(([base,aboveFloor])=>[base,floor-aboveFloor*toWorld]);
+    function yAt(value) {
+      const next=anchors.findIndex(([at])=>at>value);
+      const hi=next<0?anchors.length-1:Math.max(1,next);
+      const [a,b]=anchors.slice(hi-1,hi+1);
+      return a[1]+(b[1]-a[1])*(value-a[0])/(b[0]-a[0]);
+    }
+    return {yAt,height,crotch,waist,shoulder};
+  }
+  function measurementIssue(model) {
+    const {height,inseam,waistToFloor,shoulderToWaist}=model;
+    const h=height || starter[profileOf(model)].height;
+    if (inseam && (inseam<h*.29 || inseam>h*.59)) return 'Check whether body inseam runs from crotch to floor and that it uses the same units as height.';
+    if (waistToFloor && inseam && waistToFloor<inseam+h*.07) return 'Waist to floor should extend above the crotch. Check that you measured from your natural waist.';
+    if (waistToFloor && waistToFloor>h*.74) return 'Waist to floor is unusually long for this height. Check the waist mark and units.';
+    if (shoulderToWaist && waistToFloor && shoulderToWaist+waistToFloor>h*.89) return 'Together the shoulder-to-waist and waist-to-floor measurements leave too little room for the head and neck. Check the landmarks.';
+    return '';
+  }
+  const summary = model => ['height','inseam','waistToFloor','shoulderToWaist','arm'].filter(key=>model[key]).map(key=>dimensions[key][0]+' '+model[key]+' cm').join(' · ');
 
   function parseObj(content) {
     const vertices = [];
@@ -108,5 +141,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustShape,shape,summary,parseObj};
+  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustShape,shape,proportions,measurementIssue,summary,parseObj};
 })();
