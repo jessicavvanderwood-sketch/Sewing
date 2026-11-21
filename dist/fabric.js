@@ -96,19 +96,57 @@ const fabricFit = (() => {
     });
   }
 
-  function posePoint([x,y,z],pose,part='body') {
-    const seat = pose.sit;
-    if (part==='leg') {
-      const thigh=clamp((y-.22)/.44,0,1);
-      const shin=clamp((y-.66)/.43,0,1);
-      y += seat*(-.35*thigh+.07*shin);
-      z += seat*(.46*thigh-.04*shin);
-    } else {
-      y -= seat*.10;
-      z += seat*.11*clamp((y+.72)/.9,0,1);
+  function rig(pose) {
+    const hip=.22, knee=.655;
+    const thighAngle=pose.sit*1.46;
+    const shinAngle=-pose.sit*.10;
+    const upper=knee-hip;
+    const lower=1.045-knee;
+    const kneeY=hip+upper*Math.cos(thighAngle);
+    const kneeZ=upper*Math.sin(thighAngle);
+    const drop=1.045-kneeY-lower*Math.cos(shinAngle);
+    const ankleZ=kneeZ+lower*Math.sin(shinAngle);
+    const lean=.14*pose.sit+.08*pose.reach;
+    const rotate=(y,z,angle)=>[y*Math.cos(angle)-z*Math.sin(angle),y*Math.sin(angle)+z*Math.cos(angle)];
+    function torso([x,y,z]) {
+      const [v,w]=rotate(y-hip,z,-lean);
+      const weight=clamp((hip-y)/.44,0,1);
+      return [x,mix(y,v+hip,weight)+drop,mix(z,w,weight)];
     }
-    return [x,y,z];
+    function leg([x,y,z]) {
+      const [a,b]=rotate(y-hip,z,thighAngle);
+      const [c,d]=rotate(y-knee,z,shinAngle);
+      const t=clamp((y-knee+.105)/.21,0,1);
+      return [x,mix(hip+a,kneeY+c,t)+drop,mix(b,kneeZ+d,t)];
+    }
+    function foot([x,y,z]) {
+      return [x,y,z+ankleZ];
+    }
+    function skirt([x,y,z],theta,material) {
+      if (!pose.sit || y<=hip) return torso([x,y,z]);
+      const fall=y-hip;
+      const forward=(1+Math.sin(theta))*.5;
+      const bend=material?.bend ?? .42;
+      const weight=clamp(((material?.gsm ?? 170)-100)/500,0,1);
+      const blend=clamp(fall/.16,0,1);
+      const lap=upper*(.24+.76*forward);
+      const across=Math.min(fall,lap);
+      const hanging=Math.max(0,fall-lap);
+      const fold=Math.sin(theta*7+fall*11)*.025*blend*(1-.5*bend);
+      const softCorner=1-Math.exp(-hanging/(.065+.11*bend));
+      const yOnLap=across*Math.cos(thighAngle)-.045*forward*blend;
+      const yFall=hanging*(.86+.12*weight);
+      const zOnLap=across*Math.sin(thighAngle);
+      const zFall=softCorner*(.05+.045*bend)*(1-.45*weight);
+      const sideways=Math.abs(Math.cos(theta))*blend*.035;
+      const movingY=hip+drop+yOnLap+yFall+fold;
+      const excess=Math.max(0,movingY-1.105);
+      const movingZ=z+zOnLap+zFall+fold*.6+excess*forward*.45;
+      return [x+Math.sign(x)*sideways*pose.sit,mix(y+drop,Math.min(1.105,movingY),pose.sit),mix(z,movingZ,pose.sit)];
+    }
+    return {torso,leg,foot,skirt};
   }
+  const posePoint=(point,pose,part='body')=>rig(pose)[part==='leg'?'leg':'torso'](point);
 
-  return {fabrics,poses,resample,envelope,clearance,posePoint,estimate,levelAt,tint,clamp,mix};
+  return {fabrics,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
 })();

@@ -348,7 +348,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const fold = detail ? Math.max(0,y-.34)*.008*Math.sin(theta*9) : 0;
       const slope = neck?Math.abs(x)*(changes.shoulderSlope||0)/120*Math.max(0,1-ringIndex/5):0;
       const vertex=[offset+center+x*(w+fold),y+neckline+slope,z*(d+fold)];
-      return project(transform?transform(vertex):vertex);
+      return project(transform?transform(vertex,theta):vertex);
     }
     if (part) surfaces[part]={rings,projectPoint:point,
       opening:fabricFit.clamp((.56+(changes.neckWidth||0)/37)*(necklineStyle==='Boat'?1.27:1),.2,.97)};
@@ -407,9 +407,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   context.clearRect(0,0,width,height);
   context.fillStyle='#3a1e271f';
   context.beginPath();
-  context.ellipse(cx,height*(analysis?.pose.sit?.81:.906),scale*.41,scale*.065,0,0,Math.PI*2);
-  context.fill();
   const pose = analysis?.pose || fabricFit.poses.stand;
+  const rig = fabricFit.rig(pose);
+  const [floorX,floorY]=project(rig.foot([0,1.127,.055]));
+  context.ellipse(floorX,floorY+2,scale*.35,scale*.055,0,0,Math.PI*2);
+  context.fill();
   const skin = color(body.skin||'#d7b69d');
   const torso = resize(body.scan?modelCamera.rings(mannequin,body.scan):mannequin,bodyWaist,bodyHip,0,
     {bust:modeledBust,shoulder:modeledShoulder});
@@ -424,27 +426,24 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     [-.038,.026,.026,.367],[-.006,.032,.03,.373],[.055,.036,.027,.384],[.103,.019,.015,.397],[.123,.005,.005,.40]];
   const legSpacing = .116 + bodyHip*.24;
   const shoulders = modeledShoulder/240;
-  const torsoMove = point=>fabricFit.posePoint(point,pose);
-  const skirtMove = point=>{
-    const a=torsoMove(point),b=legMove(point);
-    const t=fabricFit.clamp((point[1]-.16)/.08,0,1);
-    return a.map((n,i)=>fabricFit.mix(n,b[i],t));
-  };
-  const legMove = point=>{
-    const lower=fabricFit.posePoint(point,pose,'leg');
-    lower[1]-=pose.sit*.10;
-    lower[2]+=pose.sit*.11;
-    return lower;
-  };
+  const torsoMove=rig.torso;
+  const legMove=rig.leg;
+  const skirtMove=(point,theta)=>rig.skirt(point,theta,analysis?.material);
   function armMove(side) {
+    const pivot=.218+shoulders;
+    const lift=pose.arm*2.3;
+    const reach=pose.reach*.98;
+    const elbowAngle=pose.sit*.7+pose.reach*.22+pose.arm*.17;
     return ([x,y,z])=>{
-      const pivot=.218+shoulders;
-      const lift=pose.arm*2.42;
       const u=x*side-pivot;
-      const v=y+.68;
-      const extendedZ=z+Math.max(0,v)*pose.reach*.8;
-      return torsoMove([side*(pivot+u*Math.cos(lift)+v*Math.sin(lift)),
-        -.68+v*Math.cos(lift)-u*Math.sin(lift)-Math.max(0,v)*pose.reach*.36,extendedZ]);
+      let v=y+.68;
+      const forearm=Math.max(0,y+.28);
+      v-=forearm*(1-Math.cos(elbowAngle));
+      z+=forearm*Math.sin(elbowAngle);
+      const sagittalY=v*Math.cos(reach)-z*Math.sin(reach);
+      const sagittalZ=v*Math.sin(reach)+z*Math.cos(reach);
+      return torsoMove([side*(pivot+u*Math.cos(lift)+sagittalY*Math.sin(lift)),
+        -.68+sagittalY*Math.cos(lift)-u*Math.sin(lift),sagittalZ]);
     };
   }
   const expanded = rings=>fabricFit.resample(rings);
@@ -462,8 +461,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const shell = pattern?hang(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,tailored,true)):null;
   const trouserLeg=model==='trousers'?expanded(hang(resize(
     [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]],0,hipDelta,lengthDelta,changes,true))):null;
-  const legCover=trouserLeg?.at(-1)[0] ??
-    (['dress','skirt'].includes(model)?shell.at(-1)[0]:0);
+  const restingHem=['dress','skirt'].includes(model)?shell.at(-1)[0]:0;
+  const legCover=trouserLeg?.at(-1)[0] ?? Math.max(0,restingHem-pose.sit*.14);
   const torsoCover=shell ? Math.max(shell[0][0],(model==='dress'||model==='top')?-.27:-Infinity) : 2;
   const visibleTorso=y=>!shell||y<torsoCover||y>shell.at(-1)[0];
   const exposedLeg=legBody.filter(([y])=>y>legCover);
@@ -491,7 +490,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const arms=armBody.map(([y,w,d,x])=>[y,w,d,side*(x+shoulders)]);
       mesh(expanded(arms),skin,0,false,false,false,armMove(side));
       if (exposedLeg.length>1) mesh(expanded(exposedLeg),skin,side*legSpacing,false,false,false,legMove);
-      mesh(foot,skin,side*legSpacing,false,false,false,p=>legMove([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
+      mesh(foot,skin,side*legSpacing,false,false,false,p=>rig.foot([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
     }
   }
 
@@ -503,7 +502,15 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       guarded=fabricFit.clearance(guarded,coveredLegs);
     }
     mesh(guarded,color(pattern.color),0,model==='top'||model==='dress',true,true,
-      model==='dress'||model==='skirt'?skirtMove:torsoMove,'shell');
+      (point,theta)=>{
+        const [x,y,z]=point;
+        const side=Math.abs(Math.cos(theta));
+        const shoulderEase=Math.max(0,1-Math.abs(y+.63)/.43)*side**2;
+        const rise=pose.arm*.12*shoulderEase;
+        const reach=pose.reach*.075*shoulderEase;
+        const moved=[x,y-rise,z+reach];
+        return model==='dress'||model==='skirt'?skirtMove(moved,theta):torsoMove(moved);
+      },'shell');
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
       const sleeve=(changes.sleeveWidth||0)/410+(design?.sleeve==='Puff'?.045:0);
       const length=(changes.sleeveLength||0)/75+({Short:-.08,Elbow:.07,Long:.39,Puff:.02,Bell:.36}[design?.sleeve]||0);
