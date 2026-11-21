@@ -20,3 +20,7 @@ Then open http://localhost:8000. The project uses plain HTML, CSS and JavaScript
 - **3D Fitting Room** rotates a simplified garment on a dress form. Set the form waist and hip and adjust the garment waist, hip or hem length. Generate a tailoring guide and save it as a work order.
 
 Data is stored in the current browser for the current site origin. Different browsers and devices have separate data. The 3D model provides a visual approximation. Confirm ease, available seam allowances and the final fit on the physical garment.
+
+## Install on a computer
+
+Open the GitHub Pages deployment in Chrome or Edge and use the install icon in the address bar, or the browser’s app menu. The installed dashboard opens in its own window and can reopen offline after its first online visit. It shares the same browser-profile data as the hosted dashboard.
