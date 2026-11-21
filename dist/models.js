@@ -224,7 +224,7 @@ const sewingModels = (() => {
     const waist=clamp(model.waistToFloor||crotch+height*.142,crotch+height*.07,height*.74);
     const shoulder=clamp(model.shoulderToWaist?waist+model.shoulderToWaist:height*.824,
       waist+height*.10,height*.89);
-    const chin=clamp(height-(model.headLength||height*.135),shoulder+height*.025,height*.925);
+    const chin=clamp(height-(model.headLength||height*.123),shoulder+height*.025,height*.925);
     const knee=clamp(model.kneeHeight||crotch*.58,height*.16,crotch*.76);
     const anchors=[
       [top,height],[-.986,chin],[-.73,shoulder],[-.25,waist],[.30,crotch],

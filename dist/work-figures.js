@@ -3,15 +3,24 @@
 const workFigures = (() => {
   const path=(d,style='wf-edge')=>`<path class="${style}" d="${d}"/>`;
   const label=(x,y,text,align='start')=>`<text x="${x}" y="${y}" text-anchor="${align}">${escape(text)}</text>`;
-  const tick=(x,y1,y2,text,side=1)=>path(`M${x-5} ${y1}h10M${x} ${y1}V${y2}M${x-5} ${y2}h10`,'wf-dimension')+
-    label(x+side*8,(y1+y2)/2+4,text,side===1?'start':'end');
-  const span=(x1,x2,y,text)=>path(`M${x1} ${y-5}v10M${x1} ${y}H${x2}M${x2} ${y-5}v10`,'wf-dimension')+
-    label((x1+x2)/2,y-8,text,'middle');
+  const dimText=(x,y,text,align='start')=>`<text class="wf-dim-label" x="${x}" y="${y}" text-anchor="${align}">${escape(text)}</text>`;
+  function tick(x,y1,y2,text,side=1) {
+    const rise=y2-y1<12?-5:5;
+    return path(`M${x-6} ${y1}h12M${x} ${y1}V${y2}M${x-6} ${y2}h12`,'wf-extension')+
+      path(`M${x-2.5} ${y1+rise}L${x} ${y1}l2.5 ${rise}M${x-2.5} ${y2-rise}L${x} ${y2}l2.5 ${-rise}`,'wf-dimension')+
+      dimText(x+side*10,(y1+y2)/2+4,text,side===1?'start':'end');
+  }
+  function span(x1,x2,y,text) {
+    const run=x2-x1<12?-5:5;
+    return path(`M${x1} ${y-6}v12M${x1} ${y}H${x2}M${x2} ${y-6}v12`,'wf-extension')+
+      path(`M${x1+run} ${y-2.5}L${x1} ${y}l${run} 2.5M${x2-run} ${y-2.5}L${x2} ${y}l${-run} 2.5`,'wf-dimension')+
+      dimText((x1+x2)/2,y-8,text,'middle');
+  }
   const guide=(x1,y1,x2,y2)=>path(`M${x1} ${y1}L${x2} ${y2}`,'wf-guide');
   const format=value=>Number.isFinite(value)?Number(value.toFixed(3))+' cm':'';
   const num=(step,regex)=>step.match(regex)?.[1];
   function panel(title,drawing,description) {
-    return `<figure class="wf-panel"><svg viewBox="0 0 330 164" aria-hidden="true" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
+    return `<figure class="wf-panel step-figure"><svg viewBox="0 0 330 164" role="img" aria-label="${escape(title)}" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
   }
   function strip(title,panels) {
     return `<section class="wf-figures"><h4>${title}</h4><div class="wf-grid">${panels.join('')}</div></section>`;
@@ -62,15 +71,16 @@ const workFigures = (() => {
     ]);
   }
   function moveFigure(step,id) {
-    const amount=num(step,/(\d+(?:\.\d+)?) cm (?:above|below) the old hem/);
+    const amount=num(step,/(\d+(?:\.\d+)?) cm (?:above|below) the old (?:hem|one on both sleeves|line at center)/);
     if (amount) {
-      const up=id==='hemUp';
+      const up=step.includes(amount+' cm above');
+      const edge=id==='sleeve'?'cuff':id==='band'?'waistline':'hem';
       const old=up?116:67, next=up?67:116;
-      return strip('Where to move the finished hem',[
-        panel(up?'Raise the hem':'Lower the hem',path('M27 22H176V140H27Z','wf-cloth')+path(`M29 ${old}H176`,'wf-guide')+
-          path(`M29 ${next}H176`,'wf-stitch')+tick(187,67,116,amount+' cm')+
-          label(40,old-5,'Old finished hem')+label(40,next-5,'New finished hem'),
-          `Measure ${amount} cm ${up?'above':'below'} the old finished hem. Mark the finished line first, then check the allowance below it.`)
+      return strip('Where to move the '+edge,[
+        panel((up?'Raise the ':'Lower the ')+edge,path('M27 22H176V140H27Z','wf-cloth')+path(`M29 ${old}H197`,'wf-guide')+
+          path(`M29 ${next}H176`,'wf-stitch')+path(`M176 ${next}H197`,'wf-extension')+tick(193,67,116,amount+' cm')+
+          label(40,old-5,'Original '+edge)+label(40,next-5,'New '+edge),
+          `Measure ${amount} cm ${up?'above':'below'} the original ${edge}. Baste the new line and check it during the fitting before cutting.`)
       ]);
     }
     const seamMove=num(step,/(\d+(?:\.\d+)?) cm (?:inward from|toward the raw edges|on both layers|on each layer)/);
@@ -85,22 +95,82 @@ const workFigures = (() => {
           `The bracket shows ${seamMove} cm on one layer at this seam. Use the same signed direction and layer count stated in the step.`)
       ]);
     }
+    const shoulderMove=num(step,/shoulder (?:point )?(\d+(?:\.\d+)?) cm/);
+    if (id==='shoulder' && shoulderMove) {
+      const vertical=step.includes(shoulderMove+' cm up')||step.includes(shoulderMove+' cm down');
+      const inward=new RegExp(shoulderMove.replace('.','\\.')+' cm (?:up|inward)').test(step);
+      const [x1,y1,x2,y2]=vertical?[175,inward?72:53,175,inward?53:72]:[inward?175:151,65,inward?151:175,65];
+      const old=guide(102,41,x1,y1);
+      const next=path(`M102 41L${x2} ${y2}`,'wf-stitch');
+      const dimension=vertical
+        ?path(`M175 ${y1}H205M175 ${y2}H205`,'wf-extension')+tick(204,53,72,shoulderMove+' cm')
+        :path(`M151 65V90M175 65V90`,'wf-extension')+span(151,175,90,shoulderMove+' cm');
+      return strip('Move the shoulder point',[panel('Keep the neckline point fixed',
+        path('M66 43L102 41L175 64Q177 92 205 109L192 142H57Z','wf-cloth')+old+next+dimension+
+        label(103,34,'Fixed neckline point')+label(70,115,'Bodice'),
+        'Make the marked change on both sides. Redraw the armhole, compare the front and back seams, and baste before trimming.')]);
+    }
+    const neckMove=num(step,/(?:neckline|neck-to-shoulder points) (?:up|down|inward|outward) by (\d+(?:\.\d+)?) cm/);
+    if (['neck','neckFill'].includes(id) && neckMove && !step.includes('per side')) {
+      const lower=step.includes('down by');
+      return strip('Shift the center neckline',[panel(lower?'Lower the new neckline':'Add fabric inside the existing neckline',
+        path('M25 46H205V142H25Z','wf-cloth')+
+        path(`M46 46Q105 ${lower?82:112} 165 46`,'wf-guide')+path(`M46 46Q105 ${lower?112:82} 165 46`,'wf-stitch')+
+        path('M105 64H214M105 79H214','wf-extension')+tick(215,64,79,neckMove+' cm')+label(84,135,'Center line'),
+        'Measure at the center front or center back named in the step. Mark and test the curve before cutting or adding an inset.')]);
+    }
+    if (['neck','neckFill'].includes(id) && neckMove) {
+      return strip('Mark the neckline width',[panel('Move each neck-to-shoulder mark',
+        path(torsoShape,'wf-cloth')+guide(105,31,105,140)+path('M83 25V55M92 25V55M116 25V55M125 25V55','wf-extension')+
+        span(83,92,25,neckMove+' cm')+span(116,125,25,'')+label(155,55,'Same change on both sides'),
+        'Measure the amount at each neckline point in the direction stated in the step. Keep the opening symmetrical and refit the facing or binding.')]);
+    }
+    const underarm=num(step,/underarm point (\d+(?:\.\d+)?) cm/);
+    if (id==='armhole' && underarm) return strip('Move the underarm point',[panel('Test the new arm opening',
+      path('M34 34H130Q143 77 177 83V137H34Z','wf-cloth')+path('M130 34Q146 59 177 68','wf-guide')+
+      path('M130 34Q143 77 177 83','wf-stitch')+path('M177 68H192M177 83H192','wf-extension')+tick(192,68,83,underarm+' cm'),
+      'Use the higher or lower direction in the step. Blend the opening to the original shoulder and test reach on the fitting sample.')]);
     return '';
   }
+  const valueFor=(sheet,key)=>{
+    const value=sheet?.rows.find(([label])=>label===key)?.at(-1);
+    return value==='—'?'':value||'';
+  };
+  const torsoShape='M69 32L86 26Q94 43 104 43Q114 43 122 26L139 32L149 56L133 86Q144 112 148 143H60Q63 112 75 86L59 56Z';
+  const legShape='M57 20H108Q104 54 92 78Q101 99 86 138L88 152H63L67 137Q62 111 69 81Q52 51 57 20Z';
+  const tape=(x1,x2,y,text)=>path(`M${x1} ${y}Q${(x1+x2)/2} ${y+10} ${x2} ${y}`,'wf-dimension')+
+    guide(x2,y,x2+14,y)+dimText(x2+19,y+4,text);
+  function torsoDrawing(sheet,{extra=false}={}) {
+    const rows=[
+      ['Upper chest circumference','Upper chest',48],['Chest / bust','Bust / chest',63],['Underbust / rib cage','Underbust',78],
+      ['Waist','Waist',95],['High hip circumference','High hip',112],['Hip / seat','Hip / seat',130]
+    ];
+    const marks=rows.flatMap(([key,label,y],i)=>{
+      const value=valueFor(sheet,key);
+      return (value && extra || i%2===1)?[tape(68,143,y,label+(value?' '+value:''))]:[];
+    }).join('');
+    const shoulder=valueFor(sheet,'Shoulder span');
+    const finished=sheet?.targets?.[0];
+    return path(torsoShape,'wf-cloth')+marks+(shoulder?guide(69,30,69,19)+guide(139,30,139,19)+span(69,139,19,shoulder)+label(154,23,'Shoulder span'):'')+
+      (finished?dimText(62,156,finished.join(' ')):'');
+  }
   function bodySheet(sheet) {
-    if (!sheet) return '';
-    const at=key=>sheet.rows.find(([label])=>label===key)?.at(-1);
-    const marks=(rows,x1,x2)=>rows.filter(([key])=>at(key)&&at(key)!=='—').map(([key,y])=>
-      path(`M${x1} ${y}H${x2}`,'wf-dimension')+guide(x2,y,x2+14,y)+label(x2+18,y+4,key+' '+at(key))).join('');
-    const torso=marks([['Upper chest circumference',43],['Chest / bust',60],['Underbust / rib cage',76],['Waist',93],['High hip circumference',109],['Hip / seat',127]],69,151);
-    const leg=marks([['Thigh circumference',34],['Mid-thigh circumference',57],['Knee circumference',78],['Calf circumference',108],['Ankle circumference',138]],54,103);
+    if (!sheet?.rows.length) return '';
+    const leg=[['Thigh circumference',34],['Mid-thigh circumference',57],['Knee circumference',78],['Calf circumference',108],['Ankle circumference',138]]
+      .filter(([key])=>valueFor(sheet,key)).map(([key,y])=>tape(57,103,y,key+' '+valueFor(sheet,key))).join('');
+    const arm=[['Upper arm circumference','Upper arm',44],['Forearm circumference','Forearm',91],['Wrist circumference','Wrist',122]]
+      .filter(([key])=>valueFor(sheet,key)).map(([key,name,y])=>tape(92,132,y,name+' '+valueFor(sheet,key))).join('');
+    const armLength=valueFor(sheet,'Shoulder to wrist');
     const panels=[];
-    if (torso) panels.push(panel('Torso measurements',
-      path('M75 28L93 19Q101 37 110 37Q119 37 127 19L145 28L154 52L140 88L151 142H69L80 88L66 52Z','wf-cloth')+torso,
-      'Keep the tape level at each line. Compare these body measurements with the pattern size and the intended wearing ease.'));
+    panels.push(panel('Torso measurements',torsoDrawing(sheet,{extra:true}),
+      'Keep the tape level around the body at each line. Compare these body measurements with the pattern size and the intended wearing ease.'));
     if (leg) panels.push(panel('Leg measurements',
-      path('M57 20H108Q104 54 92 78Q101 99 86 138L88 152H63L67 137Q62 111 69 81Q52 51 57 20Z','wf-cloth')+leg,
+      path(legShape,'wf-cloth')+leg,
       'Wrap the tape around one leg at each level. Use the pattern to check the finished leg width and room to move.'));
+    if (arm || armLength) panels.push(panel('Arm measurements',
+      path('M87 33Q111 10 132 32L137 65Q138 85 134 105L130 125L113 127Q103 110 101 93L86 62Z','wf-cloth')+arm+
+      (armLength?path('M70 26H100M70 126H112','wf-extension')+tick(70,26,126,armLength,-1):''),
+      'Check length with the elbow slightly bent. The arm measurements inform the fitting sample. Match the sleeve seam to the pattern armhole.'));
     return panels.length?strip('Where the model measurements go',panels):'';
   }
   function forStep(step,id,order,pattern) {
@@ -113,6 +183,7 @@ const workFigures = (() => {
     if (['cut','designCut','grain'].includes(id)) return strip('Cutting and grainline',[
       layoutPanel(order.plan||{}),cutEdgePanel(allowance)
     ]);
+    if (id==='fairyHem') return '';
     if (id==='finish' && /\bhem\b/i.test(step)) {
       const selected=pattern.design?.finish || '';
       if (/faced hem|hem facing/i.test(step+' '+selected)) return hemFold(allowance,'faced');
@@ -121,6 +192,24 @@ const workFigures = (() => {
       return `<details class="wf-optional"><summary>See a double-fold hem example</summary>${hemFold(allowance,'double')}</details>`;
     }
     return '';
+  }
+
+  function fairyHemActions(design,allowance) {
+    const drop=design?.hemStyle==='Fairy / handkerchief' && typeof studioDesign.hemDrop==='function'
+      ?format(studioDesign.hemDrop(design)):'';
+    const skirt=path('M106 35H202Q226 78 271 113L232 104L207 142L176 116L139 142L107 115L77 130L38 110Q79 81 106 35Z','wf-cloth');
+    return [
+      panel('1. Mark the short hem points',skirt+guide(41,104,279,104)+label(211,87,'Short hem level'),
+        'Try on the toile with the intended shoes. Mark the shortest finished hem height at the points called out on the pattern. Transfer those marks without changing the waist seam.'),
+      panel('2. Check the drop to the long points',skirt+guide(176,104,286,104)+guide(207,142,286,142)+tick(282,104,142,drop||'Pattern drop',-1),
+        `Measure vertically from the marked short level to each low point${drop?' using the '+drop+' design drop':''}. Check front, back and both sides before marking a cut line.`),
+      panel('3. Mark the seam or turn allowance',path('M51 36H220L169 137Z','wf-cloth')+path('M79 46L166 115L196 55','wf-stitch')+
+        path('M166 116H207M169 137H207','wf-extension')+tick(204,116,137,format(allowance.first??allowance.seam)||'Pattern allowance'),
+        'Follow the pattern along the taper into each point. Measure the finish allowance from the finished line, then test the finish on a scrap cut on the same grain.'),
+      panel('4. Support and finish each point',path('M44 33H193L122 140Z','wf-right')+path('M65 49L123 116L174 48','wf-stitch')+
+        path('M185 112H141m7 -5l-7 5 7 5','wf-arrow')+label(186,130,'Support the bias edge'),
+        'Let the skirt hang so the bias edges settle. Recheck the short points and long points on the wearer, then finish the edges without pulling. Use the narrow hem, binding, or facing supplied by the pattern.')
+    ];
   }
 
   function layoutPanel(plan) {
@@ -283,7 +372,18 @@ const workFigures = (() => {
     foot:['Lower the presser foot onto the fabric',layers+needle+path('M133 45h26v17h-8v22h-29v-8h14v-14h-3z','wf-cloth')+arrow(183,77)+label(203,72,'Lower the foot')],
     pinOut:['Stop and slide the pin out',layers+row+pin(119,78)+needle+path('M166 78h49m-6 -5l6 5 -6 5','wf-arrow')+label(185,104,'Pull away from needle')],
     stitchStart:['Guide the fabric past the needle',layers+needle+row+raw+arrow(110,110)+label(182,89,'Raw edge on guide')],
-    matchSleeve:['Match the sleeve cap to the armhole',path('M51 130Q48 33 111 32Q164 35 184 123Z','wf-cloth')+path('M53 120Q78 44 113 44Q151 44 181 115','wf-stitch')+path('M106 37l7 12 7 -12M65 78l9 4m84 -4l9 -4','wf-dimension')+label(171,40,'Shoulder notch')+label(192,118,'Match front and back')],
+    matchSleeve:['Match the sleeve cap to the armhole',path('M51 130Q48 33 111 32Q164 35 184 123Z','wf-cloth')+path('M53 120Q78 44 113 44Q151 44 181 115','wf-stitch')+path('M106 37l7 12 7 -12M65 78l9 4m84 -4l9 -4','wf-dimension')+guide(111,32,135,22)+label(140,24,'Shoulder notch')+label(192,118,'Match front and back')],
+    easeSleeve:['Baste evenly between notches',path('M40 128Q29 48 116 36Q176 37 202 127Z','wf-cloth')+
+      path('M43 118Q59 47 116 48Q161 47 198 116M46 110Q62 56 115 55Q157 55 194 107','wf-stitch')+
+      path('M81 54v15M116 38v20M156 54v15','wf-dimension')+label(204,100,'Baste between marks')],
+    markPattern:['Test and transfer the pattern marks',path('M36 39H169L194 132H36Z','wf-cloth')+
+      guide(96,43,96,128)+path('M161 74h18m-5 -4l5 4 -5 4M93 72v6m-3 -3h6M123 102l15 -15','wf-dimension')+
+      label(187,77,'Match notch')+label(144,102,'Dart tip')+label(83,145,'Fold or center line')],
+    separateLayers:['Label the pieces before separating layers',path('M32 61H150L175 132H32Z','wf-cloth')+
+      path('M149 38H252L275 99H149Z','wf-fold')+label(48,101,'Left · wrong side')+label(156,68,'Right · wrong side')+
+      path('M100 44q26 -21 50 -5m-8 -8l8 8 -11 1','wf-arrow')],
+    fitMove:['Check the fit while moving',path(torsoShape,'wf-cloth')+path('M68 50Q42 54 35 69M140 50Q165 50 178 69','wf-arrow')+
+      guide(147,95,194,95)+label(201,99,'Look for pull lines')],
     clipCurve:['Clip toward the seam in the allowance',path('M29 32H180V120H29Z','wf-cloth')+path('M37 34Q100 122 170 34','wf-stitch')+path('M60 35l9 19M91 48l3 21M119 51l-2 18M148 38l-10 20','wf-dimension')+label(182,78,'Stop before stitches')],
     turnFacing:['Roll the stitched edge to the inside',path('M30 34H173V142H30Z','wf-cloth')+path('M31 36Q103 102 172 36V54Q104 125 31 55Z','wf-fold')+arrow(103,83)+label(187,65,'Facing moves inside')],
     zipClearance:['Lower the needle beside the zipper coil',layers+needle+path('M157 45v70m5 -70v70M158 54h4m-4 10h4m-4 10h4m-4 10h4m-4 10h4','wf-dimension')+label(181,63,'Clear of the teeth')],
@@ -313,7 +413,7 @@ const workFigures = (() => {
       return standardPanel((i+1)+'. '+title,visual,text);
     }).join('')}</div></details>`;
   }
-  function actionPanel(order,figure,title,description,id) {
+  function actionPanel(order,figure,title,description,id,measurements) {
     const allowance=order.allowances||{};
     const general=allowance.seam;
     const seam=['neck','facing','neckFill'].includes(id)?allowance.neck??general
@@ -321,8 +421,34 @@ const workFigures = (() => {
     const plan=order.plan||{};
     const annotated=format(seam)||'Pattern allowance';
     const local=scenes[figure];
+    if (figure==='strap') return panel(title,path('M47 61H224V94H47Z','wf-cloth')+
+      path('M64 58V102M206 58V102','wf-stitch')+path('M64 44V61M206 44V61','wf-extension')+
+      span(64,206,44,format(plan.strapLength)||'Finished length')+path('M224 61H245M224 94H245','wf-extension')+
+      tick(240,61,94,format(plan.strapWidth)||'Pattern width')+label(69,120,'Front mark')+label(169,120,'Back mark'),description);
+    if (figure==='shoulder') return panel(title,torsoDrawing(measurements)+
+      dimText(161,42,'Shoulder allowance '+annotated),description);
+    if (figure==='armhole') return panel(title,path('M32 41H114Q110 78 146 103L140 135H32Z','wf-cloth')+
+      path('M105 45Q104 83 135 105','wf-stitch')+guide(135,105,175,105)+guide(144,94,175,94)+
+      tick(173,94,105,annotated)+label(183,130,'Mark the underarm'),description);
+    if (figure==='sleeve' || figure==='sleeveCap') return actionPanel(order,'matchSleeve',title,description,id,measurements);
+    if (figure==='band' && plan.casingWidth) return panel(title,path('M32 37H204V125H32Z','wf-cloth')+
+      path('M32 37H204V77H32Z','wf-fold')+path('M32 77H204','wf-stitch')+path('M204 37H218M204 77H218','wf-extension')+
+      tick(218,37,77,format(plan.casingWidth))+label(50,107,'Match center and side seams'),description);
+    if (figure==='measure') return panel(title,torsoDrawing(measurements),description);
+    if (figure==='fit' || figure==='fitMove') {
+      const waist=valueFor(measurements,'Waist');
+      return panel(title,figure==='fitMove'?local[1]+(waist?dimText(201,120,'Model waist '+waist):''):torsoDrawing(measurements),description);
+    }
     if (figure==='cut') return cutEdgePanel(allowance);
     if (figure==='grain') return layoutPanel(plan);
+    if (figure==='shears') return panel(title,local[1]+path('M136 120V144M169 120V144','wf-extension')+
+      span(136,169,145,annotated)+path('M136 60V120','wf-stitch'),description);
+    if (figure==='zipper' || figure==='zipCheck') {
+      const drawing=path('M35 24H204V138H35Z','wf-cloth')+path('M116 43V119M122 43V119','wf-edge')+
+        path('M119 46V115','wf-stitch')+guide(52,73,181,73)+label(52,68,'Matching seam')+
+        path('M122 43H212M122 119H212','wf-extension')+tick(210,43,119,format(plan.zipperOpening)||'Pattern opening');
+      return panel(title,drawing,description);
+    }
     if (figure==='fold') {
       const turn=format(allowance.first)||'Turn per pattern';
       return panel(title,path('M32 34H171V134H32Z','wf-cloth')+guide(33,105,170,105)+path('M32 106H171V134H32Z','wf-fold')+
@@ -333,11 +459,12 @@ const workFigures = (() => {
       return panel(title,scenes.stitchStart[1]+span(145,177,144,
         id==='topstitch'?format(allowance.topstitch)||'Pattern distance':annotated),description);
     }
-    if (['clipCurve','turnFacing','matchSleeve','pin','foot','pinOut','allowance','zipClearance'].includes(figure) && local) {
+    if (['clipCurve','turnFacing','matchSleeve','easeSleeve','pin','foot','pinOut','allowance','zipClearance'].includes(figure) && local) {
       const line={
         clipCurve:guide(67,48,142,48)+tick(105,48,77,annotated),
         turnFacing:tick(104,69,89,annotated),
-        matchSleeve:tick(114,32,44,annotated),
+        matchSleeve:path('M114 32H213M114 44H213','wf-extension')+tick(212,32,44,format(seam)||'Use pattern'),
+        easeSleeve:dimText(203,125,'Allowance '+(format(seam)||'per pattern')),
         pin:span(145,177,146,annotated),
         foot:span(146,177,144,annotated),
         pinOut:span(145,177,144,annotated),
@@ -359,20 +486,61 @@ const workFigures = (() => {
     finish:'Check the hem after pressing and before sewing. Compare finished length at the front, back and sides or on both legs.',
     fit:'Use basting that can be removed. Mark any pull lines while the garment is on, then double-check the measurements with it off the body.'
   };
-  function illustratedActions(step,id,index,order={}) {
+  function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
-    const actions=sewingVisuals.operationActions(step,id);
+    if (id==='fairyHem') return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures</summary><div class="wf-grid">${fairyHemActions(design,order.allowances||{}).join('')}</div></details>`;
+    const opening=id==='armhole'||id==='sleeve'&&/unpick the sleeves|sleeveless opening/i.test(step);
+    const actions=opening?[
+      {figure:'armhole',text:'With the fitting sample on the wearer, mark the underarm and shoulder reference points. Check coverage and reach, then transfer matching marks to the other side.'},
+      {figure:'clipCurve',text:'Trace or check the new stitching line against the finish or sleeve named in the step. Mark the seam allowance from the line. If there is a facing, clip its curved allowance only as the pattern directs, after stitching.'},
+      {figure:'fitMove',text:'Baste the opening and check both sides while the wearer moves. Once the armhole is comfortable, apply the sleeve, facing, or binding specified for the garment.'}
+    ]:sewingVisuals.operationActions(step,id);
     if (['seam','sew','layer','topstitch'].includes(id)) actions.splice(2,2,...machineSteps);
     const items=actions.map(({text,figure},i)=>{
       const local=scenes[figure], standard=sewingVisuals.figureParts(figure);
       const title=(i+1)+'. '+(local?.[0] || standard?.[0] || 'Check the pattern');
-      const measured=actionPanel(order,figure,title,text,id);
+      const measured=actionPanel(order,figure,title,text,id,measurements);
       if (measured) return measured;
       if (standard) return standardPanel((i+1)+'. '+standard[0],standard[1],text);
       return `<div class="wf-panel wf-written"><strong>${i+1}.</strong> ${escape(text)}</div>`;
     });
     const tip=practicalTips[id];
-    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures</summary><div class="wf-grid">${items.join('')}</div>${tip?`<p class="wo-tip"><strong>Tip</strong> ${tip}</p>`:''}</details>`;
+    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures · ${items.length} actions</summary><div class="wf-grid">${items.join('')}</div>${tip?`<p class="wo-tip"><strong>Tip</strong> ${tip}</p>`:''}</details>`;
   }
-  return {forStep,bodySheet,cuttingPlan,seamPlan,featurePlan,illustratedActions,machineActions};
+  function stepList(pattern,order={},measurements=pattern.measurements) {
+    scenes ??= createScenes();
+    const checklist=Array.isArray(order.done);
+    const ids=pattern.visuals || sewingVisuals.patterns[pattern.id];
+    return `<ol class="${checklist?'check-list':'steps illustrated-steps'} wo-packet-steps">${pattern.steps.map((step,index)=>{
+      const id=ids?.[index] || sewingVisuals.identify(step);
+      const figure=sewingVisuals.figureParts(id);
+      const overview=forStep(step,id,order,pattern) || (id==='fairyHem'?'':actionPanel(order,id,figure?.[0]||'Pattern detail',step,id,measurements) || sewingVisuals.diagram(id));
+      const text=checklist?`<label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>`:`<p>${escape(step)}</p>`;
+      return `<li>${text}${overview}${illustratedActions(step,id,index,order,measurements,pattern.design)}</li>`;
+    }).join('')}</ol>`;
+  }
+  function referenceSheet(reference,design,order={},measurements) {
+    if (!reference?.startsWith('data:image/jpeg;base64,')) return '';
+    const outline=design?.photoOutline || {};
+    const plan=order.plan || {};
+    const valid=points=>Array.isArray(points)?points.filter(point=>Array.isArray(point) && point.length===2 && point.every(n=>Number.isFinite(n)&&n>=0&&n<=1)):[];
+    const strap=valid(outline.strapPoints);
+    const hem=valid(outline.hemPoints);
+    const low=hem.reduce((lowest,p)=>p[1]>(lowest?.[1]??-1)?p:lowest,null);
+    const high=hem.reduce((highest,p)=>p[1]<(highest?.[1]??2)?p:highest,null);
+    const drop=design?.hemStyle==='Fairy / handkerchief' && typeof studioDesign.hemDrop==='function'?format(studioDesign.hemDrop(design)):'';
+    const ends=drop && high && low && low[1]-high[1]>.01;
+    const hemX=ends?Math.min(.94,Math.max(high[0],low[0])+.08):null;
+    const dims=[
+      {label:'Strap length',value:format(plan.strapLength),point:strap[0]},
+      {label:'Strap width',value:format(plan.strapWidth),point:strap[1]},
+      {label:'Short-to-long hem drop',value:drop,point:ends?[hemX,(low[1]+high[1])/2]:low},
+      ...['Chest / bust','Waist','Hip / seat'].map(label=>({label:'Model '+label.toLowerCase(),value:valueFor(measurements,label)}))
+    ].filter(item=>item.value);
+    const arrows=ends?`<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${guide(high[0]*100,high[1]*100,hemX*100,high[1]*100)}${guide(low[0]*100,low[1]*100,hemX*100,low[1]*100)}
+      <path class="wf-photo-dimension" d="M${hemX*100} ${high[1]*100}V${low[1]*100}"/></svg>`:'';
+    const pins=dims.map(({point,value},i)=>point?`<span class="wf-photo-pin${point[0]>.5?' wf-photo-pin-end':''}" aria-hidden="true" style="left:${100*point[0]}%;top:${100*point[1]}%">${i+1}<span>${escape(value)}</span></span>`:'').join('');
+    return `<figure class="wf-reference"><div class="wf-reference-image"><img src="${escape(reference)}" alt="Reference garment">${arrows}${pins}</div><figcaption><strong>Reference garment and project measurements</strong>${dims.length?`<ol>${dims.map(({label,value})=>`<li>${escape(label)} <strong>${escape(value)}</strong></li>`).join('')}</ol>`:''}<p>Use the photo to compare details. Take cutting dimensions from your pattern or fitting sample.</p></figcaption></figure>`;
+  }
+  return {bodySheet,cuttingPlan,seamPlan,featurePlan,stepList,referenceSheet,machineActions};
 })();

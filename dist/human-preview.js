@@ -7,6 +7,7 @@ const humanPreview = (() => {
   const clamp = (value,min,max)=>Math.min(max,Math.max(min,value));
   const ease = value=>{const t=clamp(value,0,1);return t*t*(3-2*t);};
   const topology=humanMeshData.faces;
+  const weights=humanMeshData.weights;
   // Plane locations on the two source meshes. These identify the anatomy
   // being moved, independently of the heights entered in the editor.
   const surfaceLevels = [
@@ -24,9 +25,13 @@ const humanPreview = (() => {
 
   // Piecewise cubic interpolation with a shared tangent at each landmark.
   // A sign change stops the tangent at a local extremum rather than overshooting.
-  function smoothCurve(knots) {
+  function smoothCurve(knots,preserveEndpoints=false) {
     const slopes=knots.map(([at,value],i)=>{
-      if (i===0 || i===knots.length-1) return 0;
+      if (i===0 || i===knots.length-1) {
+        if (!preserveEndpoints) return 0;
+        const [nextX,nextValue]=knots[i===0?1:i-1];
+        return (nextValue-value)/(nextX-at);
+      }
       const [leftX,left]=knots[i-1], [rightX,right]=knots[i+1];
       const h0=at-leftX, h1=rightX-at;
       const d0=(value-left)/h0, d1=(right-value)/h1;
@@ -114,8 +119,10 @@ const humanPreview = (() => {
     const bottom=Math.min(...points.map(p=>p[1]));
     const height=Math.max(...points.map(p=>p[1]))-bottom;
     const mesh=points.map(([x,y,z])=>[x,(y-bottom)/height,z]);
-    const arm=humanMeshData.arms[index];
-    const levels={...surfaceLevels[index],shoulder:(arm[0][1]-bottom)/height};
+    const arm=humanMeshData.arms[index], leg=humanMeshData.legs[index];
+    const at=point=>(point[1]-bottom)/height;
+    // Align the shape changes with the actual joints on each source body.
+    const levels={...surfaceLevels[index],shoulder:at(arm[0]),knee:at(leg[1]),ankle:at(leg[2])};
     const sections=Object.fromEntries([...legSections,...torsoSections].map(key=>{
       const contours=sliceContours(mesh,levels[key]);
       const central=legSections.includes(key) ? contours.filter(row=>row.xMin>=0)
@@ -138,7 +145,7 @@ const humanPreview = (() => {
     const armGirth={upperArm:armTape(shoulder,elbow,.53),forearm:armTape(elbow,wrist,.28),wrist:armTape(elbow,wrist,.96)};
     const foot=mesh.filter(([,y])=>y<.032).map(([, ,z])=>z);
     const heel=Math.min(...foot);
-    return {mesh,height,bottom,arm,levels,sections,armGirth,heel,footLength:Math.max(...foot)-heel};
+    return {mesh,height,bottom,arm,leg,levels,sections,armGirth,heel,footLength:Math.max(...foot)-heel};
   });
 
   function statureCurve(profile,body,props) {
@@ -156,7 +163,7 @@ const humanPreview = (() => {
     }
     if (body.calfHeight) knots.push([at.calf,clamp(body.calfHeight,ankle+2,knee-2)]);
     const ordered=()=>knots.sort((a,b)=>a[0]-b[0]);
-    const estimated=smoothCurve(ordered());
+    const estimated=smoothCurve(ordered(),true);
     const bust=body.bustHeight?clamp(body.bustHeight,props.waist+6,props.shoulder-5):estimated(at.bust);
     if (body.bustHeight) knots.push([at.bust,bust]);
     if (body.underbustHeight) {
@@ -164,23 +171,23 @@ const humanPreview = (() => {
       if (!body.bustHeight) knots.push([at.bust,bust]);
       knots.push([at.underbust,clamp(body.underbustHeight,props.waist+2,bust-2)]);
     }
-    return smoothCurve(ordered());
+    return smoothCurve(ordered(),true);
   }
 
   function sectionScales(contour,targetCm,depthCm,aspect,cm) {
     const target=(targetCm || contour.girth*cm)/cm;
     if (!depthCm) {
-      const ratio=target/perimeter(contour.edges,aspect,1/aspect);
+      const ratio=clamp(target/perimeter(contour.edges,aspect,1/aspect),.64,1.58);
       return [ratio*aspect,ratio/aspect];
     }
-    const depth=Math.min(depthCm/cm,target*.48)/contour.depth;
+    const depth=clamp(Math.min(depthCm/cm,target*.45)/contour.depth,.60,1.65);
     let left=0, right=target/Math.max(.1,contour.xMax-contour.xMin);
     for (let i=0;i<20;i++) {
       const mid=(left+right)/2;
       if (perimeter(contour.edges,mid,depth)<target) left=mid;
       else right=mid;
     }
-    return [(left+right)/2,depth];
+    return [clamp((left+right)/2,.62,1.58),depth];
   }
 
   function armShape(profile,body,cm,shoulderRatio) {
@@ -197,7 +204,7 @@ const humanPreview = (() => {
       .filter(([key])=>body[key] && profile.armGirth[key])
       .map(([key,at])=>[at,clamp(body[key]/(profile.armGirth[key]*cm),.57,1.9)]);
     const trim=smoothCurve([[0,1],...tape,[upperLength+lowerLength+.42,1]]);
-    const angle=.32, sin=Math.sin(angle), cos=Math.cos(angle);
+    const angle=.28, sin=Math.sin(angle), cos=Math.cos(angle);
     return (x,y,z)=>{
       const rawY=y*profile.height+profile.bottom;
       const relative=[x-shoulder[0],rawY-shoulder[1],z-shoulder[2]];
@@ -214,9 +221,7 @@ const humanPreview = (() => {
         const to=mix(before*upperScale,upper[i]*upperScale+low[i]*lowerPosition*lowerScale,bend);
         return to+(value-from)*size;
       });
-      const cutoff=Math.min(shoulder[0]-.52,1.34)+Math.max(0,shoulder[1]-rawY)*.48;
-      const weight=ease((x-cutoff)/.84)*ease((y-.46)/.08)*ease((shoulder[1]+.94-rawY)/.67);
-      return {weight,x:shoulder[0]*shoulderRatio+dx*cos+dy*sin,y:dx*-sin+dy*cos,z:shoulder[2]+dz-.55*ease(end/lowerLength)};
+      return {x:shoulder[0]*shoulderRatio+dx*cos+dy*sin,y:dx*-sin+dy*cos,z:shoulder[2]+dz};
     };
   }
 
@@ -250,7 +255,7 @@ const humanPreview = (() => {
     const shoulderRatio=body.shoulder?clamp(body.shoulder/shoulderWidth,.73,1.35):1;
     const shapeArm=armShape(profile,body,cm,shoulderRatio);
     const shoulderY=floor-props.shoulder*unit;
-    const vertices=profile.mesh.map(([x,y,z])=>{
+    function shaped([x,y,z],armWeight=0) {
       const sign=Math.sign(x);
       const arm=shapeArm(Math.abs(x),y,z);
       const shoulder=ease((y-at.upperChest)/(at.shoulder-at.upperChest))*ease((at.neck-y)/(at.neck-at.shoulder));
@@ -264,17 +269,25 @@ const humanPreview = (() => {
       const projected=female?(geometry.depth-4.5)/cm*influence*.2:0;
       const spacing=body.bustSpacing && female?(body.bustSpacing/2-9.5)*unit*influence*sign*ease(Math.abs(x)/.43):0;
       return [
-        (mix(sizedX,sign*arm.x,arm.weight)-stance)*cm*unit+spacing,
-        mix(vertical,shoulderY-arm.y*cm*unit,arm.weight),
-        (mix(zCenter+(z-zCenter)*depthAt(y)+foot,arm.z,arm.weight)+projected-.34)*cm*unit,
-        arm.weight
+        (mix(sizedX,sign*arm.x,armWeight)-stance)*cm*unit+spacing,
+        mix(vertical,shoulderY-arm.y*cm*unit,armWeight),
+        (mix(zCenter+(z-zCenter)*depthAt(y)+foot,arm.z,armWeight)+projected-.34)*cm*unit,
+        armWeight
       ];
+    }
+    function normalized([x,y,z]) {return [x,(y-profile.bottom)/profile.height,z];}
+    const vertices=profile.mesh.map((point,i)=>{
+      const row=weights[i];
+      let arm=0, total=0;
+      for (let j=0;j<row.length;j+=2) {
+        total+=row[j+1];
+        if ((row[j]>=1 && row[j]<=3) || (row[j]>=7 && row[j]<=9)) arm+=row[j+1];
+      }
+      return shaped(point,ease(arm/total));
     });
-    const joints=profile.arm.map(([x,y,z])=>{
-      const joint=shapeArm(x,(y-profile.bottom)/profile.height,z);
-      return [joint.x*cm*unit,shoulderY-joint.y*cm*unit,(joint.z-.34)*cm*unit];
-    });
-    return {vertices,joints};
+    const joints=profile.arm.map(point=>shaped(normalized(point),1).slice(0,3));
+    const legJoints=profile.leg.map(point=>shaped(normalized(point)).slice(0,3));
+    return {vertices,joints,legJoints};
   }
 
   const fittingCache=new WeakMap();
@@ -284,7 +297,7 @@ const humanPreview = (() => {
     const fitted=fit(body);
     const toRig=([x,y,z,arm])=>[x,clamp(proportions.baseAt((floor-y)/unit),-1.24,1.128),z,arm];
     const vertices=fitted.vertices.map(toRig);
-    const joints=fitted.joints.map(toRig);
+    const joints=fitted.joints.slice(0,3).map(toRig);
     const buckets={torso:new Map(),arm:new Map(),leg:new Map(),bothLegs:new Map()};
     const add=(part,x,y,z)=>{
       const bin=Math.round(y/.045);
@@ -319,9 +332,169 @@ const humanPreview = (() => {
       const t=(y-a[0])/(b[0]-a[0]);
       return a.slice(1).map((value,k)=>mix(value,b[k+1],t));
     }
-    const result={vertices,joints,sectionAt};
+    let previousPose, previousResult;
+    const result={vertices,joints,sectionAt,pose:(pose=fabricFit.poses.stand)=>{
+      if (pose!==previousPose) {
+        previousPose=pose;
+        previousResult=rigPose(fitted,proportions,pose);
+      }
+      return previousResult;
+    }};
     fittingCache.set(body,result);
     return result;
+  }
+
+  const add=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+  const times=(v,n)=>[v[0]*n,v[1]*n,v[2]*n];
+  const lerp3=(a,b,t)=>[mix(a[0],b[0],t),mix(a[1],b[1],t),mix(a[2],b[2],t)];
+  const axisRotation=(axis,angle)=>[...times(axis,Math.sin(angle/2)),Math.cos(angle/2)];
+  function rotate(q,[x,y,z]) {
+    const [a,b,c,w]=q;
+    const u=2*(b*z-c*y), v=2*(c*x-a*z), s=2*(a*y-b*x);
+    return [x+w*u+b*s-c*v,y+w*v+c*u-a*s,z+w*s+a*v-b*u];
+  }
+  function multiply(a,b) {
+    const [x,y,z,w]=a, [u,v,s,t]=b;
+    return [w*u+x*t+y*s-z*v,w*v-x*s+y*t+z*u,w*s+x*v-y*u+z*t,w*t-x*u-y*v-z*s];
+  }
+  function aim(from,to) {
+    const a=normalize(from), b=normalize(to);
+    const d=dot(a,b);
+    if (d<-.9999) {
+      const axis=normalize(cross(a,Math.abs(a[0])<.8?[1,0,0]:[0,1,0]));
+      return [...axis,0];
+    }
+    const q=[...cross(a,b),1+d];
+    const n=Math.hypot(...q)||1;
+    return q.map(value=>value/n);
+  }
+
+  // A dual quaternion encodes the rigid bind-to-pose transform of each bone.
+  // Blending rotations rather than position matrices preserves limb volume at bends.
+  function skinTransform(rotation,bind,target) {
+    const translation=direction(rotate(rotation,bind),target);
+    return [...rotation,...multiply([...translation,0],rotation).map(value=>value*.5)];
+  }
+  function displaced(point,transforms,influences) {
+    if (influences.length===2) return applySkin(transforms[influences[0]],point);
+    const q=[0,0,0,0,0,0,0,0], first=transforms[influences[0]];
+    for (let i=0;i<influences.length;i+=2) {
+      const bone=transforms[influences[i]];
+      const facing=first[0]*bone[0]+first[1]*bone[1]+first[2]*bone[2]+first[3]*bone[3];
+      const weight=(facing<0?-1:1)*influences[i+1];
+      for (let k=0;k<8;k++) q[k]+=bone[k]*weight;
+    }
+    const norm=Math.hypot(q[0],q[1],q[2],q[3])||1;
+    for (let k=0;k<8;k++) q[k]/=norm;
+    return applySkin(q,point);
+  }
+  function applySkin(q,point) {
+    const [x,y,z,w,a,b,c,d]=q;
+    const [px,py,pz]=rotate(q,point);
+    return [
+      px+2*(a*w-d*x-b*z+c*y),
+      py+2*(b*w-d*y-c*x+a*z),
+      pz+2*(c*w-d*z-a*y+b*x)
+    ];
+  }
+
+  function hinge(start,target,upper,lower,pole) {
+    const delta=direction(start,target);
+    const distance=Math.hypot(...delta)||.0001;
+    const axis=times(delta,1/distance);
+    const reach=clamp(distance,Math.abs(upper-lower)+.001,upper+lower-.001);
+    const along=(upper**2-lower**2+reach**2)/(2*reach);
+    const bend=normalize(add(pole,times(axis,-dot(pole,axis))));
+    return [
+      add(start,add(times(axis,along),times(bend,Math.sqrt(Math.max(0,upper**2-along**2))))),
+      add(start,times(axis,reach))
+    ];
+  }
+
+  function rigPose(fitted,proportions,pose) {
+    const sit=clamp(pose.sit||0,0,1), reach=clamp(pose.reach||0,0,1), stride=clamp(pose.stride||0,-1,1);
+    const raise=clamp((pose.arm||0)-reach*.45-sit*.03,0,1);
+    const fromRig=([x,y,z])=>[x,proportions.yAt(y),z];
+    const hips=fitted.legJoints[0];
+    const pivot=[0,hips[1],hips[2]];
+    const xAxis=[1,0,0], zAxis=[0,0,1];
+    const torsoTurn=axisRotation(xAxis,-.19*sit-.07*reach);
+    const sitThigh=axisRotation(xAxis,1.43*sit);
+    const sitShin=axisRotation(xAxis,-.035*sit);
+    const sitFoot=axisRotation(xAxis,0);
+    const [bindHip,bindKnee,bindAnkle]=fitted.legJoints;
+    const bindThigh=direction(bindHip,bindKnee), bindShin=direction(bindKnee,bindAnkle);
+    const fittedAnkle=add(hips,add(rotate(sitThigh,bindThigh),rotate(sitShin,bindShin)));
+    const drop=bindAnkle[1]-fittedAnkle[1]+Math.abs(stride)*.043;
+    const pelvis=add(pivot,[0,drop,0]);
+    const joints={};
+    const bones=[skinTransform(torsoTurn,pivot,pelvis)];
+    const controls={};
+    for (const side of [1,-1]) {
+      const mirrored=([x,y,z])=>[side*x,y,z];
+      const [a,b,c,palm]=fitted.joints.map(mirrored);
+      const [h,k,f]=fitted.legJoints.map(mirrored);
+      const upper=direction(a,b), lower=direction(b,c), thigh=direction(h,k), shin=direction(k,f);
+      const upperLength=Math.hypot(...upper), lowerLength=Math.hypot(...lower);
+      const movedHip=add(h,[0,drop,0]);
+      let movedKnee=add(movedHip,rotate(sitThigh,thigh));
+      let movedAnkle=add(movedKnee,rotate(sitShin,shin));
+      if (stride) {
+        const step=stride*side;
+        const lift=Math.max(0,-step)*.064;
+        const target=add(f,[0,-lift,step*.24]);
+        [movedKnee,movedAnkle]=hinge(movedHip,target,Math.hypot(...thigh),Math.hypot(...shin),[0,0,1]);
+      }
+      const movedShoulder=add(applySkin(bones[0],a),[side*.007*raise,-.016*raise,.023*reach]);
+      const liftTurn=axisRotation(zAxis,-side*2.22*raise);
+      const swingTurn=axisRotation(xAxis,-side*stride*.36);
+      const shoulderTurn=multiply(torsoTurn,multiply(swingTurn,liftTurn));
+      const upperDirection=normalize(lerp3(rotate(shoulderTurn,upper),[side*.055*upperLength,.035*upperLength,upperLength],reach));
+      const shoulderRotation=aim(upper,upperDirection);
+      let movedElbow=add(movedShoulder,times(upperDirection,upperLength));
+      const carriedForearm=rotate(shoulderRotation,lower);
+      const reachTo=[-side*.075*lowerLength,.065*lowerLength,lowerLength];
+      const lowerDirection=normalize(lerp3(carriedForearm,reachTo,reach));
+      let movedWrist=add(movedElbow,times(lowerDirection,lowerLength));
+      if (sit) {
+        const lap=[movedKnee[0]+side*.017,movedKnee[1]-.107,movedKnee[2]-.123];
+        [movedElbow,movedWrist]=hinge(movedShoulder,lerp3(movedWrist,lap,sit),upperLength,lowerLength,[side*.38,.91,-.12]);
+      }
+      const armTurn=aim(upper,direction(movedShoulder,movedElbow));
+      const foreTurn=multiply(aim(rotate(armTurn,lower),direction(movedElbow,movedWrist)),armTurn);
+      const carriedPalm=rotate(foreTurn,direction(c,palm));
+      const straightPalm=times(normalize(direction(movedElbow,movedWrist)),Math.hypot(...carriedPalm));
+      const palmDirection=lerp3(carriedPalm,straightPalm,clamp(.85*raise+.68*reach+.58*sit,0,.85));
+      const handTurn=multiply(aim(carriedPalm,palmDirection),foreTurn);
+      const thighTurn=aim(thigh,direction(movedHip,movedKnee));
+      const shinTurn=multiply(aim(rotate(thighTurn,shin),direction(movedKnee,movedAnkle)),thighTurn);
+      const footTurn=stride?axisRotation(xAxis,-Math.max(0,-side*stride)*.13):sitFoot;
+      const start=bones.length;
+      bones.push(skinTransform(armTurn,a,movedShoulder),skinTransform(foreTurn,b,movedElbow),skinTransform(handTurn,c,movedWrist),
+        skinTransform(thighTurn,h,movedHip),skinTransform(shinTurn,k,movedKnee),skinTransform(footTurn,f,movedAnkle));
+      joints[side]={shoulder:movedShoulder,elbow:movedElbow,wrist:movedWrist,hip:movedHip,knee:movedKnee,ankle:movedAnkle};
+      const elbowAxis=normalize(add(normalize(upper),normalize(lower)));
+      const kneeAxis=normalize(add(normalize(thigh),normalize(shin)));
+      controls[side]={
+        arm:point=>{
+          const forearm=ease((dot(direction(b,point),elbowAxis)+.066)/.132);
+          return displaced(point,bones,[start,1-forearm,start+1,forearm]);
+        },
+        leg:point=>{
+          const lowerLeg=ease((dot(direction(k,point),kneeAxis)+.081)/.162);
+          const foot=ease((point[1]-f[1]+.025)/.075);
+          return displaced(point,bones,[start+3,1-lowerLeg,start+4,lowerLeg*(1-foot),start+5,lowerLeg*foot]);
+        }
+      };
+    }
+    const vertices=fitted.vertices.map((point,index)=>displaced(point,bones,weights[index]));
+    return {
+      vertices,joints,
+      arm:(point,side=Math.sign(point[0])||1)=>controls[side].arm(fromRig(point)),
+      leg:(point,side=Math.sign(point[0])||1)=>controls[side].leg(fromRig(point)),
+      torso:point=>applySkin(bones[0],fromRig(point)),
+      seatY:pelvis[1]+.105
+    };
   }
 
   function skinFaces(points,screen,skin,covered) {
@@ -459,5 +632,5 @@ const humanPreview = (() => {
       context.stroke();
     }
   }
-  return {draw,fittingSurface,skinFaces};
+  return {draw,fittingSurface,skinFaces,topology};
 })();

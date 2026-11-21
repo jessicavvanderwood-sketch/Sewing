@@ -18,6 +18,7 @@ const studioDesign = (() => {
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
+  const hemStyles = ['Level','Fairy / handkerchief'];
   const tones = ['Solid','Contrast lower panel'];
 
   const baseModel = model=>model==='corset'?'top':model;
@@ -36,6 +37,8 @@ const studioDesign = (() => {
   const pocketChoices = model => model==='corset' ? pockets.slice(0,1) : model==='top' ? pockets.slice(0,2) : pockets;
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
   const isSleeved = design => isBodice(design.model) && design.model!=='corset' && selectedSupport(design)===supports[0] && design.sleeve!==sleeves[0];
+  const hasFairyHem = design => ['dress','skirt'].includes(design.model) && design.hemStyle===hemStyles[1];
+  const hemDrop = design => Number.isFinite(design.hemDrop) ? Math.max(2,Math.min(35,design.hemDrop)) : 10;
 
   function defaults(model='dress') {
     const spec = silhouettes[model];
@@ -43,7 +46,8 @@ const studioDesign = (() => {
     return {model,cut:spec.cuts[1],length:spec.lengths[1],neckline:corset?'Sweetheart':necklines[1],sleeve:corset?sleeves[0]:sleeves[1],
       fabric:model==='trousers'||corset?fabrics[2]:fabrics[0],closure:closureChoices(model)[0],
       support:corset?'Strapless':supports[0],back:backs[0],rise:rises[1],
-      pocket:pockets[0],finish:corset?'Faced hem':finishes[0],tone:tones[0],primary:'#783e60',accent:'#d3a98d',ease:4};
+      pocket:pockets[0],finish:corset?'Faced hem':finishes[0],hemStyle:hemStyles[0],hemDrop:10,
+      tone:tones[0],primary:'#783e60',accent:'#d3a98d',ease:4};
   }
 
   const pantShape = {
@@ -115,7 +119,11 @@ const studioDesign = (() => {
       'Faced hem':'Trace a shaped facing that matches the hem curve. Stitch it to the lower edge, grade the seam, turn it inside and secure the upper edge.',
       'Contrast hem band':'Cut a matching band in contrast fabric. Test the finished band depth on the wearer, then join the band, press the seam and finish its inside edge.'
     };
-    add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
+    if (hasFairyHem(design)) {
+      add('fairyHem',`Mark the high points of the finished fairy hem on the toile. Measure ${hemDrop(design)} cm straight down at each planned low point. Connect those marks on paper, then mark the hem allowance outside the finished line.`);
+      add('fairyHem',`Let the skirt hang so any bias edges can settle. Check the ${hemDrop(design)} cm drop from high to low again on the wearer. Test the selected finish on a scrap cut at the same angle and check that the points hang cleanly before you trim.`);
+      add('finish',hem[design.finish]);
+    } else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
     return list;
   }
 
@@ -131,12 +139,12 @@ const studioDesign = (() => {
     if (design.closure==='Back lacing') tools.push('eyelets and setting tool','lacing cord');
     if (design.closure==='Front busk') tools.push('busk');
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
-      cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase(),
+      cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase()+(hasFairyHem(design)?' · fairy hem':''),
       level:'Intermediate',color:design.primary,design,
       fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'. Confirm yardage after laying out your drafted pieces.',
       tools:tools.join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
   }
 
-  return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,tones,backs,rises,
+  return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,tones,backs,rises,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,selectedBack,pocketChoices,defaults,measurements,instructions,make};
 })();

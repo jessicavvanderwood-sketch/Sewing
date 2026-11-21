@@ -87,3 +87,21 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 #motion-controls[hidden]{display:none}#motion-controls{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(100px,1fr) minmax(85px,auto);gap:10px;align-items:end;padding:10px;background:#f8f0ec;border:1px solid var(--line);border-radius:7px}#motion-controls .field{min-width:0}
 .cut-piece{margin:12px 0;border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}.cut-piece legend{font-size:13px;font-weight:700}.wo-cut-guide .wf-grid,.wo-feature-guide .wf-grid,.wo-seam-guide .wf-grid{margin-top:10px}.wo-tip{margin-top:10px;font-size:13px}
 @media(max-width:460px){#motion-controls{grid-template-columns:auto 1fr}#motion-controls label:last-child{grid-column:1/-1}}
+
+.wf-panel.step-figure,.check-list .wf-panel.step-figure{margin:0;max-width:none}
+.wo-packet-steps>li>.wf-panel{max-width:520px}
+.wo-packet-steps>li>label,.wo-packet-steps>li>p{margin-bottom:10px}
+.wf-extension{fill:none;stroke:#8c6471;stroke-width:1}
+.wf-panel svg .wf-dim-label{fill:#572139;font-weight:700;paint-order:stroke fill;stroke:#fbf5ef;stroke-width:3px;stroke-linejoin:round}
+.wf-reference{display:grid;grid-template-columns:minmax(0,2fr) minmax(150px,1.4fr);gap:14px;align-items:start;margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbf5ef}
+.wf-reference-image{position:relative;align-self:start;max-width:360px;width:100%;overflow:hidden;border-radius:6px}
+.wf-reference-image img{display:block;width:100%;height:auto}
+.wf-reference-image svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.wf-reference-image svg path{fill:none;stroke:#fff8f4;stroke-width:1.5px;vector-effect:non-scaling-stroke}
+.wf-reference-image svg .wf-photo-dimension{stroke:#f1a6bf;stroke-width:2px}
+.wf-reference figcaption{font-size:14px}
+.wf-reference figcaption ol{padding-left:22px;margin:8px 0}
+.wf-photo-pin{position:absolute;transform:translate(-50%,-50%);display:grid;place-items:center;min-width:20px;height:20px;border:1px solid #f9ede6;border-radius:50%;color:#fff;background:#6f2949;font-size:11px;font-weight:700}
+.wf-photo-pin span{position:absolute;left:calc(100% + 2px);white-space:nowrap;background:#fff9f5;color:#5f2841;border-radius:4px;padding:1px 3px}
+.wf-photo-pin-end span{left:auto;right:calc(100% + 2px)}
+@media(max-width:600px){.wf-reference{grid-template-columns:1fr}.wf-reference-image{justify-self:center}}

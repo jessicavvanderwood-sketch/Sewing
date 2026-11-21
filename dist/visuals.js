@@ -106,17 +106,21 @@ const sewingVisuals = (() => {
     measure:[
       'Set the measuring tape flat around the body at the measurement point. Hold it level, close it without pulling the body inward, and read where the zero end crosses the tape.',
       'Write down the body measurement and the intended finished garment measurement separately. Subtract the body measurement from the finished measurement to check the ease.',
+      'Lay the sample flat and match the left and right sides. Measure around the stitched seam line at the same level, with closures fastened and the fabric relaxed.',
       'On a test garment, clip or pin at the planned seam line. Stand, sit and move, then mark any areas that pull with chalk.'
     ],
     grain:[
       'Prewash and dry as planned for the finished garment. Press by setting the iron down and lifting it. Avoid sliding it over fabric that shifts easily.',
       'Spread the fabric on the cutting board. Identify the selvage and place the pattern grainline parallel to it. Measure from both ends of the grainline to the selvage and adjust until the distances match.',
-      'Mark mirrored pieces and check the direction of any nap or print. Place weights inside the pattern edges so the pieces stay flat during cutting.'
+      'Identify pieces marked cut on fold, cut one, and cut a pair. Match any fold mark to the fold. Flip the paper when the instructions call for mirrored pieces cut from one layer.',
+      'Check the direction of the nap or print before laying out all the pieces. Place weights inside the pattern edges so the pieces stay flat during cutting.'
     ],
     cut:[
       'Circle the correct size line and confirm whether the printed outline already contains seam and hem allowances.',
+      'Match the grainline and fold marks before adding weights. Check that every piece fits on the fabric, with space for any allowances that still need to be traced.',
       'Place the pattern on the fabric and secure it. Insert the lower blade of the fabric shears flat against the board, keep your other hand clear, and cut with steady strokes along the verified line.',
-      'Keep matched pieces together. Transfer notches, dart points and closure marks using a chalk method tested on scrap.'
+      'Transfer notches, dart points and closure marks before you lift the paper. Test your chalk or marker on scrap first.',
+      'Label wrong sides with the piece name and side. Keep matched pairs together and tick each piece off on the cutting list.'
     ],
     marks:[
       'Match the pattern edges to the fabric. Hold the piece flat and mark each notch through the paper with tailor’s chalk or another tested removable marker.',
@@ -163,6 +167,7 @@ const sewingVisuals = (() => {
       wovenSetup,
       'Match the sleeve’s front and back notches to the armhole and mark the shoulder point. Clip at those fixed points first.',
       'Distribute the remaining sleeve cap evenly as the pattern directs. Baste and try the garment on before sewing the permanent seam.',
+      'Turn the body inside out and insert the sleeve through the armhole with right sides touching. Follow the marked stitching line around the opening and remove the clips before they reach the foot.',
       'Check that the sleeve hangs smoothly, the underarm is untwisted, and you can raise your arm comfortably.'
     ],
     facing:[
@@ -212,10 +217,10 @@ const sewingVisuals = (() => {
   const equivalent = {designCut:'cut',layer:'seam',sew:'seam',topstitch:'seam',neck:'facing',neckFill:'facing',
     sleeveCap:'sleeve',armhole:'sleeve',rise:'blend',taper:'blend',pocket:'marks',pocketPatch:'marks',button:'marks',colorBlock:'grain'};
   const actionFigures = {
-    measure:['measure','measure','fit'],
-    grain:['press','grain','weights'],
-    cut:['cut','shears','marks'],
-    marks:['marks','marks'],
+    measure:['measure','measure','fit','fitMove'],
+    grain:['press','grain','separateLayers','weights'],
+    cut:['cut','grain','shears','markPattern','separateLayers'],
+    marks:['markPattern','separateLayers'],
     open:['unpick','ripper','press'],
     take:['take','blend','pin'],
     let:['let','allowance','blend'],
@@ -223,7 +228,7 @@ const sewingVisuals = (() => {
     seam:['screen','layer','foot','pin'],
     darts:['screen','pin','darts','press'],
     shoulder:['screen','shoulder','sew'],
-    sleeve:['screen','matchSleeve','matchSleeve','armhole'],
+    sleeve:['screen','matchSleeve','easeSleeve','stitchStart','fitMove'],
     facing:['facing','screen','clipCurve','turnFacing'],
     zipper:['foot','zipper','zipClearance','zipCheck'],
     band:['band','pin','casing'],
@@ -231,7 +236,7 @@ const sewingVisuals = (() => {
     hemDown:['hemDown','ripper','fold'],
     finish:['fold','pin','screen','sew','check'],
     press:['press','press'],
-    fit:['fit','fit','marks']
+    fit:['fit','fitMove','markPattern']
   };
   function operationActions(step,id) {
     const key=operations[id]?id:equivalent[id];
