@@ -306,6 +306,16 @@ const fabricFit = (() => {
       const t=clamp((y-knee+.105)/.21,0,1);
       return [x,mix(hip+a,kneeY+c,t)+drop,mix(b,kneeZ+d,t)];
     }
+    function pelvis(point,theta=0) {
+      const [x,y]=point;
+      const body=torso(point);
+      const thigh=leg(point);
+      const front=Math.max(0,Math.sin(theta));
+      const inner=1-Math.min(1,Math.abs(x)/.26);
+      const t=pose.sit*clamp((y-.12)/.24,0,1)*(.22+.56*front+.19*inner);
+      return body.map((value,axis)=>mix(value,thigh[axis],t));
+    }
+    const seatY=hip+drop+.115;
     function foot([x,y,z]) {
       return [x,mapY(y),z+ankleZ];
     }
@@ -333,7 +343,7 @@ const fabricFit = (() => {
       const movingZ=z+zOnLap+zFall+fold*.6+excess*forward*.45;
       return [x+Math.sign(x)*sideways*pose.sit,mix(y+drop,Math.min(hemLimit,movingY),pose.sit),mix(z,movingZ,pose.sit)];
     }
-    return {torso,leg,foot,skirt};
+    return {torso,leg,pelvis,foot,skirt,seatY};
   }
   const posePoint=(point,pose,part='body')=>rig(pose)[part==='leg'?'leg':'torso'](point);
 

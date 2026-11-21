@@ -634,16 +634,38 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const lift=pose.arm*2.3;
     const reach=pose.reach*.98;
     const elbowAngle=pose.sit*.7+pose.reach*.22+pose.arm*.17;
+    const shoulder=torsoMove([side*(.228+shoulders),-.68,0]);
+    const lap=legMove([side*(legSpacing+.055),.435,.10]);
+    const upper=.44*armScale, fore=.40*armScale;
+    const wristWish=[lap[0],lap[1]-.055,lap[2]+.15];
+    const dY=wristWish[1]-shoulder[1],dZ=wristWish[2]-shoulder[2];
+    const distance=Math.max(.1,Math.hypot(dY,dZ));
+    const reachLength=Math.min(distance,(upper+fore)*.98);
+    const uy=dY/distance,uz=dZ/distance;
+    const elbowAlong=(upper*upper-fore*fore+reachLength*reachLength)/(2*reachLength);
+    const elbowBend=Math.sqrt(Math.max(0,upper*upper-elbowAlong*elbowAlong));
+    const elbow=[side*(.252+shoulders),shoulder[1]+uy*elbowAlong+uz*elbowBend,shoulder[2]+uz*elbowAlong-uy*elbowBend];
+    const wrist=[wristWish[0],shoulder[1]+uy*reachLength,shoulder[2]+uz*reachLength];
     return ([x,y,z])=>{
       const u=x*side-pivot;
       let v=(y+.68)*armScale;
       const forearm=Math.max(0,y+.28)*armScale;
       v-=forearm*(1-Math.cos(elbowAngle));
-      z+=forearm*Math.sin(elbowAngle);
-      const sagittalY=v*Math.cos(reach)-z*Math.sin(reach);
-      const sagittalZ=v*Math.sin(reach)+z*Math.cos(reach);
-      return torsoMove([side*(pivot+u*Math.cos(lift)+sagittalY*Math.sin(lift)),
+      const extendedZ=z+forearm*Math.sin(elbowAngle);
+      const sagittalY=v*Math.cos(reach)-extendedZ*Math.sin(reach);
+      const sagittalZ=v*Math.sin(reach)+extendedZ*Math.cos(reach);
+      const standing=torsoMove([side*(pivot+u*Math.cos(lift)+sagittalY*Math.sin(lift)),
         -.68+sagittalY*Math.cos(lift)-u*Math.sin(lift),sagittalZ]);
+      if (pose.sit===0) return standing;
+      const shoulderToElbow=y<=-.28;
+      const a=shoulderToElbow?shoulder:elbow;
+      const b=shoulderToElbow?elbow:wrist;
+      const t=shoulderToElbow?(y+.68)/.40:(y+.28)/.242;
+      const center=side*(shoulders+fabricFit.mix(.244,.367,fabricFit.clamp((y+.668)/.63,0,1)));
+      const dy=b[1]-a[1],dz=b[2]-a[2],length=Math.hypot(dy,dz)||1;
+      const seated=[fabricFit.mix(a[0],b[0],Math.min(1,t))+x-center,
+        a[1]+t*dy-z*dz/length,a[2]+t*dz+z*dy/length];
+      return standing.map((value,axis)=>fabricFit.mix(value,seated[axis],pose.sit));
     };
   }
   const expanded = rings=>fabricFit.resample(rings);
@@ -731,7 +753,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const extraBack=back*(changes.backRise||0)/100*Math.max(0,1-Math.abs(y+.16)/.46);
         const extraCrotch=(changes.crotch||0)/135*seatWeight*Math.sin(theta);
         const moved=[x,y-rise-extraBack,z+reach+extraCrotch];
-        return model==='dress'||model==='skirt'?skirtMove(moved,theta):torsoMove(moved);
+        if (model==='dress'||model==='skirt') return skirtMove(moved,theta);
+        return model==='trousers'?rig.pelvis(moved,theta):torsoMove(moved);
       },'shell');
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
       const sleeve=(changes.sleeveWidth||0)/410+(design?.sleeve==='Puff'?.045:0);
@@ -761,6 +784,23 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         moved[2]+=pose.sit*knee*Math.max(0,Math.sin(theta))*(changes.kneeFlex||0)/145;
         return moved;
       },'leg');
+    }
+  }
+  if (analysis && pose.sit>.15 && fullBody) {
+    const height= (pose.sit===1?rig:fabricFit.rig(fabricFit.poses.sit,proportions.yAt)).seatY;
+    const wide=Math.max(.30,.28+bodyHip);
+    const near=.24, far=-.27, floor=1.126;
+    const opacity=Math.min(1,(pose.sit-.15)*1.4);
+    function seatFace(vertices,fill) {
+      const points=vertices.map(project);
+      faces.push({points,depth:points.reduce((n,point)=>n+point[2],0)/points.length,paint:fill});
+    }
+    seatFace([[-wide,height,far],[wide,height,far],[wide,height,near],[-wide,height,near]],`rgba(138,112,98,${.29*opacity})`);
+    seatFace([[-wide,height,near],[wide,height,near],[wide,height+.027,near],[-wide,height+.027,near]],`rgba(108,82,69,${.30*opacity})`);
+    for (const x of [-wide+.027,wide-.027]) {
+      for (const z of [far+.026,near-.019]) {
+        seatFace([[x,height,z],[x+.018,height,z],[x+.018,floor,z],[x,floor,z]],`rgba(108,82,69,${.26*opacity})`);
+      }
     }
   }
   for (const face of faces.sort((a,b)=>a.depth-b.depth)) {
