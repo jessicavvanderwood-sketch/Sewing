@@ -208,11 +208,32 @@ const sewingVisuals = (() => {
   };
   const equivalent = {designCut:'cut',layer:'seam',sew:'seam',topstitch:'seam',neck:'facing',neckFill:'facing',
     sleeveCap:'sleeve',armhole:'sleeve',rise:'blend',taper:'blend',pocket:'marks',pocketPatch:'marks',button:'marks',colorBlock:'grain'};
-  function operationDetails(step,id) {
-    const instructions=operations[id] || operations[equivalent[id]];
-    const actions=instructions || step.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)?.map(item=>item.trim()).filter(Boolean);
-    if (!actions || actions.length<2) return '';
-    return `<details class="wo-how"><summary>How to do this step</summary><ol>${actions.map(action=>`<li>${escape(action)}</li>`).join('')}</ol></details>`;
+  const actionFigures = {
+    measure:['measure','measure','fit'],
+    grain:['press','grain','weights'],
+    cut:['cut','shears','marks'],
+    marks:['marks','marks'],
+    open:['unpick','ripper','press'],
+    take:['take','blend','pin'],
+    let:['let','allowance','blend'],
+    blend:['blend','pin','fit'],
+    seam:['screen','layer','foot','pin'],
+    darts:['screen','pin','darts','press'],
+    shoulder:['screen','shoulder','sew'],
+    sleeve:['screen','matchSleeve','matchSleeve','armhole'],
+    facing:['facing','screen','clipCurve','turnFacing'],
+    zipper:['foot','zipper','zipClearance','zipCheck'],
+    band:['band','pin','casing'],
+    hemUp:['hemUp','allowance','fold'],
+    hemDown:['hemDown','ripper','fold'],
+    finish:['fold','pin','screen','sew','check'],
+    press:['press','press'],
+    fit:['fit','fit','marks']
+  };
+  function operationActions(step,id) {
+    const key=operations[id]?id:equivalent[id];
+    return operations[key]?.map((text,i)=>({text,figure:actionFigures[key][i]})) ||
+      step.split(/(?<=[.!?])\s+/).filter(Boolean).map(text=>({text,figure:identify(text)||id}));
   }
   function machineGuide() {
     return '<details class="wo-how wo-machine"><summary>Brother CP2160F setup and stitch settings</summary><ol><li>Switch the machine off to insert the needle and set up the thread. Use a compatible SA156 Class 15 bobbin and raise the presser foot before threading the upper thread.</li><li>For a stable woven seam, use centered straight stitch <strong>01</strong>, foot <strong>J</strong>, and start at <strong>2.5 mm</strong> stitch length.</li><li>For zigzag edge finishing, select <strong>04</strong> with foot <strong>J</strong>. Its defaults are <strong>3.5 mm wide</strong> and <strong>1.4 mm long</strong>. Adjust only after checking a scrap.</li><li>For a stretchy seam, use a compatible needle and test a narrow zigzag or the stitch required by your pattern. Pull the sewn scrap to check that the stitches stretch with it.</li><li>Use the foot, needle and seam type required by the project. When changing feet or adjusting stitch width, turn the handwheel toward you to confirm needle clearance before using the pedal.</li></ol><p><a href="https://support.brother.com/g/b/manualtop.aspx?c=us&amp;lang=en&amp;prod=hf_cp2160feus" target="_blank" rel="noopener">Brother CP2160F manual and stitch chart</a></p></details>';
@@ -228,5 +249,5 @@ const sewingVisuals = (() => {
     const machinePhoto = /machine/i.test(description) ? '<figure><img src="brother-cp2160f.jpg" alt="Brother CP2160F sewing machine" loading="lazy"><figcaption>Brother CP2160F sewing machine</figcaption></figure>' : '';
     return '<div class="tool-photos">'+machinePhoto+cards.map(({name,i})=>'<figure><img src="tools/tool-'+i+'.jpg" alt="'+name+'" loading="lazy"><figcaption>'+name+'</figcaption></figure>').join('')+'</div>';
   }
-  return {diagram,identify,tools,steps,basics,patterns,operationDetails,machineGuide};
+  return {diagram,identify,tools,steps,basics,patterns,operationActions,figureParts:id=>diagrams[id],machineGuide};
 })();

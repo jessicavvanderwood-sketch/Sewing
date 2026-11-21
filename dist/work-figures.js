@@ -113,5 +113,65 @@ const workFigures = (() => {
     }
     return '';
   }
-  return {forStep,bodySheet};
+  const cloth=path('M32 41H169V135H32Z','wf-cloth');
+  const layers=cloth+path('M40 35H177V126H40Z','wf-fold');
+  const raw=path('M177 39V125','wf-dimension');
+  const row=path('M145 46V115','wf-stitch');
+  const needle=path('M143 23H149V82L146 92L143 82Z','wf-fold');
+  const arrow=(x,y)=>path(`M${x} ${y-26}v26m-5 -6l5 6 5 -6`,'wf-arrow');
+  const pin=(x,y)=>path(`M${x} ${y}h43m-43 -3a3 3 0 1 0 .1 0z`,'wf-dimension');
+  let scenes;
+  const createScenes=()=>({
+    weights:['Weight the pattern',cloth+path('M52 55H155V119H52Z','wf-guide')+path('M61 63h17v16H61zM126 93h17v16h-17z','wf-fold')+label(179,74,'Weights inside cut line')],
+    shears:['Keep the lower blade flat',cloth+path('M169 56l50 -15M169 56l50 13M219 41q29 -18 25 3q-2 8 -25 -3M219 69q28 22 26 2q-2 -10 -26 -2','wf-dimension')+label(183,108,'Cut on outer line')],
+    unpick:['Mark the section to open',layers+row+path('M132 63h23m-23 34h23','wf-dimension')+label(179,84,'Remove between marks')],
+    ripper:['Lift one stitch at a time',cloth+path('M59 99H156','wf-stitch')+path('M246 56l-30 23 -48 18q-11 0 -11 -11m59 -7l-22 -1 -25 14','wf-dimension')+label(57,124,'Keep tip above fabric')],
+    allowance:['Measure from stitch line to edge',layers+raw+row+span(145,177,117,'')+label(189,119,'Remaining fabric')],
+    pin:['Pin across the stitch line',layers+row+pin(119,57)+pin(119,89)+label(184,56,'Remove before needle')],
+    foot:['Lower the presser foot onto the fabric',layers+needle+path('M133 45h26v17h-8v22h-29v-8h14v-14h-3z','wf-cloth')+arrow(183,77)+label(203,72,'Lower the foot')],
+    pinOut:['Stop and slide the pin out',layers+row+pin(119,78)+needle+path('M166 78h49m-6 -5l6 5 -6 5','wf-arrow')+label(185,104,'Pull away from needle')],
+    stitchStart:['Guide the fabric past the needle',layers+needle+row+raw+arrow(110,110)+label(182,89,'Raw edge on guide')],
+    matchSleeve:['Match the sleeve cap to the armhole',path('M51 130Q48 33 111 32Q164 35 184 123Z','wf-cloth')+path('M53 120Q78 44 113 44Q151 44 181 115','wf-stitch')+path('M106 37l7 12 7 -12M65 78l9 4m84 -4l9 -4','wf-dimension')+label(171,40,'Shoulder notch')+label(192,118,'Match front and back')],
+    clipCurve:['Clip toward the seam in the allowance',path('M29 32H180V120H29Z','wf-cloth')+path('M37 34Q100 122 170 34','wf-stitch')+path('M60 35l9 19M91 48l3 21M119 51l-2 18M148 38l-10 20','wf-dimension')+label(182,78,'Stop before stitches')],
+    turnFacing:['Roll the stitched edge to the inside',path('M30 34H173V142H30Z','wf-cloth')+path('M31 36Q103 102 172 36V54Q104 125 31 55Z','wf-fold')+arrow(103,83)+label(187,65,'Facing moves inside')],
+    zipClearance:['Lower the needle beside the zipper coil',layers+needle+path('M157 45v70m5 -70v70M158 54h4m-4 10h4m-4 10h4m-4 10h4m-4 10h4','wf-dimension')+label(181,63,'Clear of the teeth')],
+    zipCheck:['Close the zipper and compare the seam marks',layers+path('M115 40v80m7 -80v80M112 82h13l-3 10h-7z','wf-dimension')+guide(75,62,146,62)+label(184,65,'Marks should line up')],
+    casing:['Feed the elastic through the opening',path('M31 51H191V113H31Z','wf-fold')+path('M34 103h62m31 0h60','wf-stitch')+path('M51 76h111l-6 -5m6 5l-6 5','wf-arrow')+label(84,128,'Opening')],
+    fold:['Lift the cut edge toward the wrong side',cloth+guide(32,104,169,104)+path('M32 106H169V134H32Z','wf-fold')+path('M100 145Q117 144 118 112l-6 6m6 -6l5 7','wf-arrow')+label(182,109,'Fold here')+label(40,59,'Wrong side up')]
+  });
+  const machineSteps=[
+    {figure:'foot',text:'With the needle up and the pedal released, lift the presser-foot lever. Slide in the fabric and align its edge with the seam guide. Lower the lever before touching the pedal.'},
+    {figure:'stitchStart',text:'Keep your fingers to the sides of the foot. Press the pedal gently to sew a few stitches. Guide the fabric along the marked line and let the feed dogs move it.'},
+    {figure:'pinOut',text:'Release the pedal when a pin or clip approaches the foot. Pull it out sideways. Check that both fabric edges still line up, then resume.'},
+    {figure:'check',text:'Stop at the end of the line. Secure the ends as the pattern directs, raise the needle and presser foot, slide the fabric out, and cut the threads. Check the front and back for skipped stitches or loops.'}
+  ];
+  const setupSteps=[
+    ['needle','Switch off the machine. Loosen the needle clamp, insert a compatible needle with the flat side facing back, push it up fully, and retighten the clamp.'],
+    ['bobbin','With the machine off, open the bobbin cover. Drop in the compatible Class 15 bobbin in the direction shown on the cover. Hold it lightly while guiding the thread through the slot to the cutter, then replace the cover.'],
+    ['upper','Raise the presser foot. Turn the handwheel toward you to raise the needle and take-up lever. Follow the marked thread path, making sure the thread passes through the take-up lever and the needle eye.'],
+    ['screen','For stable woven fabric, attach foot J and select centered straight stitch 01. Start at 2.5 mm. Use the project stitch and compatible needle for stretch fabrics.'],
+    ['check','Sew a scrap folded to the same number of layers. Look at both sides and gently pull the seam. Fix loops, skipped stitches or popped thread before sewing the garment.']
+  ];
+  function standardPanel(title,visual,text) {
+    return panel(title,`<svg class="wf-standard" x="0" y="0" width="330" height="164" viewBox="0 0 270 141">${visual}</svg>`,text);
+  }
+  function machineActions() {
+    return `<details class="wo-how wo-storyboard"><summary>Set up the Brother CP2160F in pictures</summary><div class="wf-grid">${setupSteps.map(([figure,text],i)=>{
+      const [title,visual]=sewingVisuals.figureParts(figure);
+      return standardPanel((i+1)+'. '+title,visual,text);
+    }).join('')}</div></details>`;
+  }
+  function illustratedActions(step,id,index) {
+    scenes ??= createScenes();
+    const actions=sewingVisuals.operationActions(step,id);
+    if (['seam','sew','layer','topstitch'].includes(id)) actions.splice(2,2,...machineSteps);
+    const items=actions.map(({text,figure},i)=>{
+      const local=scenes[figure], standard=sewingVisuals.figureParts(figure);
+      if (local) return panel((i+1)+'. '+local[0],local[1],text);
+      if (standard) return standardPanel((i+1)+'. '+standard[0],standard[1],text);
+      return `<div class="wf-panel wf-written"><strong>${i+1}.</strong> ${escape(text)}</div>`;
+    });
+    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures</summary><div class="wf-grid">${items.join('')}</div></details>`;
+  }
+  return {forStep,bodySheet,illustratedActions,machineActions};
 })();
