@@ -38,7 +38,7 @@ const fitHandles = (() => {
 
   function available(keys) {
     const allowed=new Set(keys);
-    return Object.entries(groups).map(([id,group])=>[
+    return Object.entries(groups).filter(([id])=>id!=='legs'||allowed.has('thigh')).map(([id,group])=>[
       id,{label:group.label,keys:group.keys.filter(key=>allowed.has(key))}
     ]).filter(([,group])=>group.keys.length);
   }

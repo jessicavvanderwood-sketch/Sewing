@@ -331,7 +331,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const perspective = 3.7/(3.7-depth);
     return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
   };
-  function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null) {
+  function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
     function point(ring,theta,ringIndex) {
       const [y,w,d,center=0] = ring;
@@ -355,6 +355,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const projected = rings.map((row,index)=>Array.from({length:segments},(_,i)=>point(row,i*2*Math.PI/segments,index)));
     const contrast = design?.accent ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)) : channels;
     for (let ring=0;ring<rings.length-1;ring++) {
+      const band=(rings[ring][0]+rings[ring+1][0])*.5;
+      if (visibleBand && !visibleBand(band)) continue;
       for (let i=0;i<segments;i++) {
         if (neck && !changes.hasSleeves && ring===0 && (i>=17&&i<=21 || i<2 || i>=36)) continue;
         const next=(i+1)%segments;
@@ -365,7 +367,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
         const depth = points.reduce((sum,p)=>sum+p[2],0)/4;
         const contrastPanel = detail && design && fabricBody && (design.tone==='Contrast lower panel' && ring>=Math.floor(rings.length*.54) || design.finish==='Contrast hem band' && ring===rings.length-2);
-        const level = regions && part ? fabricFit.levelAt(regions,(rings[ring][0]+rings[ring+1][0])*.5,theta-angle,part) : 0;
+        const level = regions && part ? fabricFit.levelAt(regions,band,theta-angle,part) : 0;
         const palette=contrastPanel?contrast:channels;
         const fiber=(level>0?fabricFit.tint(palette,level):palette).map(c=>fabricFit.clamp(Math.round(c*light),0,255));
         faces.push({points,depth,paint:'rgb('+fiber.join(',')+')',seam:detail&&(i===0||i===19||ring===rings.length-2)});
@@ -447,10 +449,33 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   }
   const expanded = rings=>fabricFit.resample(rings);
   const fullBody = !thumbnail || !pattern;
+  const material = analysis?.material;
+  const gravity = material ? fabricFit.clamp((material.gsm-110)/400,-.2,1.35) : 0;
+  function hang(rings) {
+    return rings.map(([y,w,d,...rest],i)=>{
+      const drop=(i/(rings.length-1))**2;
+      const drape=gravity*(1-(material?.bend||0))*drop;
+      return [y+drape*.055,w*(1-drape*.11),d*(1-drape*.06),...rest];
+    });
+  }
+  const tailored = {...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0)};
+  const shell = pattern?hang(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,tailored,true)):null;
+  const trouserLeg=model==='trousers'?expanded(hang(resize(
+    [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]],0,hipDelta,lengthDelta,changes,true))):null;
+  const legCover=trouserLeg?.at(-1)[0] ??
+    (['dress','skirt'].includes(model)?shell.at(-1)[0]:0);
+  const torsoCover=shell ? Math.max(shell[0][0],(model==='dress'||model==='top')?-.27:-Infinity) : 2;
+  const visibleTorso=y=>!shell||y<torsoCover||y>shell.at(-1)[0];
+  const exposedLeg=legBody.filter(([y])=>y>legCover);
+  if (legCover>=legBody[0][0] && legCover<legBody.at(-1)[0]) {
+    exposedLeg.unshift([legCover,...fabricFit.envelope(legBody,legCover)]);
+  }
+
   if (fullBody) {
     if (body.mesh) {
       const points = body.mesh.vertices.map(v=>project(torsoMove(v)));
       for (const triangle of body.mesh.triangles) {
+        if (triangle.every(index=>!visibleTorso(body.mesh.vertices[index][1]))) continue;
         const corners = triangle.map(index=>points[index]);
         const [a,b,c] = corners;
         const area = (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
@@ -460,32 +485,21 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const paint=skin.slice(1).match(/../g).map(channel=>fabricFit.clamp(parseInt(channel,16)+light,0,255));
         faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
       }
-    } else mesh(expanded(torso),skin,0,false,false,false,torsoMove);
+    } else mesh(expanded(torso),skin,0,false,false,false,torsoMove,null,visibleTorso);
     mesh(head,skin,0,false,false,false,torsoMove);
     for (const side of [-1,1]) {
       const arms=armBody.map(([y,w,d,x])=>[y,w,d,side*(x+shoulders)]);
       mesh(expanded(arms),skin,0,false,false,false,armMove(side));
-      mesh(expanded(legBody),skin,side*legSpacing,false,false,false,legMove);
-      mesh(foot,skin,side*legSpacing,false,false,false,p=>legMove([p[0],p[1],p[2]+.045]));
+      if (exposedLeg.length>1) mesh(expanded(exposedLeg),skin,side*legSpacing,false,false,false,legMove);
+      mesh(foot,skin,side*legSpacing,false,false,false,p=>legMove([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
     }
   }
 
   if (pattern) {
-    const material = analysis?.material;
-    const gravity = material ? fabricFit.clamp((material.gsm-110)/400,-.2,1.35) : 0;
-    function hang(rings) {
-      return rings.map(([y,w,d,...rest],i)=>{
-        const drop=(i/(rings.length-1))**2;
-        const drape=gravity*(1-(material?.bend||0))*drop;
-        return [y+drape*.055,w*(1-drape*.11),d*(1-drape*.06),...rest];
-      });
-    }
-    const tailored = {...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0)};
-    const shell = hang(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,tailored,true));
     const torsoClearance = body.mesh ? importedEnvelope(body.mesh,torso) : torso;
     let guarded = fullBody?fabricFit.clearance(expanded(shell),torsoClearance):expanded(shell);
     if (fullBody && ['dress','skirt'].includes(model)) {
-      const coveredLegs=legBody.map(([y,w,d])=>[y,w+legSpacing,d]);
+      const coveredLegs=legBody.map(([y,w,d])=>[y,(w+legSpacing)*1.045,d*1.32]);
       guarded=fabricFit.clearance(guarded,coveredLegs);
     }
     mesh(guarded,color(pattern.color),0,model==='top'||model==='dress',true,true,
@@ -510,11 +524,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         mesh(shellSleeve,color(pattern.color),0,false,true,false,armMove(side),'sleeve');
       }
     }
-    if (model==='trousers') {
-      const leg = [[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]];
-      const fitted=expanded(hang(resize(leg,0,hipDelta,lengthDelta,changes,true)));
-      for (const side of [-1,1]) mesh(fabricFit.clearance(fitted,legBody),color(pattern.color),
-        side*legSpacing,false,true,true,legMove,'leg');
+    if (trouserLeg) {
+      const fitted=fabricFit.clearance(trouserLeg,legBody);
+      for (const side of [-1,1]) mesh(fitted,color(pattern.color),side*legSpacing,false,true,true,legMove,'leg');
     }
   }
   for (const face of faces.sort((a,b)=>a.depth-b.depth)) {
