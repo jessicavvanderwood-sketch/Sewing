@@ -838,9 +838,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const next=(i+1)%segments;
         const points=[projected[ring][i],projected[ring][next],projected[ring+1][next],projected[ring+1][i]];
         const [a,b,c] = points;
-        if ((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]) >= 0) continue;
+        const innerFace=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])>=0;
+        const foldedHem=model==='top' && part==='shell' && analysis?.pose?.sit>.28 && band>.025;
+        if (innerFace && !foldedHem) continue;
         const theta = (i+.5)*2*Math.PI/segments+angle;
-        let light = .73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta);
+        let light = (.73+.24*Math.cos(theta-1.95)+.12*Math.sin(theta))*(innerFace?.88:1);
         if (hex===skin && !detail) {
           const u=[(b[0]-a[0])/scale,(b[1]-a[1])/scale,b[2]-a[2]];
           const v=[(c[0]-a[0])/scale,(c[1]-a[1])/scale,c[2]-a[2]];
@@ -1105,11 +1107,13 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const extraBack=back*(changes.backRise||0)/100*Math.max(0,1-Math.abs(y+.16)/.46);
         const extraCrotch=(changes.crotch||0)/135*seatWeight*Math.sin(theta);
         const moved=[x,y-rise-extraBack,z+reach+extraCrotch];
-        if (model==='top' && pose.sit && y>.04) {
+        if (model==='top' && pose.sit && y>-.10) {
           const laid=skirtMove(moved,theta);
-          const lap=fabricFit.clamp((y-.04)/.25,0,1)*pose.sit*Math.max(0,Math.sin(theta));
-          laid[1]-=.046*lap;
-          laid[2]+=.108*lap;
+          const edge=fabricFit.clamp((y+.10)/.41,0,1);
+          const front=Math.max(0,Math.sin(theta));
+          const lap=edge*edge*(3-2*edge)*pose.sit*front;
+          laid[1]-=(.075+.055*front)*lap;
+          laid[2]+=.15*lap;
           return laid;
         }
         if (model==='dress'||model==='skirt') return skirtMove(moved,theta);

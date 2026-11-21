@@ -1,8 +1,8 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v23';
-const files = ['./', './index.html', './style.css?v=23', './app.js?v=23', './atelier.jpg',
+const cacheName = cachePrefix + 'v24';
+const files = ['./', './index.html', './style.css?v=24', './app.js?v=24', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
-  './fabric.js?v=23', './handles.js?v=23', './catalog.js?v=23', './vanderwood-wordmark.webp', './units.js?v=23', './work-figures.js?v=23', './visuals.js?v=23', './fit.js?v=23', './design.js?v=23', './photo.js?v=23', './camera.js?v=23', './models.js?v=23', './human-mesh.js?v=23', './human-preview.js?v=23', './brother-cp2160f.jpg',
+  './fabric.js?v=24', './handles.js?v=24', './catalog.js?v=24', './vanderwood-wordmark.webp', './units.js?v=24', './work-figures.js?v=24', './visuals.js?v=24', './fit.js?v=24', './design.js?v=24', './photo.js?v=24', './camera.js?v=24', './models.js?v=24', './human-mesh.js?v=24', './human-preview.js?v=24', './brother-cp2160f.jpg',
   ...Array.from({length:12},(_,index)=>'./tools/tool-'+index+'.jpg')];
 
 self.addEventListener('install', event => {
