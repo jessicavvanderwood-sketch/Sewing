@@ -53,3 +53,5 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 
 .wo-path{border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 0;min-width:0}.wo-path legend{font-weight:700;padding:0 6px}.wo-path p{font-size:14px}
 .wo-measurements{margin:14px 0}.wo-measurements .table{margin-top:8px;border:1px solid var(--line);border-radius:7px}.wo-measurements p{font-size:14px;margin-top:6px}
+
+.seat-fit{grid-column:1/-1}.seat-fit p{margin-top:6px}

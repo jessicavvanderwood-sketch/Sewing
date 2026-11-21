@@ -13,19 +13,22 @@ const garmentFit = (() => {
     sleeveWidth:['Upper sleeve circumference',8,'Tighter','Looser'],
     sleeveLength:['Sleeve length',12,'Shorter','Longer'],
     cuff:['Cuff / sleeve opening',8,'Tighter','Looser'],
-    thigh:['Thigh circumference',10,'Tighter','Looser'],
+    thigh:['Thigh circumference',18,'Tighter','Looser'],
     leg:['Leg opening circumference',12,'Tighter','Looser'],
     backNeck:['Back neckline depth',12,'Higher','Lower'],
     shoulderSlope:['Shoulder slope',4,'Squarer','More sloped'],
     waistHeight:['Waistline position',7,'Lower','Higher'],
     sweep:['Hem sweep circumference',30,'Narrower','Wider'],
-    knee:['Knee circumference',12,'Narrower','Wider'],
+    backRise:['Extra back rise length',10,'Shorter','Longer'],
+    crotch:['Crotch extension',8,'Shallower','Deeper'],
+    kneeFlex:['Extra length over bent knee',8,'Less','More'],
+    knee:['Knee circumference',16,'Narrower','Wider'],
     sleeveCap:['Sleeve cap fullness',8,'Less fullness','More fullness'],
     rise:['Rise length',6,'Shorter','Longer']
   };
 
   function keys(model,sleeves) {
-    if (model==='trousers') return ['waist','hip','thigh','knee','leg','rise','length'];
+    if (model==='trousers') return ['waist','hip','rise','backRise','crotch','thigh','knee','kneeFlex','leg','length'];
     if (model==='skirt') return ['waist','hip','waistHeight','sweep','length'];
     return ['waist','hip','bust','shoulder','shoulderSlope','armhole','neckDepth','neckWidth','backNeck','waistHeight',
       ...(sleeves ? ['sleeveWidth','sleeveCap','sleeveLength','cuff'] : []),'sweep','length'];
@@ -52,6 +55,9 @@ const garmentFit = (() => {
       const move = depth ? (smaller?'up':'down') : (smaller?'inward':'outward');
       return [smaller?'neckFill':'neck',`Mark the ${site} ${move} by ${depth?n:n/2} cm${depth?'':' per side'}. Blend a smooth curve and check that the head fits through the opening or the closure still works. ${smaller?'Use a matching inset, wider binding or a recut panel where fabric is missing.':'Staystitch the new curve and mark the sewing allowance before trimming.'} Resize the collar, facing or binding to match.`];
     }
+    if (key==='backRise') return ['rise',`${smaller?'Remove':'Add'} ${n} cm at center back above the seat. Slash and pivot the back pattern so the adjustment tapers to zero at the side seam. True the center-back seam, check the waistband and test the new length while sitting.`];
+    if (key==='crotch') return ['rise',`${smaller?'Reduce':'Extend'} the front-to-back crotch allowance by ${n} cm total on the test pattern. Fit the front and back separately before splitting that amount. Blend into the inseam, match the seam lengths and sit and walk in the toile before cutting. A finished garment may need a gusset if the seam allowance is insufficient.`];
+    if (key==='kneeFlex') return ['taper',`${smaller?'Remove':'Add'} ${n} cm over the front of each knee on the test pattern. Mark the knee level while seated, distribute the change with a shaped panel or knee darts, and true the adjoining seams. Check standing leg length and seated movement before cutting.`];
     if (key==='rise') return ['rise',`Change the waistband-to-crotch length by ${n} cm. Pin-test while standing and sitting. ${smaller?'Try lowering the waistband on a toile and check how it affects the fly, pockets and waist circumference.':'Check whether the waistband can be raised or extended. Substantial increases may require a recut or an insert.'} Preserve crotch shape and stride room before altering the finished pants.`];
     return ['taper',`Change the ${label} by ${n} cm on each leg. If inseam and outseam share the change equally, move each seam line ${n/4} cm on both layers ${smaller?'toward the leg body':'toward the raw edge'}. Blend into the unchanged leg, preserve the grainline, and baste both legs. Check sitting room and that the foot passes through the finished opening.`];
   }

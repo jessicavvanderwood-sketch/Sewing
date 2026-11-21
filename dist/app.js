@@ -519,7 +519,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const shoulderEase=Math.max(0,1-Math.abs(y+.63)/.43)*side**2;
         const rise=pose.arm*.12*shoulderEase;
         const reach=pose.reach*.075*shoulderEase;
-        const moved=[x,y-rise,z+reach];
+        const back=model==='trousers'?Math.max(0,-Math.sin(theta)):0;
+        const seatWeight=Math.max(0,1-Math.abs(y-.13)/.27);
+        const extraBack=back*(changes.backRise||0)/100*Math.max(0,1-Math.abs(y+.16)/.46);
+        const extraCrotch=(changes.crotch||0)/135*seatWeight*Math.sin(theta);
+        const moved=[x,y-rise-extraBack,z+reach+extraCrotch];
         return model==='dress'||model==='skirt'?skirtMove(moved,theta):torsoMove(moved);
       },'shell');
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
@@ -544,7 +548,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     }
     if (trouserLeg) {
       const fitted=fabricFit.clearance(trouserLeg,legBody);
-      for (const side of [-1,1]) mesh(fitted,color(pattern.color),side*legSpacing,false,true,true,legMove,'leg');
+      for (const side of [-1,1]) mesh(fitted,color(pattern.color),side*legSpacing,false,true,true,(point,theta)=>{
+        const moved=legMove(point);
+        const knee=Math.max(0,1-Math.abs(point[1]-.64)/.19);
+        moved[2]+=pose.sit*knee*Math.max(0,Math.sin(theta))*(changes.kneeFlex||0)/145;
+        return moved;
+      },'leg');
     }
   }
   for (const face of faces.sort((a,b)=>a.depth-b.depth)) {
@@ -793,6 +802,7 @@ function fitting() {
       <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
       <div id="fit-legend"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
       <p id="fit-reading" class="fit-reading" aria-live="polite"></p>
+      ${modelType==='trousers'?'<div class="seat-fit"><button type="button" class="secondary" id="add-seat-ease">Add sitting ease</button><p id="seat-fit-hint" class="fit-reading"></p></div>':''}
     </div>
 </section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
@@ -943,11 +953,44 @@ function fitting() {
     if (action) edit(action.key,action.before);
     undoButton.disabled=!history.length;
   };
+  const easeButton=document.querySelector('#add-seat-ease');
+  const seatHint=document.querySelector('#seat-fit-hint');
+  const seatControls={waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
+    leg:['leg'],rise:['rise'],backRise:['backRise'],crotch:['crotch']};
+  if (easeButton) easeButton.onclick=()=>{
+    const values=adjustments();
+    const seated=fabricFit.poses.sit;
+    const estimate=()=>fabricFit.estimate(pattern,modelType,body(),values,seated,material());
+    const draft=changes();
+    for (const [region,controls] of Object.entries(seatControls)) {
+      const details=estimate()[region];
+      const ordered=region==='knee' && details.length>details.cross?controls.slice().reverse():controls;
+      for (const key of ordered) {
+        const input=form.elements.namedItem(key);
+        // Crosswise and lengthwise room can be solved independently.
+        const component=key==='knee'?'cross':key==='kneeFlex'?'length':null;
+        const needsRoom=current=>component?current[component]>0:current.level>.24;
+        while (draft[key]<Number(input.max) && needsRoom(estimate()[region])) {
+          draft[key]+=.5;
+          values[key]=(values[key]||0)+.5;
+        }
+      }
+    }
+    drawControls(draft);
+    form.dispatchEvent(new Event('input'));
+    if (poseField.value!=='sit') {
+      poseField.value='sit';
+      poseField.dispatchEvent(new Event('change'));
+    }
+  };
   function reportFit() {
     const regions=fabricFit.estimate(pattern,modelType,body(),adjustments(),pose,material());
     const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level);
     const state=peak.level>.66?'Restricted':peak.level>.26?'Snug':'Room to move';
     reading.textContent=`${state} · ${peak.label} · ${(100*Math.max(peak.cross,peak.length)).toFixed(1)}% estimated stretch demand`;
+    if (seatHint) seatHint.textContent=peak.level>.26 && pose.sit>.6
+      ? `Check ${seatControls[Object.keys(regions).find(key=>regions[key]===peak)].map(key=>garmentFit.fields[key][0].toLowerCase()).join(' and ')}.`
+      : 'Adds room where the seated fit needs it using the selected fabric.';
   }
   function draw() {
     if (!canvas.isConnected) return;

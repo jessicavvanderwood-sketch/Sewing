@@ -76,14 +76,19 @@ const fabricFit = (() => {
         add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*pose.arm));
       }
     }
-    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit),.013*pose.sit+gravity);
+    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit),legs?0:.013*pose.sit+gravity);
     if (model!=='top' || pattern.design?.length==='Low hip') {
-      add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit),.045*pose.sit+gravity);
+      add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit),legs?0:.045*pose.sit+gravity);
     }
     if (legs) {
-      add('thigh','Thigh / knee',around(body.thigh||(body.hip||98)*.54,5,'thigh',.086*pose.sit),.07*pose.sit);
+      const c=key=>changes[key]||0;
+      const longitudinal=(base,demand,ease)=>stretch(base+demand*pose.sit,base+ease);
+      add('thigh','Upper thigh',around(body.thigh||(body.hip||98)*.54,5,'thigh',.10*pose.sit));
+      add('knee','Bent knee',around(body.knee||36,2,'knee',.09*pose.sit),longitudinal(20,2.9,1+c('kneeFlex')));
       add('leg','Lower leg',around(body.calf||(body.hip||98)*.35,4,'leg',.02*pose.sit));
-      add('rise','Crotch / rise',0,stretch(28+pose.sit*4,30+(changes.rise||0)));
+      add('rise','Front rise',0,longitudinal(28,2.9,1+c('rise')));
+      add('backRise','Back rise / seat length',0,longitudinal(34,5.1+gravity*34,1.6+c('rise')+c('backRise')));
+      add('crotch','Crotch depth',0,longitudinal(14,2.6,0.7+c('crotch')));
     }
     return regions;
   }
@@ -91,11 +96,12 @@ const fabricFit = (() => {
   function levelAt(regions,y,theta,part) {
     const band=(key,center,width)=> (regions[key]?.level||0)*Math.max(0,1-Math.abs(y-center)/width);
     if (part==='sleeve') return Math.max(band('sleeve',-.61,.47),band('cuff',-.35,.38),band('armhole',-.68,.12));
-    if (part==='leg') return Math.max(band('thigh',.38,.34),band('leg',.92,.31),band('rise',.24,.20));
+    if (part==='leg') return Math.max(band('thigh',.38,.27),band('leg',.92,.31),band('knee',.65,.21),band('crotch',.23,.17));
     const side = Math.abs(Math.cos(theta));
     const upperBack = .65+.35*Math.max(0,-Math.sin(theta));
     return Math.max(band('bust',-.48,.23),band('waist',-.25,.26),band('hip',.12,.35),
-      band('shoulder',-.73,.15)*upperBack,band('armhole',-.61,.2)*side,band('rise',.23,.17));
+      band('shoulder',-.73,.15)*upperBack,band('armhole',-.61,.2)*side,band('rise',.10,.32)*Math.max(0,Math.sin(theta)),
+      band('backRise',.09,.33)*Math.max(0,-Math.sin(theta)),band('crotch',.27,.14));
   }
   function tint(channels,level) {
     const low=[238,173,64], high=[194,25,65];
