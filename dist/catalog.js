@@ -74,10 +74,18 @@ const starterCatalog = (() => {
     ['crux','Crux Climbing Pants','Activewear & swim','Climbing pants with articulated knees','FreeSewing'],
     ['florent','Florent Flat Cap','Aprons & accessories','Tailored flat cap with a brim','FreeSewing']
   ];
+  const knitTryOns={
+    hugo:{primary:'#62627e',accent:'#50506a',cut:'Straight',length:'Low hip',hood:true,raglan:true,kangaroo:true},
+    sven:{primary:'#7c8373',accent:'#626d5a',cut:'Straight',length:'High hip'}
+  };
   return [...designs,...sources.map(([id,name,type,cut,publisher])=>({
     id:'reference-'+id,name,type,cut,category:'Free publisher pattern',level:'Publisher guide',
     external:{publisher,url:'https://freesewing.eu/designs/'+id+'/',
+      sewing:knitTryOns[id]?'https://freesewing.eu/docs/designs/'+id+'/instructions/':null,
       terms:'https://freesewing.eu/docs/about/faq/commercial-use/'},
+    ...(knitTryOns[id]?{tryOn:true,model:'top',sleeves:true,color:knitTryOns[id].primary,
+      design:{...studioDesign.defaults('top'),neckline:'Crew',sleeve:'Long',closure:'Pullover',ribbing:true,ease:12,
+        fabric:'French terry',...knitTryOns[id]}}:{}),
     fabric:'Use the fabric type and yardage listed in the publisher’s guide.',
     tools:'Measuring tape, paper or printed pattern, fabric shears, pins or clips, matching thread, sewing machine and iron. Check the publisher’s list for garment-specific notions.',
     visuals:['measure','marks','cut','fit','finish'],

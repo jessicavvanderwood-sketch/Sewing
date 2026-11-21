@@ -39,10 +39,49 @@ const sewingModels = (() => {
     calf:['Calf circumference',23,65],
     ankle:['Ankle circumference',16,39],
     upperArm:['Upper arm circumference',19,65],
-    wrist:['Wrist circumference',12,30]
+    wrist:['Wrist circumference',12,30],
+    upperChest:['Upper chest circumference',52,160],
+    underbustHeight:['Rib cage to floor',60,175],
+    waistDepth:['Waist front-to-back depth',10,50],
+    hipDepth:['Full hip front-to-back depth',12,60],
+    waistToHighHip:['Waist to high hip',3,24],
+    waistToHip:['Waist to full hip',8,40],
+    shoulderToElbow:['Shoulder to elbow',16,49],
+    forearm:['Forearm circumference',15,50],
+    midThigh:['Mid-thigh circumference',24,88],
+    calfHeight:['Fullest calf to floor',10,60],
+    footLength:['Foot length',15,37]
   };
 
-  const extra = new Set(Object.keys(dimensions).slice(4));
+  const measurementGroups = [
+    {title:'Overall proportions',keys:['height','inseam','waistToFloor','shoulderToWaist','headLength']},
+    {title:'Torso and hips',keys:['upperChest','underbustHeight','waistDepth','highHip','waistToHighHip','hipDepth','waistToHip','neck']},
+    {title:'Arms',keys:['arm','shoulderToElbow','upperArm','forearm','wrist']},
+    {title:'Legs and feet',keys:['thigh','midThigh','knee','kneeHeight','calf','calfHeight','ankle','footLength']}
+  ];
+  const measuringTips = {
+    upperChest:'Wrap the tape just under the armpits and above the fullest part of the chest.',
+    underbustHeight:'Measure vertically from the floor to the level where you wrapped the rib-cage tape.',
+    waistDepth:'At waist level, hold two books upright against the front and back without pressing in. Measure straight between their inner faces.',
+    highHip:'Wrap the tape level around your upper hips. Use that same level for waist to high hip.',
+    waistToHighHip:'Measure straight down from your natural waist to the upper-hip tape line.',
+    hipDepth:'At the level of your full-hip tape, use two upright books to measure straight from front to back.',
+    waistToHip:'Measure straight down at your side from the natural waist to the level around the fullest part of the seat.',
+    neck:'Wrap the tape around your neck where a shirt collar would sit.',
+    arm:'Measure from the outside shoulder point to the wrist bone with the elbow slightly bent.',
+    shoulderToElbow:'Use the same arm position. Measure from the outside shoulder point to the elbow point.',
+    upperArm:'Wrap the tape around the fullest part of your upper arm with your arm relaxed.',
+    forearm:'Wrap the tape around the fullest part of the forearm, usually just below the elbow.',
+    wrist:'Wrap the tape around the wrist at the wrist bones.',
+    thigh:'Wrap the tape around one upper thigh, just below the crotch.',
+    midThigh:'Wrap the tape halfway between the upper-thigh tape line and the center of the kneecap.',
+    knee:'Wrap the tape around the center of the kneecap with the leg relaxed and straight.',
+    kneeHeight:'Standing barefoot, measure vertically from the floor to the center of the kneecap.',
+    calf:'Wrap the tape around the fullest part of one calf.',
+    calfHeight:'Measure vertically from the floor to the level where you wrapped the calf tape.',
+    ankle:'Wrap the tape around the narrowest part of the ankle, just above the ankle bones.',
+    footLength:'Stand barefoot on paper. Mark the back of the heel and the tip of the longest toe, then measure between them.'
+  };
   const profiles={female:'Female',male:'Male'};
   const profileOf=model=>model.profile==='male'?'male':'female';
   const cups=['A','B','C','D','DD','DDD / E','F','G'];
@@ -186,7 +225,7 @@ const sewingModels = (() => {
     const shoulder=clamp(model.shoulderToWaist?waist+model.shoulderToWaist:height*.824,
       waist+height*.10,height*.89);
     const chin=clamp(height-(model.headLength||height*.135),shoulder+height*.025,height*.925);
-    const knee=clamp(model.kneeHeight||crotch*.515,height*.16,crotch*.76);
+    const knee=clamp(model.kneeHeight||crotch*.58,height*.16,crotch*.76);
     const anchors=[
       [top,height],[-.986,chin],[-.73,shoulder],[-.25,waist],[.30,crotch],
       [.655,knee],[1.045,height*.035],[floor,0]
@@ -212,6 +251,13 @@ const sewingModels = (() => {
     if (waistToFloor && inseam && waistToFloor<inseam+h*.07) return 'Waist to floor should extend above the crotch. Check that you measured from your natural waist.';
     if (waistToFloor && waistToFloor>h*.74) return 'Waist to floor is unusually long for this height. Check the waist mark and units.';
     if (shoulderToWaist && waistToFloor && shoulderToWaist+waistToFloor>h*.89) return 'Together the shoulder-to-waist and waist-to-floor measurements leave too little room for the head and neck. Check the landmarks.';
+    if (model.shoulderToElbow && model.arm && model.arm-model.shoulderToElbow<10) return 'Shoulder to wrist should extend past the elbow. Check both arm lengths and the selected units.';
+    if (model.waistToHighHip && model.waistToHip && model.waistToHip-model.waistToHighHip<2) return 'The full-hip tape line should sit at least 2 cm below the high-hip tape line.';
+    if (model.calfHeight && model.kneeHeight && model.calfHeight>=model.kneeHeight-2) return 'The fullest calf should be below the kneecap. Check both heights from the floor.';
+    if (model.underbustHeight && model.bustHeight && model.underbustHeight>=model.bustHeight-2) return 'The rib-cage tape line should be below the bust point.';
+    for (const [depth,girth] of [['waistDepth','waist'],['hipDepth','hip']]) {
+      if (model[depth] && model[girth] && model[depth]*2>=model[girth]) return dimensions[depth][0]+' should be a straight front-to-back distance. Check it against the circumference.';
+    }
     return '';
   }
   const summary = model => ['height','inseam','waistToFloor','shoulderToWaist','arm'].filter(key=>model[key]).map(key=>dimensions[key][0]+' '+model[key]+' cm').join(' · ');
@@ -251,5 +297,5 @@ const sewingModels = (() => {
     if (normalized.some(([x,,z])=>Math.abs(x)>.9||Math.abs(z)>.9)) throw Error('Use an upright torso without a wide base or outstretched arms.');
     return {vertices:normalized,triangles};
   }
-  return {defaults,dimensions,extra,profiles,profileOf,starter,cups,bustProjection,bustGeometry,bustShape,calibrated,smoothRings,proportions,measurementIssue,summary,parseObj};
+  return {defaults,dimensions,measurementGroups,measuringTips,profiles,profileOf,starter,cups,bustProjection,bustGeometry,bustShape,calibrated,smoothRings,proportions,measurementIssue,summary,parseObj};
 })();

@@ -64,13 +64,13 @@ The Model Library has six starter forms, including male and female profiles. Opt
 
 ## Categorized garment and fabric libraries
 
-The Pattern Library offers 42 in-app garments and 20 free FreeSewing references for distinct cuts, including coats, wrap pants, overalls, swimwear and corsets. Publisher references link to the original drafting, pattern, and sewing instructions. The in-app fitting tool is available for the built-in garment shapes. [FreeSewing catalog](https://freesewing.eu/designs/) · [Commercial-use FAQ](https://freesewing.eu/docs/about/faq/commercial-use/)
+The Pattern Library offers 42 in-app garments and 20 free FreeSewing references for distinct cuts, including coats, wrap pants, overalls, swimwear and corsets. Publisher references link to the original drafting, pattern, and sewing instructions. The in-app fitting tool includes style previews for the Hugo Hoodie and Sven Sweatshirt. Their original FreeSewing drafts provide the cutting dimensions. [FreeSewing catalog](https://freesewing.eu/designs/) · [Commercial-use FAQ](https://freesewing.eu/docs/about/faq/commercial-use/)
 
 The Fabric Library has 127 illustrative presets grouped by fabric type. Upload a JPG, PNG, or WebP swatch, then enter its weight, drape, and stretch. The fitting preview uses the uploaded photo as a repeated color and texture sample. Preset swatches and the fit map are visual approximations. Saved swatches stay in the current browser.
 
 Custom female models offer A–G visual cup profiles alongside full-bust and underbust measurements. Cup presets control projection in the avatar and do not calculate commercial bra sizes.
 
-Work Orders include search, type and progress filters, archival, garment previews, and before/after previews for tailoring orders. Expand the action-by-action guides and the Brother CP2160F settings in each work order. Use the publisher’s pattern for pattern-specific cutting dimensions and assembly instructions.
+Work Orders include search, type and progress filters, archival, garment previews, and before/after previews for tailoring orders. Expand the action-by-action guides and the Brother CP2160F settings in each work order. Under **Pattern measurements, cutting and options**, record paper-piece dimensions, quantities, grainline alignment, seam allowances, and feature placements. Enter values from the pattern or fitting sample to label the figures. The original pattern supplies the cutting shapes and pattern-specific construction order.
 
 Use the **Units** selector in the header to switch between centimeters and inches for garment lengths, model measurements, fit adjustments, and work orders. The preference stays in the current browser. Saved measurements retain their original precision when switching views.
 
@@ -88,6 +88,8 @@ Modeling references include the [ISO 8559-1 apparel measurement definitions](htt
 
 ### Detailed human preview
 
-The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Garment movement continues to use the existing fitting simulation, with its own simplified body representation.
+The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, three-quarter, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Optional torso depth and height, arm segment length, forearm girth, and leg and foot measurements refine the shape. Smooth interpolation follows the measured landmarks without stepping abruptly from one section to the next. The Fitting Room uses the selected avatar and has static poses plus playable and scrubbable walk, sit-to-stand, and arm-motion loops. The stretch map and drape use the selected fabric settings to estimate movement.
 
 The preview uses the [MakeHuman base mesh](https://github.com/makehumancommunity/makehuman/blob/master/makehuman/data/3dobjs/base.obj) and [MPFB adult morph targets](https://github.com/makehumancommunity/mpfb2/tree/master/src/mpfb/data/targets/macrodetails), released under [CC0 1.0](https://www.makehumancommunity.org/about/license.html). The generation command and asset inputs are documented in `scripts/build-human-mesh.py`. The geometry ships with the dashboard and the preview runs on the device.
+
+In **Design Studio**, use **Custom fields** to build from a garment type or **Photo reference** to take or upload a photo. Confirm a camera capture with **Use photo**. The photo analysis happens on the device and suggests a starting silhouette and visible details. The selected model provides the measurements. Review fabric, back, closure, and construction choices before saving. Design fields include neckline, straps, back styles, pant cuts and rise, structured bodices and corsets, and compatible closures.

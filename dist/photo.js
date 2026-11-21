@@ -75,15 +75,57 @@ const garmentPhoto = (() => {
     if (pantsRows>span*.15) return {model:'trousers',cut:hem>upper*1.12?'Wide leg':hem<upper*.71?'Tapered':'Straight',primary};
     const sleeveWidth=upper>torso*1.2 && upper>middle*1.25;
     if (span/across<1.1 && (sleeveWidth || upper>=hem*.93)) {
-      return {model:'top',cut:middle<upper*.7?'Fitted':hem>middle*1.12?'Boxy':'Straight',sleeve:sleeveWidth?'Short':'Sleeveless',primary};
+      return {model:'top',cut:middle<upper*.7?'Fitted':hem>middle*1.12?'Boxy':'Straight',sleeve:sleeveWidth?'Short':'Sleeveless',
+        neckline:neckShape(silhouette,width,minX,maxX,top,span),primary};
     }
     if (hem>middle*1.11 && span/across>=1.08 && upper>middle*.85) {
-      return {model:'dress',cut:hem>middle*1.57?'Full skirt':'A-line',sleeve:sleeveWidth?'Short':'Sleeveless',primary};
+      return {model:'dress',cut:hem>middle*1.57?'Full skirt':'A-line',sleeve:sleeveWidth?'Short':'Sleeveless',
+        neckline:neckShape(silhouette,width,minX,maxX,top,span),primary};
     }
     if (hem>upper*1.2 && torso>upper*1.08) {
       return {model:'skirt',cut:hem>upper*1.65?'Full skirt':'A-line',primary};
     }
     return {primary};
+  }
+
+  function neckShape(mask,width,left,right,top,height) {
+    const depthAt=fraction=>{
+      const x=Math.round(left+(right-left)*fraction);
+      for (let dy=0;dy<height*.23;dy++) if (mask[(top+dy)*width+x]) return dy;
+      return null;
+    };
+    const samples=[.32,.41,.47,.5,.53,.59,.68].map(depthAt);
+    if (samples.some(depth=>depth==null)) return undefined;
+    const [leftEdge,leftInner,nearLeft,center,nearRight,rightInner,rightEdge]=samples;
+    if (Math.abs(leftEdge-rightEdge)>height*.035 || Math.abs(leftInner-rightInner)>height*.04) return undefined;
+    const edge=(leftEdge+rightEdge)/2;
+    const inner=(leftInner+rightInner)/2;
+    const depth=center-edge;
+    if (depth<Math.max(5,height*.065)) return undefined;
+    if (center-inner>=depth*.36 && center>nearLeft && center>nearRight) return 'V-neck';
+    if (Math.max(...samples.slice(1,-1))-Math.min(...samples.slice(1,-1))<=1 && inner-edge>=depth*.72) return 'Square';
+    if (inner-edge>depth*.3 && inner-edge<depth*.85) return 'Scoop';
+    return undefined;
+  }
+
+  function inspect(media,width,height) {
+    if (!width || !height) throw Error('Unreadable image');
+    const canvas = document.createElement('canvas');
+    function draw(max) {
+      const scale = Math.min(1,max/Math.max(width,height));
+      canvas.width = Math.max(1,Math.round(width*scale));
+      canvas.height = Math.max(1,Math.round(height*scale));
+      const context = canvas.getContext('2d',{willReadFrequently:true});
+      context.drawImage(media,0,0,canvas.width,canvas.height);
+      return context;
+    }
+    const sample = draw(112);
+    const result = analyze(sample.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);
+    const thumbnailContext = draw(560);
+    thumbnailContext.globalCompositeOperation='destination-over';
+    thumbnailContext.fillStyle='#fff';
+    thumbnailContext.fillRect(0,0,canvas.width,canvas.height);
+    return {...result,thumbnail:canvas.toDataURL('image/jpeg',.8)};
   }
 
   async function read(file) {
@@ -92,26 +134,11 @@ const garmentPhoto = (() => {
       const image = new Image();
       image.src=url;
       await image.decode();
-      if (!image.naturalWidth || !image.naturalHeight) throw Error('Unreadable image');
-      const canvas = document.createElement('canvas');
-      function draw(max) {
-        const scale = Math.min(1,max/Math.max(image.naturalWidth,image.naturalHeight));
-        canvas.width = Math.max(1,Math.round(image.naturalWidth*scale));
-        canvas.height = Math.max(1,Math.round(image.naturalHeight*scale));
-        const context = canvas.getContext('2d',{willReadFrequently:true});
-        context.drawImage(image,0,0,canvas.width,canvas.height);
-        return context;
-      }
-      const sample = draw(112);
-      const result = analyze(sample.getImageData(0,0,canvas.width,canvas.height).data,canvas.width,canvas.height);
-      const thumbnailContext = draw(560);
-      thumbnailContext.globalCompositeOperation='destination-over';
-      thumbnailContext.fillStyle='#fff';
-      thumbnailContext.fillRect(0,0,canvas.width,canvas.height);
-      return {...result,thumbnail:canvas.toDataURL('image/jpeg',.8)};
+      return inspect(image,image.naturalWidth,image.naturalHeight);
     } finally {
       URL.revokeObjectURL(url);
     }
   }
-  return {analyze,foreground,read};
+  const capture=video=>inspect(video,video.videoWidth,video.videoHeight);
+  return {analyze,foreground,read,capture};
 })();

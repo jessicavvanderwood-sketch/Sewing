@@ -90,20 +90,29 @@ const workFigures = (() => {
   function bodySheet(sheet) {
     if (!sheet) return '';
     const at=key=>sheet.rows.find(([label])=>label===key)?.at(-1);
-    const rows=[['Chest / bust',58],['Waist',83],['Hip / seat',109]].filter(([key])=>at(key)&&at(key)!=='—');
-    if (!rows.length) return '';
-    return strip('Where to measure the body',[
-      panel('Target model measurements',path('M83 28L104 19Q114 43 128 43Q141 43 152 19L172 28L183 59L167 80L175 137H82L91 80L72 59Z','wf-cloth')+
-        rows.map(([key,y])=>path(`M83 ${y}H172`,'wf-dimension')+guide(172,y,192,y)+label(196,y+4,key+' '+at(key))).join(''),
-        'Keep the tape level around the body at each marked height. These values are the model measurements. Check wearing ease and pattern allowances separately.')
-    ]);
+    const marks=(rows,x1,x2)=>rows.filter(([key])=>at(key)&&at(key)!=='—').map(([key,y])=>
+      path(`M${x1} ${y}H${x2}`,'wf-dimension')+guide(x2,y,x2+14,y)+label(x2+18,y+4,key+' '+at(key))).join('');
+    const torso=marks([['Upper chest circumference',43],['Chest / bust',60],['Underbust / rib cage',76],['Waist',93],['High hip circumference',109],['Hip / seat',127]],69,151);
+    const leg=marks([['Thigh circumference',34],['Mid-thigh circumference',57],['Knee circumference',78],['Calf circumference',108],['Ankle circumference',138]],54,103);
+    const panels=[];
+    if (torso) panels.push(panel('Torso measurements',
+      path('M75 28L93 19Q101 37 110 37Q119 37 127 19L145 28L154 52L140 88L151 142H69L80 88L66 52Z','wf-cloth')+torso,
+      'Keep the tape level at each line. Compare these body measurements with the pattern size and the intended wearing ease.'));
+    if (leg) panels.push(panel('Leg measurements',
+      path('M57 20H108Q104 54 92 78Q101 99 86 138L88 152H63L67 137Q62 111 69 81Q52 51 57 20Z','wf-cloth')+leg,
+      'Wrap the tape around one leg at each level. Use the pattern to check the finished leg width and room to move.'));
+    return panels.length?strip('Where the model measurements go',panels):'';
   }
   function forStep(step,id,order,pattern) {
     const allowance=order.allowances||{};
     const movement=moveFigure(step,id);
     if (movement) return movement;
     if (id==='darts') return seamFold(allowance,true);
-    if (['seam','layer','sew','topstitch'].includes(id)) return seamFold(allowance);
+    if (['seam','layer','sew'].includes(id)) return seamFold(allowance);
+    if (id==='topstitch') return strip('Topstitch placement',[topstitchPanel(allowance)]);
+    if (['cut','designCut','grain'].includes(id)) return strip('Cutting and grainline',[
+      layoutPanel(order.plan||{}),cutEdgePanel(allowance)
+    ]);
     if (id==='finish' && /\bhem\b/i.test(step)) {
       const selected=pattern.design?.finish || '';
       if (/faced hem|hem facing/i.test(step+' '+selected)) return hemFold(allowance,'faced');
@@ -112,6 +121,149 @@ const workFigures = (() => {
       return `<details class="wf-optional"><summary>See a double-fold hem example</summary>${hemFold(allowance,'double')}</details>`;
     }
     return '';
+  }
+
+  function layoutPanel(plan) {
+    const folded=plan.layout==='folded';
+    const width=format(plan.usableWidth && (folded?plan.usableWidth/2:plan.usableWidth));
+    const boundary=folded?'Fold':'Opposite selvage';
+    const direction=plan.oneWay?'Cut all pieces with the print or nap arrows pointing the same way.':'Read the grainline and any direction arrow on each piece.';
+    return panel(folded?'Set up the folded fabric':plan.layout==='single'?'Lay out one layer':'Check the pattern layout against your fabric',
+      path('M37 38H290V139H37Z','wf-cloth')+guide(43,42,43,138)+guide(284,42,284,138)+
+      path('M95 53H178L194 122H93Z','wf-right')+path('M130 113V63m-5 6l5 -6 5 6','wf-arrow')+
+      guide(44,70,129,70)+guide(44,103,129,103)+label(48,63,'Same distance')+label(155,90,'Grainline')+
+      span(43,284,31,width||'Measure usable width')+label(38,154,'Selvage')+label(288,154,boundary,'end'),
+      `${folded?'Bring the selvages together without stretching the fold.':plan.layout==='single'?'Spread one layer flat. Flip paper pieces to cut left and right copies when the pattern calls for a mirrored pair.':'Use the layout for your pattern size and fabric width. Check whether it shows a fold or one layer.'} Measure from each end of the grainline to the same selvage. Adjust the paper until the two distances match. ${direction}`);
+  }
+
+  function cutEdgePanel(allowance) {
+    const seam=format(allowance.seam);
+    return panel('Find the cut edge and stitch line',
+      path('M31 35H188V126H31Z','wf-cloth')+path('M150 42V119','wf-stitch')+
+      span(150,188,134,seam||'Pattern allowance')+label(46,74,'Paper pattern')+label(199,54,'Solid cut edge')+label(66,109,'Stitch line')+
+      path('M181 85L188 81L188 89Z','wf-right')+label(199,86,'Matching notch'),
+      `Circle the cutting line for your size. Check whether the pattern already includes the ${seam?seam+' ':''}seam allowance before tracing. Weight the paper inside the outline. Keep the lower blade of the fabric shears flat on the board and follow the outer line without lifting the cloth. Mark the notches and label each piece before removing the paper.`);
+  }
+
+  function cutPiecePanel(piece) {
+    const pieces={fold:'Match the marked fold edge to the fabric fold. Leave that edge uncut.',
+      pair:'For a single-layer layout, cut the first side with the pattern face up, then flip the paper for the opposite side.',
+      single:'Cut through one layer with the fabric face oriented as the pattern directs.',
+      pattern:'Match this piece to the fold and layer instructions printed on the pattern.'};
+    const width=format(piece.width)||'Width on pattern';
+    const length=format(piece.length)||'Length on pattern';
+    const grain=format(piece.grain);
+    const folded=piece.mode==='fold';
+    const left=folded?72:32, selvage=folded?207:42;
+    return panel(piece.name+(piece.quantity?' · Cut '+piece.quantity:''),
+      path(`M${left} 30H209V141H${left}Z`,'wf-cloth')+guide(selvage,36,selvage,137)+path('M72 50H161L181 124H72Z','wf-right')+
+      path('M118 114V54m-5 6l5 -6 5 6','wf-arrow')+span(72,181,41,width)+tick(215,50,124,length)+
+      (grain?span(Math.min(selvage,118),Math.max(selvage,118),111,grain):'')+
+      label(selvage,154,'Selvage',folded?'end':'start')+label(folded?72:106,154,folded?'Fold edge':'Pattern edge'),
+      `${pieces[piece.mode]||pieces.pattern} Copy the marked shape from your paper. ${grain?`Set both ends of the grainline ${grain} from the same selvage.`:'Measure both ends of the grainline to the same selvage.'}`);
+  }
+
+  function cuttingPlan(order,pattern) {
+    const plan=order.plan||{};
+    const panels=[layoutPanel(plan),cutEdgePanel(order.allowances||{}),
+      panel('Transfer placement marks before lifting the paper',
+        path('M28 32H198V129H28Z','wf-cloth')+guide(103,36,103,125)+guide(31,60,194,60)+
+        path('M49 60h105M107 72h47v37h-47z','wf-dimension')+label(205,63,'Reference line')+label(205,101,'Feature outline')+
+        label(83,148,'Center front or back'),
+        'Mark matching notches, darts, pocket corners, and closure endpoints on the wrong side with chalk tested on scrap. Mark both layers. Use the paper markings to find each position, then label the wrong side of each piece with its name and left or right.')];
+    const pieces=(plan.pieces||[]).map(cutPiecePanel);
+    if (order.kind==='Tailoring' && !pieces.length) return '';
+    return `<details class="design-options wo-cut-guide"><summary>Cutting layout and placement</summary><p class="tight">Use the paper pieces for ${escape(pattern.name)} to find the cutting shapes and quantities.</p><div class="wf-grid">${panels.join('')}${pieces.join('')}</div></details>`;
+  }
+
+  function topstitchPanel(allowance) {
+    const distance=format(allowance.topstitch)||'Pattern distance';
+    return panel('Guide the finished edge',
+      path('M29 34H192V133H29Z','wf-cloth')+path('M186 38V129','wf-dimension')+path('M158 42V120','wf-stitch')+
+      span(158,186,139,distance)+label(197,72,'Finished edge'),
+      'Measure inward from the finished edge or seam as specified. Mark a short guide line on a scrap and test the spacing before you sew the garment.');
+  }
+
+  function seamPlan(order) {
+    const finish=order.plan?.seamFinish;
+    if (!finish || finish==='pattern') return '';
+    const allowance=order.allowances||{};
+    const seam=format(allowance.seam)||'Pattern allowance';
+    const first=allowance.seam>=1.2?Math.round(allowance.seam*4)/10:null;
+    const second=first==null?null:allowance.seam-first;
+    const edge=(wrong,distance)=>path('M31 27H189V132H31Z',wrong?'wf-cloth':'wf-right')+
+      path('M151 37V117','wf-stitch')+span(151,189,130,distance)+label(45,66,wrong?'Wrong sides touching':'Right sides touching');
+    const choices={
+      plain:['Plain seam with zigzag finish',[
+        panel('Stitch the seam',edge(false,seam),'For woven fabric, place right sides together and sew the tested straight stitch at the marked allowance.'),
+        panel('Finish and press the raw edges',path('M40 36H202V136H40Z','wf-cloth')+path('M120 38V133','wf-stitch')+
+          path('M194 42l7 5 -7 5 7 5 -7 5 7 5 -7 5 7 5 -7 5 7 5 -7 5 7 5','wf-arrow')+label(207,72,'Zigzag at edge'),
+          'Test zigzag stitch 04 with foot J on a scrap. Finish each raw edge separately for an open seam or both together when the pattern calls for a seam pressed to one side.')]],
+      french:['French seam',[
+        panel('First pass with wrong sides together',edge(true,format(first)||'First-pass allowance'),
+          'Use this finish on a suitable straight or gently curved seam in light woven fabric. Start with wrong sides together. Sew the first pass on a scrap and trim the raw edges narrower than the enclosure in the next pass.'),
+        panel('Enclose the trimmed edges',edge(false,format(second)||'Enclosure allowance'),
+          `${first==null?'Use a pattern allowance that provides space for both passes.':`Fold on the first stitch line. The two passes use ${format(first)} plus ${format(second)} for a ${seam} total.`} With right sides touching, sew the second line to trap the raw edges inside and press to one side.`)]],
+      felled:['Flat-felled seam',[
+        panel('Stitch and trim one allowance',edge(false,seam),'Test on a straight woven seam. Stitch at the pattern allowance, press both allowances to the designated side, then trim the lower allowance narrower. Keep the upper allowance wide enough to cover it.'),
+        panel('Wrap and topstitch',path('M31 45H190V132H31Z','wf-cloth')+path('M130 45H175V132H130Z','wf-fold')+
+          path('M164 48V119','wf-stitch')+span(164,175,134,format(allowance.topstitch)||'Pattern spacing'),
+          'Turn the wider raw edge under so it wraps around the trimmed edge. Press and clip the fold flat. Stitch along the folded edge and check that the lower raw edge is enclosed.')]],
+      stretch:['Stretch seam',[
+        panel('Test the seam at the pattern allowance',edge(false,seam),'Use a compatible stretch or ballpoint needle and a stitch your knit can stretch with. Test a narrow zigzag on layered scraps before sewing.'),
+        panel('Pull the test seam along the stitching',path('M44 35H196V133H44Z','wf-cloth')+path('M117 41l7 6 -7 6 7 6 -7 6 7 6 -7 6 7 6 -7 6 7 6 -7 6 7 6','wf-stitch')+
+          path('M98 69H54m6 -5l-6 5 6 5M144 69h43m-6 -5l6 5 -6 5','wf-arrow'),
+          'Let the feed dogs guide the fabric so you do not stretch it while sewing. On the scrap, gently stretch the seam along the stitch line and check for broken stitches and ripples.')]]
+    };
+    if (!choices[finish]) return '';
+    const [title,panels]=choices[finish];
+    return `<details class="design-options wo-seam-guide"><summary>${title}</summary><p class="tight">Use this finish on seams that suit the fabric and pattern. Test it with the same layers and allowance first.</p><div class="wf-grid">${panels.join('')}</div></details>`;
+  }
+
+  function featurePlan(order,design) {
+    const plan=order.plan||{}, allowance=order.allowances||{};
+    const pocket=plan.pocket==='pattern'||!plan.pocket?design?.pocket:plan.pocket;
+    const panels=[];
+    if (pocket==='patch'||pocket==='Patch pockets') {
+      const reference=plan.pocketReference||'Pattern reference line';
+      const width=format(plan.pocketWidth)||'Finished width';
+      const height=format(plan.pocketHeight)||'Finished height';
+      panels.push(
+        panel('Mark the finished pocket corners',
+          path('M36 29H230V147H36Z','wf-cloth')+guide(58,33,58,143)+guide(36,48,229,48)+
+          path('M118 77H176V126H118Z','wf-right')+span(118,176,73,width)+tick(187,77,126,height)+
+          tick(233,48,77,format(plan.pocketDown)||'Down from line')+span(58,118,140,format(plan.pocketAcross)||'From center front')+
+          label(74,40,reference),
+          'Mark the horizontal reference on your flat front panel. Measure down to the pocket top and across from center front to its inner edge. Use the finished width and height to place the corners. Check the matching pocket against the same marks on the opposite side.'),
+        panel('Press the edges, then stitch around the pocket',
+          path('M39 29H212V141H39Z','wf-cloth')+path('M69 58H160V125H69Z','wf-right')+
+          path('M75 63V118H154V63','wf-stitch')+span(69,75,137,format(allowance.topstitch)||'Topstitch spacing')+label(96,50,'Opening'),
+          'Finish the pocket’s top edge first. Fold and press the side and bottom allowances to the wrong side. Clip the pocket on its placement marks, sew the sides and bottom, and reinforce the top corners while leaving the top open.'));
+    }
+    if (pocket==='inseam'||pocket==='In-seam pockets') panels.push(panel('Match the side-seam pocket openings',
+      path('M31 30H186V136H31Z','wf-cloth')+path('M154 49Q229 48 215 113Q195 140 154 110Z','wf-fold')+
+      path('M154 33V48M154 110V133','wf-stitch')+tick(230,49,110,format(plan.pocketHeight)||'Opening per pattern'),
+      'Mark the opening ends on both front and back side seams. Attach the bags at those marks before joining the side seams. Sew around each bag and reinforce both opening ends. Check for room to put your hand in.'));
+    if (pocket==='omit') panels.push(panel('Join across the optional pocket opening',
+      path('M32 28H192V137H32Z','wf-cloth')+path('M152 33V130','wf-stitch')+span(152,192,143,format(allowance.seam)||'Seam per pattern'),
+      'If the pattern allows omitting the pocket, use its plain panel or fill the pocket opening on the paper first. Baste the complete seam and check the shape before cutting the final panels.'));
+    if (plan.strapLength || plan.strapWidth) panels.push(panel('Measure and mark the strap',
+      path('M47 59H234V93H47Z','wf-fold')+guide(66,54,66,100)+guide(218,54,218,100)+
+      span(66,218,49,format(plan.strapLength)||'Finished length')+tick(245,59,93,format(plan.strapWidth)||'Finished width'),
+      'Measure between attachment points over the shoulder or around the neck during a fitting. Mark the finished length on the strip, then add the attachment allowances from your pattern to the cut length.'));
+    if (plan.zipperOpening) panels.push(panel('Mark zipper opening on both sides',
+      path('M31 23H184V141H31Z','wf-cloth')+path('M143 39V114M150 39V114','wf-stitch')+
+      tick(176,39,114,format(plan.zipperOpening))+label(42,44,'Top stop')+label(42,117,'End of opening'),
+      'Measure down from the marked top stop and transfer the opening endpoint to both edges. Baste the zipper tapes and close the zipper to check that crossing seams line up.'));
+    if (plan.buttonSpacing) panels.push(panel('Mark button centers on the placket',
+      path('M41 24H144V139H41Z','wf-cloth')+guide(94,30,94,132)+path('M90 52h8M90 81h8M90 110h8','wf-dimension')+
+      tick(147,52,81,format(plan.buttonSpacing)),
+      'Check placement and overlap on a fitting sample. Start from the pattern’s first button position. Mark down the centerline, then transfer each mark to the matching buttonhole side.'));
+    if (plan.casingWidth) panels.push(panel('Mark the elastic casing depth',
+      path('M31 35H194V114H31Z','wf-cloth')+path('M31 35H194V86H31Z','wf-fold')+path('M31 86H113m24 0h57','wf-stitch')+
+      tick(205,35,86,format(plan.casingWidth))+label(99,104,'Opening'),
+      'Fold and press to the planned casing depth. Leave an opening for threading. Check that the chosen elastic slides inside without twisting before closing the casing.'));
+    return panels.length?`<details class="design-options wo-feature-guide"><summary>Feature placement and construction</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
   }
   const cloth=path('M32 41H169V135H32Z','wf-cloth');
   const layers=cloth+path('M40 35H177V126H40Z','wf-fold');
@@ -161,17 +313,66 @@ const workFigures = (() => {
       return standardPanel((i+1)+'. '+title,visual,text);
     }).join('')}</div></details>`;
   }
-  function illustratedActions(step,id,index) {
+  function actionPanel(order,figure,title,description,id) {
+    const allowance=order.allowances||{};
+    const general=allowance.seam;
+    const seam=['neck','facing','neckFill'].includes(id)?allowance.neck??general
+      : ['sleeve','armhole','sleeveCap'].includes(id)?allowance.armhole??general:general;
+    const plan=order.plan||{};
+    const annotated=format(seam)||'Pattern allowance';
+    const local=scenes[figure];
+    if (figure==='cut') return cutEdgePanel(allowance);
+    if (figure==='grain') return layoutPanel(plan);
+    if (figure==='fold') {
+      const turn=format(allowance.first)||'Turn per pattern';
+      return panel(title,path('M32 34H171V134H32Z','wf-cloth')+guide(33,105,170,105)+path('M32 106H171V134H32Z','wf-fold')+
+        path('M91 145Q115 141 116 110m-5 6l5 -6 5 6','wf-arrow')+tick(184,106,134,turn)+label(43,66,'Wrong side up'),description);
+    }
+    if (figure==='sew' && id==='topstitch') return topstitchPanel(allowance);
+    if (figure==='sew' || figure==='stitchStart') {
+      return panel(title,scenes.stitchStart[1]+span(145,177,144,
+        id==='topstitch'?format(allowance.topstitch)||'Pattern distance':annotated),description);
+    }
+    if (['clipCurve','turnFacing','matchSleeve','pin','foot','pinOut','allowance','zipClearance'].includes(figure) && local) {
+      const line={
+        clipCurve:guide(67,48,142,48)+tick(105,48,77,annotated),
+        turnFacing:tick(104,69,89,annotated),
+        matchSleeve:tick(114,32,44,annotated),
+        pin:span(145,177,146,annotated),
+        foot:span(146,177,144,annotated),
+        pinOut:span(145,177,144,annotated),
+        allowance:label(173,145,annotated,'middle'),
+        zipClearance:format(plan.zipperOpening)?tick(169,45,115,format(plan.zipperOpening),-1):''
+      }[figure];
+      return panel(title,local[1]+line,description);
+    }
+    if (local) return panel(title,local[1],description);
+    return '';
+  }
+  const practicalTips={
+    grain:'If the selvages are tight and pull the fabric out of shape, let the fabric relax on the board before you straighten the fold.',
+    cut:'Cut the larger pieces first so the smaller pieces can fit around them. Confirm every piece—including interfacing and lining—before making the first cut.',
+    darts:'Draw both legs and the point on each mirrored piece. Compare the distance from the raw edge on the left and right so the darts finish level.',
+    facing:'Test the turned edge on a scrap curve. Small clips release an inward curve. Keep them short of the stitches.',
+    zipper:'Use a removable mark across both zipper tapes at any crossing seam. Match that mark as you baste the second side.',
+    sleeve:'Pin shoulder and matching notches first. Then fill in between them. A sleeve cap should ease in smoothly unless the style calls for visible gathers.',
+    finish:'Check the hem after pressing and before sewing. Compare finished length at the front, back and sides or on both legs.',
+    fit:'Use basting that can be removed. Mark any pull lines while the garment is on, then double-check the measurements with it off the body.'
+  };
+  function illustratedActions(step,id,index,order={}) {
     scenes ??= createScenes();
     const actions=sewingVisuals.operationActions(step,id);
     if (['seam','sew','layer','topstitch'].includes(id)) actions.splice(2,2,...machineSteps);
     const items=actions.map(({text,figure},i)=>{
       const local=scenes[figure], standard=sewingVisuals.figureParts(figure);
-      if (local) return panel((i+1)+'. '+local[0],local[1],text);
+      const title=(i+1)+'. '+(local?.[0] || standard?.[0] || 'Check the pattern');
+      const measured=actionPanel(order,figure,title,text,id);
+      if (measured) return measured;
       if (standard) return standardPanel((i+1)+'. '+standard[0],standard[1],text);
       return `<div class="wf-panel wf-written"><strong>${i+1}.</strong> ${escape(text)}</div>`;
     });
-    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures</summary><div class="wf-grid">${items.join('')}</div></details>`;
+    const tip=practicalTips[id];
+    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures</summary><div class="wf-grid">${items.join('')}</div>${tip?`<p class="wo-tip"><strong>Tip</strong> ${tip}</p>`:''}</details>`;
   }
-  return {forStep,bodySheet,illustratedActions,machineActions};
+  return {forStep,bodySheet,cuttingPlan,seamPlan,featurePlan,illustratedActions,machineActions};
 })();

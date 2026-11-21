@@ -204,6 +204,32 @@ const fabricFit = (() => {
   };
   const clamp = (n,min,max) => Math.min(max,Math.max(min,n));
   const mix = (a,b,t) => a+(b-a)*t;
+  const motions={
+    walk:{name:'Walk in place',duration:1950},
+    lift:{name:'Raise and lower arms',duration:3700},
+    reachCycle:{name:'Reach and return',duration:3500},
+    sitCycle:{name:'Sit and stand',duration:5100}
+  };
+  function motionAt(id,progress) {
+    const phase=progress*2*Math.PI;
+    const height=(1-Math.cos(phase))/2;
+    const travel=Math.abs(Math.sin(phase));
+    if (id==='walk') return {...poses.stand,arm:.027,reach:.06,stride:Math.sin(phase),flow:.65,phase};
+    const amount=clamp((height-.07)/.86,0,1);
+    const smooth=amount*amount*(3-2*amount);
+    const target=poses[({lift:'raise',reachCycle:'reach',sitCycle:'sit'})[id]];
+    return {sit:target.sit*smooth,arm:target.arm*smooth,reach:target.reach*smooth,phase,flow:travel};
+  }
+  function followThrough([x,y,z],theta,weight,pose,material) {
+    if (!pose.flow || !weight) return [x,y,z];
+    const gsm=material?.gsm ?? 170;
+    const bend=material?.bend ?? .42;
+    const softness=(1-.77*bend)/(1+gsm/440);
+    const phase=pose.phase-.45-gsm*.0012;
+    const wave=pose.flow*softness*weight*weight;
+    const ripple=(.014+.012*Math.sin(phase*2+theta*3))*wave;
+    return [x+Math.cos(theta)*ripple,y+Math.sin(phase+theta)*.016*wave,z+Math.sin(theta)*ripple+Math.sin(phase)*.025*wave];
+  }
   const stretch = (needed,available) => Math.max(0,needed/Math.max(available,1)-1);
   const response = (fabric,cross,length) => 1-Math.exp(-.85*Math.hypot(
     (cross/Math.max(.001,fabric.cross))**fabric.power,(length/Math.max(.001,fabric.length))**fabric.power));
@@ -216,27 +242,28 @@ const fabricFit = (() => {
     const regions = {};
     const hangingLength = model==='dress'||model==='trousers'?1:model==='skirt'?.58:.33;
     const gravity = clamp((material.gsm-85)/420,0,1.35)*hangingLength*.009*(1-material.bend);
+    const step=Math.abs(pose.stride||0);
     function add(key,label,cross,length=0) {
       regions[key]={label,cross,length,level:response(material,cross,length)};
     }
     if (bodice) {
       add('bust','Chest / bust',around(body.bust||92,ease??5,'bust',.042*pose.reach+.022*pose.arm),.009*pose.reach);
-      add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*pose.reach+.036*pose.arm),.032*pose.reach+.025*pose.arm);
+      add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*pose.reach+.036*pose.arm+.024*step),.032*pose.reach+.025*pose.arm+.012*step);
       add('armhole','Armhole',around(38,2.2,'armhole',.035*pose.reach+.095*pose.arm),.05*pose.arm);
       if (changes.hasSleeves) {
         add('sleeve','Upper sleeve',around(body.upperArm||(body.bust||92)*.32,3.5,'sleeveWidth',.060*pose.arm+.035*pose.reach),.021*pose.arm+.022*pose.reach);
         add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*pose.arm));
       }
     }
-    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit),legs?0:.013*pose.sit+gravity);
+    add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit+.014*step),legs?0:.013*pose.sit+gravity);
     if (model!=='top' || pattern.design?.length==='Low hip') {
-      add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit),legs?0:.045*pose.sit+gravity);
+      add('hip','Hip / seat',around(body.hip||98,ease??5,'hip',.067*pose.sit+.034*step),legs?0:.045*pose.sit+.021*step+gravity);
     }
     if (legs) {
       const c=key=>changes[key]||0;
       const longitudinal=(base,demand,ease)=>stretch(base+demand*pose.sit,base+ease);
-      add('thigh','Upper thigh',around(body.thigh||(body.hip||98)*.54,5,'thigh',.10*pose.sit));
-      add('knee','Bent knee',around(body.knee||36,2,'knee',.09*pose.sit),longitudinal(20,2.9,1+c('kneeFlex')));
+      add('thigh','Upper thigh',around(body.thigh||(body.hip||98)*.54,5,'thigh',.10*pose.sit+.057*step));
+      add('knee','Bent knee',around(body.knee||36,2,'knee',.09*pose.sit+.073*step),stretch(20+2.9*pose.sit+1.6*step,21+c('kneeFlex')));
       add('leg','Lower leg',around(body.calf||(body.hip||98)*.35,4,'leg',.02*pose.sit));
       add('rise','Front rise',0,longitudinal(28,2.9,1+c('rise')));
       add('backRise','Back rise / seat length',0,longitudinal(34,5.1+gravity*34,1.6+c('rise')+c('backRise')));
@@ -298,6 +325,16 @@ const fabricFit = (() => {
     const ankleZ=kneeZ+lower*Math.sin(shinAngle);
     const lean=.14*pose.sit+.08*pose.reach;
     const rotate=(y,z,angle)=>[y*Math.cos(angle)-z*Math.sin(angle),y*Math.sin(angle)+z*Math.cos(angle)];
+    const gait=(side)=>{
+      const swing=(pose.stride||0)*side;
+      const thigh=swing*.30;
+      const shin=thigh-Math.max(0,-swing)*.40;
+      const kneeY=hip+upper*Math.cos(thigh);
+      const kneeZ=upper*Math.sin(thigh);
+      const ankleY=kneeY+lower*Math.cos(shin);
+      return {thigh,shin,kneeY,kneeZ,ankleZ:kneeZ+lower*Math.sin(shin),lift:ankleY-ankle+Math.max(0,-swing)*.049};
+    };
+    const gaitLeft=gait(-1), gaitRight=gait(1);
     function torso([x,y,z]) {
       y=mapY(y);
       const [v,w]=rotate(y-hip,z,-lean);
@@ -306,6 +343,14 @@ const fabricFit = (() => {
     }
     function leg([x,y,z]) {
       y=mapY(y);
+      if (pose.stride) {
+        const step=x<0?gaitLeft:gaitRight;
+        const [ay,az]=rotate(y-hip,z,step.thigh);
+        const [by,bz]=rotate(y-knee,z,step.shin);
+        const kneeBlend=clamp((y-knee+.12)/.24,0,1);
+        const lift=clamp((y-hip)/Math.max(.1,ankle-hip),0,1);
+        return [x,mix(hip+ay,step.kneeY+by,kneeBlend)-step.lift*lift,mix(az,step.kneeZ+bz,kneeBlend)];
+      }
       const [a,b]=rotate(y-hip,z,thighAngle);
       const [c,d]=rotate(y-knee,z,shinAngle);
       const t=clamp((y-knee+.105)/.21,0,1);
@@ -317,14 +362,27 @@ const fabricFit = (() => {
       const thigh=leg(point);
       const front=Math.max(0,Math.sin(theta));
       const inner=1-Math.min(1,Math.abs(x)/.26);
-      const t=pose.sit*clamp((y-.12)/.24,0,1)*(.22+.56*front+.19*inner);
+      const t=(pose.sit*(.22+.56*front+.19*inner)+Math.abs(pose.stride||0)*.54)*clamp((y-.12)/.24,0,1);
       return body.map((value,axis)=>mix(value,thigh[axis],t));
     }
     const seatY=hip+drop+.115;
     function foot([x,y,z]) {
+      if (pose.stride) {
+        const step=x<0?gaitLeft:gaitRight;
+        const swing=pose.stride*(x<0?-1:1);
+        return [x,mapY(y)-Math.max(0,-swing)*.049,z+step.ankleZ];
+      }
       return [x,mapY(y),z+ankleZ];
     }
     function skirt([x,y,z],theta,material) {
+      if (pose.stride && mapY(y)>hip) {
+        const fall=clamp((mapY(y)-hip)/.75,0,1);
+        const bend=material?.bend ?? .42;
+        const weight=clamp(((material?.gsm ?? 170)-60)/600,0,.8);
+        const swing=pose.stride*(1-bend*.64)*(1-weight*.5)*fall;
+        const kick=Math.max(0,Math.sin(theta))*Math.abs(swing);
+        return [x+swing*.049,mapY(y)-kick*.016,z+kick*.16+.035*Math.cos(theta)*swing];
+      }
       if (!pose.sit || mapY(y)<=hip) return torso([x,y,z]);
       y=mapY(y);
       const fall=y-hip;
@@ -352,5 +410,5 @@ const fabricFit = (() => {
   }
   const posePoint=(point,pose,part='body')=>rig(pose)[part==='leg'?'leg':'torso'](point);
 
-  return {fabrics,materialGroups,categoryOf,weave,readSwatch,captureSwatch,sample,poses,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
+  return {fabrics,materialGroups,categoryOf,weave,readSwatch,captureSwatch,sample,poses,motions,motionAt,followThrough,resample,envelope,clearance,posePoint,rig,estimate,levelAt,tint,clamp,mix};
 })();
