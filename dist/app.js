@@ -430,14 +430,15 @@ function saveFit() {
 
 const basicLessons = [
   {
-    title:'Set up the sewing machine',
-    tools:'Sewing machine and manual, compatible bobbin, all-purpose polyester thread, a new universal 80/12 needle, and two layers of cotton scrap.',
+    title:'Set up your Brother CP2160F',
+    tools:'Brother CP2160F, foot controller, SA156 Class 15 bobbin, all-purpose polyester thread, universal 80/12 needle, zigzag foot J, and two layers of woven cotton scrap.',
     steps:[
-      'Switch the machine off while inserting the needle. Follow the manual for which way the flat side faces, then tighten the needle clamp.',
-      'Wind and insert the bobbin as your manual shows. Raise the presser foot and bring the needle to its highest point before threading the upper thread. Check that it passes through the take-up lever.',
-      'Fit the general-purpose presser foot. Select a straight stitch and start with a stitch length around 2.5 mm. Set tension to the machine’s normal setting and test on scrap.',
-      'Place two layers of scrap under the foot. Lower the foot and sew slowly while guiding the fabric. Let the feed dogs move it. Backstitch a few stitches at each end to secure the seam.',
-      'Check both sides. If you see loops or skipped stitches, rethread the machine with the foot raised, check the bobbin orientation and verify that the needle is fully seated before changing tension.'
+      'Switch off the machine. Raise the needle by turning the handwheel toward you. Insert the needle with its flat side to the back, push it up to the stop, and tighten the clamp.',
+      'Wind the bobbin using the numbered winding path and the cutter on the bobbin-winder seat. Switch off the machine before inserting the wound bobbin into the top-loading compartment. Follow the arrows to guide the thread through the slot and cutter, then snap the cover back on.',
+      'Raise the presser foot and needle before threading the top. With the power off, follow the numbered path on the machine, catch the take-up lever, and pass the thread behind the needle-bar guide. Thread the needle from front to back and leave about 10 cm of thread under foot J.',
+      'Turn on the machine. Use the stitch selection keys to display 01 for a centered straight stitch. The LCD shows foot J. Start with the default 2.5 mm stitch length and test on layered scraps. With this straight stitch, the width control moves the needle sideways.',
+      'Lower the presser foot and start gently with the foot controller. Hold the reverse stitch button briefly at the start and end to secure the seam. Let the feed dogs move the fabric while you guide it.',
+      'If the machine skips stitches or loops thread, raise the foot and rethread the top, check the bobbin against the arrows, and verify the needle is seated fully. Test again before adjusting tension.'
     ]
   },
   {
@@ -475,12 +476,13 @@ const basicLessons = [
 
 function basics() {
   view.innerHTML = heading('Sewing Basics','Set up your machine, cut fabric accurately, and practice on a simple coaster.') +
-    `<p class="basics-intro">Start with woven cotton scraps and a straight stitch. Use your machine’s manual for its needle, threading and bobbin setup.</p>
+    `<p class="basics-intro">Machine setup is written for your Brother CP2160F. Start with woven cotton scraps and stitch 01 to practice a centered straight seam.</p>
     <div class="lessons">${basicLessons.map((lesson,index) => `<details class="panel lesson"${index===0?' open':''}>
       <summary><h2>${escape(lesson.title)}</h2></summary>
       <p class="tight"><strong>Tools and materials</strong> ${escape(lesson.tools)}</p>
       <ol class="steps">${lesson.steps.map(step=>`<li>${escape(step)}</li>`).join('')}</ol>
-    </details>`).join('')}</div>`;
+    </details>`).join('')}</div>
+    <p class="basics-resources"><a href="https://support.brother.com/g/b/manualtop.aspx?c=us&amp;lang=en&amp;prod=hf_cp2160feus" target="_blank" rel="noopener">Brother CP2160F manuals, setup diagrams and stitch chart</a></p>`;
 }
 
 let fitCleanup;

@@ -8,3 +8,5 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 @media(max-width:390px){.patterns,.fields{grid-template-columns:1fr}.features{grid-template-columns:1fr}}
 
 .basics-intro{margin-bottom:18px;max-width:65ch}.lessons{display:grid;gap:12px;max-width:880px}.lesson summary{cursor:pointer;color:var(--red)}.lesson summary h2{display:inline;font-size:clamp(19px,3vw,24px);margin-left:6px}.lesson summary:focus-visible{outline:2px solid #a15067;outline-offset:5px}.lesson .steps{margin-bottom:0}
+
+.basics-resources{margin-top:16px}.basics-resources a{color:var(--red);text-decoration:underline;text-underline-offset:3px}
