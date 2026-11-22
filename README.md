@@ -40,9 +40,9 @@ Open **Pattern Library → New custom piece** to combine a silhouette, length, n
 
 Select **Fit sliders** to open the **Fit adjustments** panel. Both workflows use the same sliders, fabric weight, stretch and drape settings, poses, motion playback, and tightness map. Saved designs keep their fabric and fit settings for revisions and construction work orders.
 
-Use **Edit on garment** to choose shape and fit, seam placement, or layers and ruffles. Drag a handle to change the selected dimension, or focus it and use the arrow keys. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to viewport edits. Waist join and front panel seams add measured guides on the garment and construction figures.
+Use **Edit on garment** to choose shape and fit, seam placement, or layers and ruffles. Select a detail on the garment to highlight it and open its slider. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to fit, seam, and layer edits.
 
-In **Seam placement**, drag the two front seams inward or select **Merge front seams** to make one vertical seam. Drag the merged seam around the garment, or open **Seam and zipper settings** to choose its exact position. Enable a standard or invisible zipper and set the opening length from the upper edge. Drag the zipper stop on the model to see the length change. The illustrated work order marks the seam location, the opening length, and where to sew below the zipper.
+In **Seam placement**, move the front seam offset slider inward until the seams merge, or select **Merge front seams**. Select the merged seam to open its position slider. In **Seam and zipper settings**, enable a standard or invisible zipper and use the opening length slider to set its stop. The illustrated work order marks the seam location, the opening length, and where to sew below the zipper.
 
 For a dress or skirt, **Fabric layers** adds up to five overskirts, underskirts, tiers, or gathered ruffles. Set each layer’s fabric, color, opacity, and fullness. Move tier or ruffle attachments along the skirt, adjust a layer’s hem offset, or set a ruffle’s finished depth. Saved garments keep these settings when opened for a revision. The construction plan shows layer measurements and how to cut, attach, and hem each layer.
 
@@ -62,7 +62,7 @@ Choose a fabric preset and enter its weight in g/m². Under **Fabric stretch and
 
 Choose a pose or motion and use its **Add ease** button to adjust room for that movement. **Add ease for all movements** checks the available poses and motion loops and proposes one set of changes. The preview uses estimated ease, simplified garment contact, and illustrative material parameters. Verify movement and fit on a sewing sample. The shape and color contours draw on [Ansys Contour Results](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/motion_ug/motion_ug_using_postproc_contour.html) and [Ansys material nonlinearity documentation](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/ans_thry/thy_undmat.html).
 
-Use **Sculpt with handles** to select a part of the garment. Drag the on-model handles to edit widths, depths, and lengths or use the arrow keys on a focused handle. Adjustments stay synchronized with the sliders and tailoring work order. **Undo drag** reverses the last handle adjustment.
+Select a region of the garment to open its fit slider. Use sliders to adjust fit while the selected region is highlighted. Adjustments carry into revisions and tailoring work orders.
 
 Work orders generated from a 3D fit include a measurement sheet, fabric, tools, and illustrated steps. Cut-piece dimensions and seam allowances come from the selected sewing pattern.
 

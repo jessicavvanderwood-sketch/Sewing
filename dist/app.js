@@ -845,7 +845,13 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const faces = [];
   const markings = [];
   const surfaces = {};
-  const editorAnchors={};
+  const surfaceParts={};
+  const editorMetadata={};
+  const componentHits={};
+  const editing=analysis?.editor;
+  const componentKeys=new Set(editing?.componentKeys || []);
+  const near=Math.PI/2-angle;
+  const pixelsPerCssPixel=width/(canvas.clientWidth || width || 1);
   const model = pattern ? basePattern(pattern).id : null;
   const skirtFit=model==='dress'||model==='skirt';
   const design = pattern?.design;
@@ -893,7 +899,38 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
   };
   const project=point=>screen(rotateView(point));
-  const anchor=([x,y])=>({x:100*x/width,y:100*y/height});
+  const coordinate=([x,y])=>[100*x/width,100*y/height];
+  function addComponent(key,paths,{radius=10,guide=false}={}) {
+    if (!componentKeys.has(key)) return;
+    const valid=paths.filter(path=>path.length>1);
+    if (!valid.length) return;
+    const hit=componentHits[key]??={paths:[],points:[],radius};
+    hit.paths.push(...valid.map(path=>path.map(coordinate)));
+    const selected=editing.selectedComponent===key;
+    const hovered=editing.hoveredComponent===key;
+    if (!selected && !hovered && !guide) return;
+    for (const path of valid) {
+      if (selected || hovered) markings.push({points:path,style:'rgba(23,42,42,.90)',width:5*pixelsPerCssPixel});
+      const style=selected?'rgba(108,246,222,.98)':hovered?'rgba(235,255,250,.96)':'rgba(241,254,249,.42)';
+      markings.push({points:path,style,width:(selected||hovered?2.9:1.45)*pixelsPerCssPixel});
+    }
+  }
+  const liftedPoint=([x,y,z],theta)=>project([x+.0045*Math.cos(theta),y,z+.0045*Math.sin(theta)]);
+  const viewArc=(sample,center=near,span=1.48,count=25)=>
+    Array.from({length:count},(_,i)=>sample(center+span*(2*i/(count-1)-1)));
+  function visiblePaths(points,angles) {
+    const paths=[];
+    let path=[];
+    for (const [i,point] of points.entries()) {
+      if (Math.sin(angles[i]+angle)>.045) path.push(point);
+      else if (path.length) {
+        if (path.length>1) paths.push(path);
+        path=[];
+      }
+    }
+    if (path.length>1) paths.push(path);
+    return paths;
+  }
   let shellContact;
   let skinPoints=null;
   let posedSkin=null;
@@ -975,6 +1012,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       return project(point);
     }};
+    if (componentKeys.size && surfaces[part] && part!=='torso-skin') {
+      (surfaceParts[part]??=[]).push(surfaces[part]);
+    }
     const contrast = design?.accent ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)) : channels;
     for (let ring=0;ring<rings.length-1;ring++) {
       const band=(rings[ring][0]+rings[ring+1][0])*.5;
@@ -1393,7 +1433,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const y=proportions.yAt(-.25)+(garmentSeams.waistSeam||0)*unit;
       const points=columnsOfShell().map(({theta,levels})=>onSurface(pointAtHeight(levels,y),theta));
       markings.push({points,closed:true,style:style(waistSaved)});
-      if (showGuides) editorAnchors.waistSeam=anchor(aroundAt(Math.PI/2-angle,points));
+      if (componentKeys.has('waistSeam')) addComponent('waistSeam',[viewArc(theta=>aroundAt(theta,points))],{radius:9});
     }
     if (eligible.includes('panelSeam') && (panelSaved || showGuides)) {
       const target=model==='skirt'?fabricFit.mix(surface.rings[0][0],surface.rings.at(-1)[0],.32):model==='top'?-.39:-.34;
@@ -1404,14 +1444,13 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         return [y,(row[0][0]-row[row.length/2][0])/(2*unit)];
       });
       const paths=studioDesign.panelSeamPaths(model,garmentSeams.panelSeam,rows,garmentSeams.panelAngle);
-      const visible=theta=>Math.sin(theta+angle)>.14;
-      for (const [index,path] of paths.entries()) {
+      if (showGuides && !single) editorMetadata.panelSeamSnapOffset=studioDesign.panelSeamSnapOffset(model,...rows[selected]);
+      for (const path of paths) {
         const points=path.map((theta,i)=>onSurface(surface.sampleRing(theta,i),theta));
-        if (showGuides && index===paths.length-1 && visible(path[selected])) {
-          if (single) editorAnchors.panelAngle=anchor(points[selected]);
-          else editorAnchors.panelSeam={...anchor(points[selected]),snapOffset:studioDesign.panelSeamSnapOffset(model,...rows[selected])};
-        }
         if (!single || Math.sin(path[selected]+angle)>0) markings.push({points,style:style(panelSaved)});
+        if (!single || !Number.isFinite(garmentSeams.panelZipper)) {
+          addComponent(single?'panelAngle':'panelSeam',visiblePaths(points,path),{radius:9});
+        }
       }
       if (single && (analysis?.editor || Number.isFinite(garmentSeams.panelZipper))) {
         const theta=paths[0][0];
@@ -1425,7 +1464,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           distances.push(distances[i-1]+length);
         }
         const maxLength=Math.min(studioDesign.panelZipperLimits[1],Math.max(0,Math.floor((distances.at(-1)-1)*2)/2));
-        if (analysis?.editor) editorAnchors.panelZipperMaxLength=maxLength;
+        if (editing) editorMetadata.panelZipperMaxLength=maxLength;
         if (Number.isFinite(garmentSeams.panelZipper) && Math.sin(theta+angle)>0) {
           const length=Math.min(garmentSeams.panelZipper,maxLength);
           const invisible=garmentSeams.panelZipperKind==='Invisible zipper';
@@ -1443,10 +1482,16 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
             const style=invisible?'rgba('+tone+',.72)':'rgba(212,175,110,.94)';
             markings.push({points,style});
           }
+          if (componentKeys.has('panelZipper') || componentKeys.has('panelAngle')) {
+            const bottom=zipPoint(theta,length);
+            const top=distances.filter(distance=>distance<length).map(distance=>zipPoint(theta,distance));
+            const lower=distances.filter(distance=>distance>length).map(distance=>zipPoint(theta,distance));
+            addComponent('panelZipper',[[...top,bottom]],{radius:9});
+            addComponent('panelAngle',[[bottom,...lower]],{radius:9});
+          }
           const pull=[[-.027,1.1],[.027,1.1],[.049,2.6],[-.049,2.6]]
             .map(([around,distance])=>zipPoint(theta+around,Math.min(distance,length)));
           markings.push({points:pull,closed:true,style:'rgba(244,216,152,.99)'});
-          if (showGuides && visible(theta)) editorAnchors.panelZipper={...anchor(zipPoint(theta,length)),maxLength};
         }
       }
     }
@@ -1539,13 +1584,16 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           markings.push({points,style});
         }
       }
-      if (analysis?.editor?.layerIndex===index) {
-        const near=Math.PI/2-angle;
+      if (editing?.layerIndex===index && section.some(column=>!column.hidden)) {
         const first=section.map(column=>column.points[0]);
         const hem=section.map(column=>column.points.at(-1));
-        editorAnchors.layerAttachment=anchor(aroundAt(near-.37,first));
-        editorAnchors.layerHem=anchor(aroundAt(near+.24,hem));
-        editorAnchors.layerSweep=anchor(aroundAt(near-1.11,hem));
+        if (joined) addComponent('layerAttachment',[viewArc(theta=>aroundAt(theta,first))],{radius:9,guide:true});
+        addComponent('layerHem',[viewArc(theta=>aroundAt(theta,hem),near,.59)],{radius:10,guide:true});
+        if (componentKeys.has('layerSweep')) {
+          const edge=section.map(column=>column.points[Math.round(rows*.77)]);
+          addComponent('layerSweep',[-1,1].map(side=>viewArc(theta=>aroundAt(theta,edge),near+side*1.07,.32)),
+            {radius:12,guide:true});
+        }
       }
       for (let i=0;i<segments;i++) {
         const a=section[i],b=section[(i+1)%segments];
@@ -1569,6 +1617,54 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           const depth=points.reduce((sum,p)=>sum+p[2],0)/4;
           faces.push({points,depth,paint,skipStroke:opacity<1,seam:edge});
         }
+      }
+    }
+  }
+
+  function addFitComponents() {
+    const nearest=(rings,y)=>rings.reduce((best,row,i)=>Math.abs(row[0]-y)<Math.abs(rings[best][0]-y)?i:best,0);
+    const supplementary={
+      upperHip:{y:-.045},seatDepth:{y:.16,back:true},lapEase:{y:.39},kneeEase:{y:.64},
+      sittingLength:{y:.055,back:true},backRise:{y:.13,back:true},crotch:{y:.25},kneeFlex:{y:.68,part:'leg'}
+    };
+    for (const key of componentKeys) {
+      const spec=fitHandles.specs[key] || supplementary[key];
+      if (!spec) continue;
+      const part=key==='armhole'&&surfaceParts.sleeve?'sleeve':spec.part || (key==='length'&&surfaces.leg?'leg':'shell');
+      const pieces=surfaceParts[part]||[];
+      for (const surface of pieces) {
+        const {rings,opening,sampleRing}=surface;
+        const last=rings.length-1;
+        if (supplementary[key] && spec.y>rings[last][0]+.07) continue;
+        const index=spec.neck || key==='armhole'&&part==='sleeve'?0:spec.end?last:nearest(rings,spec.y);
+        const at=(row,theta)=>liftedPoint(sampleRing(theta,row),theta);
+        const arc=(row,center,span)=>viewArc(theta=>at(row,theta),center,span,17);
+        let paths;
+        if (spec.neck) {
+          const center=spec.back?-Math.PI/2:Math.PI/2;
+          const half=Math.asin(opening);
+          const bands=key==='neckWidth'?[-1,1].map(side=>[center+side*half,.22]):[[center,Math.min(half,.34)]];
+          paths=bands.flatMap(([center,span])=>{
+            const angles=viewArc(theta=>theta,center,span,17);
+            return visiblePaths(angles.map(theta=>at(index,theta)),angles);
+          });
+        } else if (spec.back) {
+          const angles=viewArc(theta=>theta,-Math.PI/2,key==='sittingLength'?.36:.9,17);
+          paths=visiblePaths(angles.map(theta=>at(index,theta)),angles);
+        } else if (key==='sweep' || key==='shoulder' || key==='shoulderSlope' || key==='armhole'&&part==='shell') {
+          const theta=key==='shoulderSlope'?1.09:1;
+          const span=key==='shoulderSlope'?.19:.36;
+          paths=[-1,1].map(side=>arc(index,near+side*theta,span));
+        } else if (key==='sleeveLength' || key==='kneeFlex') {
+          const first=key==='kneeFlex'?Math.max(0,index-3):Math.floor(last*.35);
+          const end=key==='kneeFlex'?Math.min(last,index+3):last;
+          paths=[Array.from({length:end-first+1},(_,i)=>at(first+i,near))];
+        } else {
+          const span=key==='length'?.53:key==='waistHeight'?.34:1.33;
+          paths=[arc(index,near,span)];
+        }
+        const guide=componentKeys.size<=7 || ['waist','hip','neckDepth','length'].includes(key);
+        addComponent(key,paths,{radius:part==='sleeve'?10:11,guide});
       }
     }
   }
@@ -1760,7 +1856,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
     }
   }
-  const depthRendered=(skinPoints||garmentLayers.length) && typeof fittingRender!=='undefined' && fittingRender.paint(context,{
+  if (componentKeys.size) addFitComponents();
+  const depthRendered=(skinPoints||garmentLayers.length||componentKeys.size) && typeof fittingRender!=='undefined' && fittingRender.paint(context,{
     faces,skinPoints,skinTopology:skinPoints?humanPreview.topology:null,skinColor:skin,width,height,cx,cy,scale,markings
   });
   if (!depthRendered && skinPoints) {
@@ -1797,10 +1894,10 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     mark.points.forEach(([x,y],index)=>index?context.lineTo(x,y):context.moveTo(x,y));
     if (mark.closed) context.closePath();
     context.strokeStyle=mark.style;
-    context.lineWidth=Math.max(.8,scale*.008);
+    context.lineWidth=mark.width||Math.max(.8,scale*.008);
     context.stroke();
   }
-  return {...Object.fromEntries((analysis?.handleKeys || []).map(key=>[key,fitHandles.place(key,surfaces,canvas)])),...editorAnchors};
+  return {...editorMetadata,componentHits};
 }
 
 let fitPattern = 'dress';
@@ -2010,6 +2107,12 @@ function fitSlidersMarkup(keys,values,neckline) {
   const seated=keys.filter(key=>garmentFit.seatedKeys.includes(key));
   return (seated.length?`<fieldset class="wo-path"><legend>Seated fit</legend>${seated.map(slider).join('')}</fieldset>`:'')+
     keys.filter(key=>!garmentFit.seatedKeys.includes(key)).map(slider).join('');
+}
+function focusSlider(input) {
+  if (!input || input.disabled) return;
+  for (let panel=input.closest('details');panel;panel=panel.parentElement.closest('details')) panel.open=true;
+  input.focus({preventScroll:true});
+  input.closest('.field').scrollIntoView({block:'center'});
 }
 function fitAnalysisId(prefix,key) {
   const legacy=['motion-controls','play-motion','motion-progress','motion-speed'];
@@ -2362,11 +2465,9 @@ function fitting() {
   const shoulders=shoulderSettings(pattern);
   const supportStyles=studioDesign.supportChoices(pattern.design?.model || modelType);
   const canHaveSleeves=shoulders.support==='Integrated shoulders';
-  const fitTools=`<label class="field">Sculpt with handles<select id="fit-handle-group"><option value="">Off</option></select></label><button type="button" class="secondary" id="fit-undo" disabled>Undo drag</button>
-    <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
-    ${fitEaseControls('fit')}
+  const fitTools=`${fitEaseControls('fit')}
     ${studioDesign.layers(pattern.design).length?'<p id="fit-layer-map-note" class="fit-reading muted">The map shows tightness on the main garment. Layers are faded in this view.</p>':''}`;
-  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p><h1>${publisher?'Try on garment':titles.fitting}</h1><p>${publisher?'Choose a model to preview this pattern in 3D.':'Preview the fit on a model, then save a revision or create an illustrated work order.'}</p></div><div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>${fitAnalysisControls('fit',fitTools)}
+  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p><h1>${publisher?'Try on garment':titles.fitting}</h1><p>${publisher?'Choose a model to preview this pattern in 3D.':'Preview the fit on a model, then save a revision or create an illustrated work order.'}</p></div><div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Select a garment area to open its fit slider. Use the left and right arrow keys to turn."></canvas></div><div class="viewer-footer"><span class="muted">Select a garment area to jump to its slider. Drag or use arrow keys to turn.</span><button class="secondary" id="reset-view">Front view</button></div>${fitAnalysisControls('fit',fitTools)}
 </section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
     <p class="model-link"><a href="#models">Open Model Library</a></p>
@@ -2399,15 +2500,8 @@ function fitting() {
   const fitGuide = document.querySelector('#fit-guide');
   const sliders = document.querySelector('#fit-sliders');
   let angle = 0;
-  let pointer;
-  const overlay=document.querySelector('#fit-handles');
-  const handleGroup=document.querySelector('#fit-handle-group');
-  const undoButton=document.querySelector('#fit-undo');
-  const handleHelp=document.querySelector('#fit-handle-help');
-  const history=[];
-  let activeHandles=[];
-  let drag;
-  let groups={};
+  let hoveredComponent=null;
+  let selectedComponent=null;
   const pickedFabric=()=>form.elements.namedItem('fabric').value;
   const material=()=>readFitFabric(form,pickedFabric());
   const neckline=()=>form.elements.namedItem('neckline')?.value || startingNeck;
@@ -2447,79 +2541,29 @@ function fitting() {
     sliders.innerHTML=fitSlidersMarkup(keys(),values,neckline());
   }
   drawControls();
-  function refreshGroups() {
-    const selected=handleGroup.value;
-    groups=Object.fromEntries(fitHandles.available(keys()));
-    handleGroup.innerHTML='<option value="">Off</option>'+Object.entries(groups).map(([id,g])=>option(id,g.label,selected)).join('');
-    renderHandles();
-  }
-  function renderHandles() {
-    activeHandles=groups[handleGroup.value]?.keys || [];
-    overlay.hidden=handleHelp.hidden=!activeHandles.length;
-    overlay.innerHTML=activeHandles.map(key=>{
-      const spec=fitHandles.specs[key];
-      return `<button type="button" class="fit-handle" data-key="${key}" data-axis="${spec.axis}" aria-label="${spec.label}" title="${spec.label}"><span aria-hidden="true">${spec.axis==='x'?'↔':'↕'}</span></button>`;
-    }).join('');
-  }
-  function edit(key,value) {
-    const input=form.elements.namedItem(key);
-    const n=fabricFit.clamp(Math.round(value*2)/2,Number(input.min),Number(input.max));
-    if (Number(input.value)===n) return;
-    input.value=n;
-    input.dispatchEvent(new Event('input',{bubbles:true}));
-  }
-  function remember(key,before) {
-    if (Number(form.elements.namedItem(key).value)!==before) {
-      history.push({key,before});
-      undoButton.disabled=false;
+  const picker=fitHandles.selection(canvas,{
+    select:key=>{
+      const input=key?form.elements.namedItem(key):null;
+      if (!input?.matches('[data-fit-slider]')) return;
+      selectedComponent=key;
+      focusSlider(input);
+      draw();
+    },
+    hover:key=>{
+      if (hoveredComponent===key) return;
+      hoveredComponent=key;
+      draw();
+    },
+    rotate:dx=>{
+      angle+=dx*.016;
+      draw();
     }
-  }
-  refreshGroups();
-  handleGroup.addEventListener('change',()=>{
-    if (handleGroup.value) angle=handleGroup.value==='back'?Math.PI:0;
-    renderHandles();
+  });
+  sliders.addEventListener('focusin',event=>{
+    if (!event.target.matches('[data-fit-slider]') || selectedComponent===event.target.name) return;
+    selectedComponent=event.target.name;
     draw();
   });
-  overlay.addEventListener('pointerdown',event=>{
-    const button=event.target.closest('button[data-key]');
-    if (!button || event.button!==0) return;
-    const key=button.dataset.key;
-    const spec=fitHandles.specs[key];
-    drag={button,key,spec,id:event.pointerId,start:spec.axis==='x'?event.clientX:event.clientY,
-      before:Number(form.elements.namedItem(key).value)};
-    button.setPointerCapture(event.pointerId);
-    button.classList.add('is-dragging');
-  });
-  overlay.addEventListener('pointermove',event=>{
-    if (drag?.id!==event.pointerId) return;
-    const current=drag.spec.axis==='x'?event.clientX:event.clientY;
-    const speed=(drag.spec.axis==='x'?110:65)/Math.max(250,canvas.clientHeight);
-    edit(drag.key,drag.before+(current-drag.start)*speed*(drag.spec.direction||1)*(event.shiftKey?.35:1));
-  });
-  overlay.addEventListener('lostpointercapture',event=>{
-    if (drag?.id!==event.pointerId) return;
-    drag.button.classList.remove('is-dragging');
-    remember(drag.key,drag.before);
-    drag=undefined;
-  });
-  overlay.addEventListener('keydown',event=>{
-    const button=event.target.closest('button[data-key]');
-    const key=button?.dataset.key;
-    if (!key) return;
-    const spec=fitHandles.specs[key];
-    const arrows=spec.axis==='x'?['ArrowLeft','ArrowRight']:['ArrowUp','ArrowDown'];
-    if (!arrows.includes(event.key)) return;
-    event.preventDefault();
-    const before=Number(form.elements.namedItem(key).value);
-    edit(key,before+(event.key===arrows[0]?-1:1)*(spec.direction||1)*(event.shiftKey?2:.5));
-    remember(key,before);
-  });
-  undoButton.onclick=()=>{
-    let action=history.pop();
-    while (action && !form.elements.namedItem(action.key)) action=history.pop();
-    if (action) edit(action.key,action.before);
-    undoButton.disabled=!history.length;
-  };
   const layerMapNote=document.querySelector('#fit-layer-map-note');
   const analysis=bindFitAnalysis('fit',{
     draw,
@@ -2541,25 +2585,18 @@ function fitting() {
     const width=Math.round(canvas.clientWidth*ratio),height=Math.round(canvas.clientHeight*ratio);
     if (canvas.width!==width) canvas.width=width;
     if (canvas.height!==height) canvas.height=height;
-    const anchors=drawModel(canvas,pattern,angle,adjustments(),body(),false,
-      {pose:analysis.pose(),material:material(),show:analysis.show(),handleKeys:activeHandles,fabricName:pickedFabric(),redraw:draw});
+    const componentKeys=keys();
+    if (!componentKeys.includes(selectedComponent)) selectedComponent=null;
+    if (!componentKeys.includes(hoveredComponent)) hoveredComponent=null;
+    const preview=drawModel(canvas,pattern,angle,adjustments(),body(),false,
+      {pose:analysis.pose(),material:material(),show:analysis.show(),fabricName:pickedFabric(),redraw:draw,
+        editor:{componentKeys,hoveredComponent,selectedComponent}});
+    picker.targets(preview?.componentHits || {});
     if (layerMapNote) layerMapNote.hidden=!analysis.show();
-    const values=activeHandles.length?changes():{};
-    for (const button of overlay.querySelectorAll('button')) {
-      const anchor=anchors[button.dataset.key];
-      button.hidden=!anchor;
-      if (!anchor) continue;
-      button.style.left=`${fabricFit.clamp(anchor.x,5,95)}%`;
-      button.style.top=`${fabricFit.clamp(anchor.y,4,96)}%`;
-      const value=adjustmentText(values[button.dataset.key]);
-      button.dataset.metricHandle=fitHandles.specs[button.dataset.key].label+' · '+value;
-      button.setAttribute('aria-label',studioUnits.text(button.dataset.metricHandle));
-      button.title=studioUnits.text(button.dataset.metricHandle);
-    }
   }
   const size = new ResizeObserver(draw);
   size.observe(canvas);
-  fitCleanup = () => {size.disconnect();analysis.cleanup();};
+  fitCleanup = () => {size.disconnect();analysis.cleanup();picker.cleanup();};
   form.addEventListener('input',event=>{
     if (event.target.name==='pattern') { startFit(event.target.value); return; }
     if (event.target.name==='model') fitModel = event.target.value;
@@ -2570,8 +2607,8 @@ function fitting() {
     if (['sleeves','neckline','support'].includes(event.target.name)) {
       refreshShoulders();
       drawControls(changes());
-      refreshGroups();
     }
+    if (event.target.matches('[data-fit-slider]')) selectedComponent=event.target.name;
     for (const [key,n] of Object.entries(changes())) document.querySelector('#'+key+'-value').textContent = adjustmentText(n);
     fittingDraft = undefined;
     fitGuide.hidden = true;
@@ -2593,22 +2630,9 @@ function fitting() {
     form.elements.namedItem('fabric').value=fabricName;
     setFitFabric(form,startingFabric);
     drawControls();
-    refreshGroups();
-    history.length=0;
-    undoButton.disabled=true;
+    selectedComponent=hoveredComponent=null;
     form.dispatchEvent(new Event('input'));
   });
-  canvas.addEventListener('pointerdown',event=>{
-    pointer = {id:event.pointerId,x:event.clientX};
-    canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener('pointermove',event=>{
-    if (pointer?.id!==event.pointerId) return;
-    angle += (event.clientX-pointer.x)*.016;
-    pointer.x = event.clientX;
-    draw();
-  });
-  canvas.addEventListener('lostpointercapture',()=>{ pointer = undefined; });
   canvas.addEventListener('keydown',event=>{
     if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
     event.preventDefault();
@@ -2732,11 +2756,10 @@ function designStudio() {
           <button type="button" class="secondary" id="design-seam-settings" aria-controls="design-seams" hidden>Seam and zipper settings</button>
           <button type="button" class="secondary" id="design-quick-layer" hidden>＋ Add layer</button><button type="button" class="secondary" id="add-design-ruffle" hidden>＋ Add ruffle</button></div>
       </div>
-      <div class="fit-canvas design-canvas"><canvas id="design-model" role="img" tabindex="0" aria-label="Three-dimensional design preview"></canvas><div id="design-handles" aria-label="Garment editing handles"></div></div>
+      <div class="fit-canvas"><canvas id="design-model" role="img" tabindex="0" aria-label="Three-dimensional design preview" aria-describedby="design-editor-help"></canvas></div>
       <div class="viewer-footer design-editor-footer">
-        <p class="muted tight" id="design-editor-help">Drag the handles to edit. Drag the canvas to rotate.</p>
-        <output id="design-handle-value" hidden></output>
-        <div class="fields tight"><label class="field design-rotate">Rotate preview<input type="range" id="design-angle" min="-180" max="180" value="-21"></label>
+        <p class="muted tight" id="design-editor-help">Select a garment detail to open its slider. Drag to rotate.</p>
+        <div class="fields tight"><label class="field design-rotate">Rotate preview<input type="range" id="design-angle" min="-180" max="180" step="0.1" value="-21"></label>
           <label class="field">Zoom<input type="range" id="design-zoom" min="70" max="145" value="100"></label></div>
         <button type="button" class="secondary" id="design-front-view">Front view</button>
       </div>
@@ -2792,8 +2815,6 @@ function designStudio() {
   const mergeButton = document.querySelector('#design-merge-seams');
   const seamSettingsButton = document.querySelector('#design-seam-settings');
   const editorHelp = document.querySelector('#design-editor-help');
-  const overlay = document.querySelector('#design-handles');
-  const handleReadout = document.querySelector('#design-handle-value');
   const settings = document.querySelector('#design-settings');
   const fitSliders = document.querySelector('#design-fit-sliders');
   const fitPanel = document.querySelector('#design-fit-panel');
@@ -2843,29 +2864,65 @@ function designStudio() {
     fitAnalysis.report();
   }
   const seamNames={waistSeam:'Waist join seam',panelSeam:'Front panel seams'};
-  const layerHandles={layerAttachment:['attachment','Attachment height','y','%'],
-    layerHem:['hemOffset','Layer hem','y','cm'],layerSweep:['sweep','Layer fullness','x','cm']};
+  const layerComponents={attachment:'layerAttachment',hemOffset:'layerHem',depth:'layerHem',sweep:'layerSweep'};
   let fitTarget='body';
   let layerTarget=0;
-  let editorControls=[];
+  let componentKeys=[];
+  let selectedComponent=null;
+  let hoveredComponent=null;
   let panelSnapOffset;
   let panelZipperMaxLength;
-  let editFrame=0;
-  let guideTimer;
-  const currentLayer=()=>studioDesign.layers(designDraft)[layerTarget];
-  const layerKey=handle=>handle==='layerHem'&&currentLayer()?.kind==='Ruffle'?'depth':layerHandles[handle][0];
-  const editor=fitHandles.editor({canvas,overlay,
+  const editor=fitHandles.history({
     undoButton:document.querySelector('#design-undo'),redoButton:document.querySelector('#design-redo'),
     snapshot:()=>({fit:activeDesignFit(),seams:studioDesign.seams(designDraft),layers:studioDesign.layers(designDraft),layerTarget}),
-    restore:restoreEditor,apply:applyEditor});
-  function showActiveHandle() {
-    const button=overlay.querySelector('.is-dragging') || document.activeElement;
-    const label=overlay.contains(button) && !button.hidden ? button.dataset.metricHandle : '';
-    handleReadout.textContent=label?studioUnits.text(label):'';
-    handleReadout.hidden=!label;
+    restore:restoreEditor});
+  let activeInput;
+  function rememberInput(input) {
+    if (activeInput!==input) editor.checkpoint();
+    activeInput=input;
   }
-  overlay.addEventListener('focusin',showActiveHandle);
-  overlay.addEventListener('focusout',()=>queueMicrotask(showActiveHandle));
+  form.addEventListener('change',()=>{activeInput=null;});
+  const picker=fitHandles.selection(canvas,{
+    select:key=>{
+      const input=componentSlider(key);
+      if (input) focusSlider(input);
+    },
+    hover:key=>{
+      hoveredComponent=key;
+      preview();
+    },
+    rotate:dx=>rotatePreview(dx/Math.max(1,canvas.clientWidth)*275)
+  });
+
+  function componentSlider(key) {
+    if (key==null) return null;
+    if (mode.value==='layers') return layerList.querySelector(`[data-layer-index="${layerTarget}"] [data-component-slider="${key}"]`);
+    if (mode.value==='seams') return seamFields.querySelector(`[data-component-slider="${key}"]`);
+    return fitSliders.querySelector(`[data-fit-slider][name="${key}"]`);
+  }
+
+  function selectComponent(input) {
+    const component=input.dataset.componentSlider || (input.hasAttribute('data-fit-slider')?input.name:null);
+    if (!component) return;
+    const layer=input.closest('[data-layer-index]');
+    if (layer) {
+      mode.value='layers';
+      layerTarget=Number(layer.dataset.layerIndex);
+    } else if (seamFields.contains(input)) mode.value='seams';
+    else {
+      mode.value='fit';
+      const groups=fitHandles.available(fitKeys());
+      if (!groups.find(([key])=>key===fitTarget)?.[1].keys.includes(component)) {
+        fitTarget=groups.find(([,group])=>group.keys.includes(component))?.[0]??fitTarget;
+      }
+      if (component==='backNeck' && selectedComponent!==component) angle.value=180;
+      if (['neckDepth','neckWidth'].includes(component)&&selectedComponent==='backNeck') angle.value=0;
+    }
+    selectedComponent=component;
+    refreshEditor();
+    preview();
+  }
+  form.addEventListener('focusin',event=>selectComponent(event.target));
 
   const singleSeam=seams=>seams.panelSeam===studioDesign.centerFrontSeam;
   const wrapAngle=value=>((value+180)%360+360)%360-180;
@@ -2876,6 +2933,18 @@ function designStudio() {
   }
   function zipperLimit() {
     return panelZipperMaxLength ?? studioDesign.panelZipperLimits[1];
+  }
+
+  function slider(label,attributes,[min,max],value,{step=.5,unit='cm',disabled=false,signed=false}={}) {
+    const display=signed?adjustmentText(value):`${value}${unit==='%'?'%':' cm'}`;
+    return `<label class="field adjustment"><span>${label} <output>${display}</output></span><input ${attributes} type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-slider-unit="${unit}"${signed?' data-slider-offset':''}${disabled?' disabled':''}></label>`;
+  }
+
+  function writeSlider(input,value) {
+    input.value=value;
+    const output=input.closest('.field').querySelector('output');
+    output.textContent=input.hasAttribute('data-slider-offset')?adjustmentText(value):`${value}${input.dataset.sliderUnit==='%'?'%':' cm'}`;
+    studioUnits.refresh(output);
   }
 
   function refreshEditor() {
@@ -2895,52 +2964,26 @@ function designStudio() {
     mergeButton.textContent=single?'Split into front seams':'Merge front seams';
     seamSettingsButton.hidden=mergeButton.hidden||!single;
     targetField.hidden=true;
-    editorControls=[];
+    componentKeys=[];
     if (mode.value==='fit') {
       if (!groups.some(([key])=>key===fitTarget)) fitTarget=groups[0]?.[0];
       target.innerHTML=groups.map(([key,{label}])=>option(key,label,fitTarget)).join('');
       targetField.hidden=!groups.length;
-      const keys=groups.find(([key])=>key===fitTarget)?.[1].keys || [];
-      const fit=activeDesignFit();
-      editorControls=keys.map(key=>{
-        const spec=fitHandles.specs[key];
-        const [,limit]=garmentFit.fields[key];
-        return {...spec,key,value:fit[key]||0,min:-limit,max:limit,step:.5,sensitivity:spec.axis==='x'?105:70};
-      });
+      componentKeys=groups.find(([key])=>key===fitTarget)?.[1].keys || [];
     } else if (mode.value==='seams') {
-      editorControls=seamKeys.map(key=>{
-        if (key==='panelSeam' && single) {
-          const [min,max]=studioDesign.panelAngleLimits;
-          return {key:'panelAngle',label:'Single vertical seam',axis:'x',value:seams.panelAngle??0,
-            min,max,step:1,sensitivity:360,wrap:true,format:describeSeamAngle};
-        }
-        const [min,max]=studioDesign.seamLimits[key];
-        return {key,label:seamNames[key],axis:key==='waistSeam'?'y':'x',value:seams[key]??0,min,max,step:.5,sensitivity:78};
-      });
-      if (single && Number.isFinite(seams.panelZipper)) {
-        const min=studioDesign.panelZipperLimits[0],max=Math.max(min,zipperLimit());
-        editorControls.push({key:'panelZipper',label:'Zipper stop',axis:'y',value:seams.panelZipper,min,max,step:.5,sensitivity:100});
-      }
+      componentKeys=seamKeys.map(key=>key==='panelSeam'&&single?'panelAngle':key);
+      if (single && Number.isFinite(seams.panelZipper)) componentKeys.push('panelZipper');
     } else if (mode.value==='layers') {
       target.innerHTML=layers.map((layer,i)=>option(String(i),`${i+1}. ${layer.kind}`,String(layerTarget))).join('');
       targetField.hidden=!layers.length;
       const layer=layers[layerTarget];
-      if (layer) editorControls=Object.entries(layerHandles).flatMap(([key,[,label,axis,unit]])=>{
-        const field=layerKey(key);
-        if (!Object.hasOwn(layer,field)) return [];
-        const [min,max]=studioDesign.layerLimits[field];
-        return [{key,label:field==='depth'?'Ruffle depth':label,axis,unit,value:layer[field],min,max,
-          step:field==='attachment'?1:.5,sensitivity:field==='sweep'?380:field==='attachment'?170:75}];
-      });
+      if (layer) componentKeys=Object.keys(layerComponents).filter(field=>Object.hasOwn(layer,field)).map(field=>layerComponents[field]);
     }
     targetField.querySelector('span').textContent=mode.value==='layers'?'Active layer':'Controls';
     editorHelp.textContent=mode.value==='view'?'Drag the canvas to rotate.':mode.value==='layers'&&!layers.length
-      ?'Add a layer or ruffle to start.':mode.value==='seams'&&single
-        ?'Drag the seam sideways to move it around the garment.'+(Number.isFinite(seams.panelZipper)?' Drag the zipper stop up or down to set its length.':' Open Seam and zipper settings to add a zipper.')
-        :mode.value==='seams'&&seamKeys.includes('panelSeam')
-          ?'Drag the front seams inward until they snap together, or use Merge front seams.'
-          :'Drag a handle or use its arrow keys. Drag the canvas to rotate.';
-    editor.controls(editorControls);
+      ?'Add a layer or ruffle to start.':'Select a garment detail to open its slider. Drag to rotate.';
+    if (!componentKeys.includes(selectedComponent)) selectedComponent=null;
+    if (!componentKeys.includes(hoveredComponent)) hoveredComponent=null;
   }
 
   function drawSeams() {
@@ -2957,18 +3000,18 @@ function designStudio() {
         return `<fieldset class="wo-path"><legend>Single vertical seam</legend>
           <button class="secondary" type="button" data-seam-merge>Split into front seams</button>
           <label class="field">Seam position <output data-seam-position>${escape(describeSeamAngle(seams.panelAngle??0))}</output>
-            <input type="range" data-seam-angle min="${min}" max="${max}" step="1" value="${seams.panelAngle??0}"></label>
+            <input type="range" data-seam-angle data-component-slider="panelAngle" min="${min}" max="${max}" step="1" value="${seams.panelAngle??0}"></label>
           <div class="actions tight" aria-label="Seam positions">${[[-90,'Right side'],[0,'Center front'],[90,'Left side'],[180,'Center back']].map(([value,label])=>`<button class="secondary" type="button" data-seam-side="${value}">${label}</button>`).join('')}</div>
           <label class="sleeve-choice"><input type="checkbox" data-seam-zipper${zipper?' checked':''}${tooShort?' disabled':''}> Use this seam for the zipper</label>
           <label class="field" data-seam-zipper-style${zipper?'':' hidden'}>Zipper style<select data-seam-zipper-kind${zipper?'':' disabled'}>${studioDesign.panelZipperKinds.map(kind=>option(kind,kind,studioDesign.panelZipperStyle(designDraft))).join('')}</select></label>
-          <label class="field">Opening length from top of seam (cm)<input type="number" data-length-input data-seam-zipper-length min="${minLength}" max="${Math.max(minLength,zipperLimit())}" step="0.5" value="${seams.panelZipper??Math.min(studioDesign.panelZipperDefault,zipperLimit())}"${zipper?' required':' disabled'}></label>
+          ${slider('Opening length from top of seam','data-seam-zipper-length data-component-slider="panelZipper"',[minLength,Math.max(minLength,zipperLimit())],seams.panelZipper??Math.max(minLength,Math.min(studioDesign.panelZipperDefault,zipperLimit())),{disabled:!zipper})}
           <p class="muted tight" data-seam-zipper-note>${tooShort?'This seam is too short for the zipper.':'The opening starts at the upper edge. Its length sets the zipper stop.'}</p></fieldset>`;
       }
       const [min,max]=studioDesign.seamLimits[key];
       const direction=key==='waistSeam'?'Positive moves the seam down from the pattern waist.':'Positive moves the mirrored seams toward the sides.';
       return `<fieldset class="wo-path"><legend>${seamNames[key]}</legend>
         <label class="sleeve-choice"><input type="checkbox" data-seam-enable="${key}"${enabled?' checked':''}> Include on garment</label>
-        <label class="field">Offset from starting seam (cm)<input type="number" data-length-input data-seam-value="${key}" min="${min}" max="${max}" step="0.5" value="${seams[key]??0}" required${enabled?'':' disabled'}></label>
+        ${slider('Offset from starting seam',`data-seam-value="${key}" data-component-slider="${key}"`,[min,max],seams[key]??0,{signed:true})}
         <p class="muted tight">${direction}</p>${key==='panelSeam'?'<button class="secondary" type="button" data-seam-merge>Merge front seams</button>':''}</fieldset>`;
     }).join('');
     studioUnits.refresh(seamFields);
@@ -3015,14 +3058,13 @@ function designStudio() {
     const min=studioDesign.panelZipperLimits[0];
     const usable=maximum>=min;
     const cap=Math.max(min,maximum);
-    input.dataset.metricMax=cap;
-    input.max=studioUnits.text(`${cap} cm`).split(' ')[0];
+    input.max=cap;
     toggle.disabled=!usable;
     seamFields.querySelector('[data-seam-zipper-note]').textContent=usable
       ?'The opening starts at the upper edge. Its length sets the zipper stop.':'This seam is too short for the zipper.';
     const seams=studioDesign.seams(designDraft);
     if (!Number.isFinite(seams.panelZipper)) {
-      studioUnits.writeLength(input,usable?Math.min(studioDesign.panelZipperDefault,maximum):null);
+      writeSlider(input,Math.min(studioDesign.panelZipperDefault,cap));
     } else if (!usable || seams.panelZipper>maximum) {
       if (usable) setZipperLength(maximum);
       else {
@@ -3030,9 +3072,8 @@ function designStudio() {
         designDraft.seams=seams;
         toggle.checked=false;
         input.disabled=true;
-        input.required=false;
       }
-      studioUnits.writeLength(input,usable?maximum:null);
+      writeSlider(input,usable?maximum:min);
       syncSeamClosure();
       refreshEditor();
       return true;
@@ -3050,45 +3091,6 @@ function designStudio() {
     angle.value=0;
     drawSeams();
     refreshEditor();
-  }
-
-  function applyEditor(key,value) {
-    if (Object.hasOwn(layerHandles,key)) {
-      const layers=studioDesign.layers(designDraft);
-      const field=layerKey(key);
-      if (!layers[layerTarget]) return;
-      layers[layerTarget]={...layers[layerTarget],[field]:value};
-      designDraft.layers=layers;
-      const input=layerList.querySelector(`[data-layer-index="${layerTarget}"] [data-layer-field="${field}"]`);
-      if (input.hasAttribute('data-length-input')) studioUnits.writeLength(input,value);
-      else input.value=value;
-    } else if (key==='panelAngle') {
-      setSingleSeamAngle(value);
-    } else if (key==='panelZipper') {
-      setZipperLength(value);
-      studioUnits.writeLength(seamFields.querySelector('[data-seam-zipper-length]'),designDraft.seams.panelZipper);
-    } else if (key==='panelSeam' && value<=(panelSnapOffset??studioDesign.seamLimits.panelSeam[0])) {
-      togglePanelSeams();
-      queueMicrotask(()=>overlay.querySelector('[data-key=panelAngle]')?.focus({preventScroll:true}));
-    } else if (Object.hasOwn(seamNames,key)) {
-      designDraft.seams={...studioDesign.seams(designDraft),[key]:value};
-      const option=seamFields.querySelector(`[data-seam-enable="${key}"]`);
-      const input=seamFields.querySelector(`[data-seam-value="${key}"]`);
-      option.checked=true;
-      input.disabled=false;
-      studioUnits.writeLength(input,value);
-    } else {
-      designDraft.fitAdjustments={...designDraft.fitAdjustments,[key]:value};
-      form.elements.namedItem(key).value=value;
-      const output=fitSliders.querySelector(`#${key}-value`);
-      output.textContent=adjustmentText(value);
-      studioUnits.refresh(output);
-      showMeasurements();
-    }
-    refreshEditor();
-    if (!editFrame) editFrame=requestAnimationFrame(()=>{editFrame=0;refreshFitPreview();});
-    clearTimeout(guideTimer);
-    if (guide.open) guideTimer=setTimeout(updateGuide,120);
   }
 
   function restoreEditor(snapshot) {
@@ -3137,20 +3139,19 @@ function designStudio() {
   function drawLayers() {
     layerPanel.hidden=!['dress','skirt'].includes(designDraft.model);
     const layers=studioDesign.layers(designDraft);
-    const field=(layer,key,label,length=false)=>{
-      const [min,max]=studioDesign.layerLimits[key];
-      return `<label class="field">${label}<input type="number" data-layer-field="${key}" ${length?'data-length-input step="0.5"':''} min="${min}" max="${max}" value="${layer[key]}" required></label>`;
-    };
+    const field=(layer,key,label,unit='cm')=>slider(label,
+      `data-layer-field="${key}"${layerComponents[key]?` data-component-slider="${layerComponents[key]}"`:''}`,
+      studioDesign.layerLimits[key],layer[key],{unit,step:unit==='%'?1:.5,signed:key==='hemOffset'});
     layerList.innerHTML=layers.map((layer,index)=>`<fieldset class="wo-path layer-card" data-layer-index="${index}">
       <legend>Layer ${index+1}</legend>
       <div class="fields tight">
         <label class="field">Layer type<select data-layer-field="kind">${studioDesign.layerKinds.map(kind=>option(kind,kind,layer.kind)).join('')}</select></label>
         <label class="field">Fabric<select data-layer-field="fabric">${fabricOptions(layer.fabric)}</select></label>
         <label class="field">Color<input type="color" data-layer-field="color" value="${color(layer.color)}"></label>
-        ${field(layer,'opacity','Opacity (%)')}
-        ${layer.kind==='Ruffle'?field(layer,'depth','Ruffle depth (cm)',true):field(layer,'hemOffset','Hem offset (cm)',true)}
-        ${field(layer,'sweep','Extra hem sweep (cm)',true)}
-        ${Object.hasOwn(layer,'attachment')?field(layer,'attachment','Starts (% down from waist)'):''}
+        ${field(layer,'opacity','Opacity','%')}
+        ${layer.kind==='Ruffle'?field(layer,'depth','Ruffle depth'):field(layer,'hemOffset','Hem offset')}
+        ${field(layer,'sweep','Extra hem sweep')}
+        ${Object.hasOwn(layer,'attachment')?field(layer,'attachment','Starts down from waist','%'):''}
       </div>
       <div class="actions tight">
         <button type="button" class="secondary" data-layer-edit>Edit on garment</button>
@@ -3226,16 +3227,15 @@ function designStudio() {
     if (canvas.height!==height) canvas.height=height;
     const anchors=drawModel(canvas,draftPattern(),Number(angle.value)*Math.PI/180,adjustments(),body(),false,
       {pose:fitAnalysis.pose(),show:fitAnalysis.show(),material:material(),fabricName:designDraft.fabric,redraw:preview,
-        handleKeys:mode.value==='fit'?editorControls.map(control=>control.key):[],
-        editor:{layerIndex:mode.value==='layers'?layerTarget:null,showSeams:mode.value==='seams',zoom:Number(zoom.value)/100}});
-    panelSnapOffset=anchors.panelSeam?.snapOffset;
+        editor:{layerIndex:mode.value==='layers'?layerTarget:null,showSeams:mode.value==='seams',zoom:Number(zoom.value)/100,
+          componentKeys,selectedComponent,hoveredComponent}});
+    panelSnapOffset=anchors.panelSeamSnapOffset;
     if (syncZipperLimit(anchors.panelZipperMaxLength)) {
       updateGuide();
       preview();
       return;
     }
-    editor.position(anchors);
-    showActiveHandle();
+    picker.targets(anchors.componentHits);
     layerMapNote.hidden=!fitAnalysis.show()||!studioDesign.layers(designDraft).length;
   }
   function updateGuide() {
@@ -3271,7 +3271,7 @@ function designStudio() {
   showMeasurements();
   const size = new ResizeObserver(preview);
   size.observe(canvas);
-  fitCleanup = () => {size.disconnect();fitAnalysis.cleanup();cancelAnimationFrame(editFrame);clearTimeout(guideTimer);stopCamera();};
+  fitCleanup = () => {size.disconnect();picker.cleanup();editor.cleanup();fitAnalysis.cleanup();stopCamera();};
   document.querySelector('#design-open-fit').onclick=()=>{
     fitPanel.open=true;
     fitPanel.querySelector('summary').focus({preventScroll:true});
@@ -3295,24 +3295,14 @@ function designStudio() {
   angle.addEventListener('input',preview);
   zoom.addEventListener('input',preview);
   document.querySelector('#design-front-view').onclick=()=>{angle.value=0;preview();};
-  let orbit;
-  canvas.addEventListener('pointerdown',event=>{
-    if (event.button!==0) return;
-    orbit={id:event.pointerId,start:event.clientX,angle:Number(angle.value)};
-    canvas.setPointerCapture(orbit.id);
-  });
-  canvas.addEventListener('pointermove',event=>{
-    if (event.pointerId!==orbit?.id) return;
-    const next=orbit.angle+(event.clientX-orbit.start)/Math.max(1,canvas.clientWidth)*275;
-    angle.value=((next+180)%360+360)%360-180;
+  function rotatePreview(change) {
+    angle.value=wrapAngle(Number(angle.value)+change);
     preview();
-  });
-  canvas.addEventListener('lostpointercapture',()=>{orbit=undefined;});
+  }
   canvas.addEventListener('keydown',event=>{
     if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
     event.preventDefault();
-    angle.value=((Number(angle.value)+(event.key==='ArrowLeft'?-10:10)+540)%360)-180;
-    preview();
+    rotatePreview(event.key==='ArrowLeft'?-10:10);
   });
   function activateEditor(value) {
     mode.value=value;
@@ -3338,7 +3328,7 @@ function designStudio() {
   function changePanelMode() {
     editor.checkpoint();
     togglePanelSeams();
-    preview();
+    focusSlider(seamFields.querySelector('[data-seam-angle],[data-seam-value="panelSeam"]'));
     updateGuide();
   }
   mergeButton.onclick=changePanelMode;
@@ -3347,7 +3337,6 @@ function designStudio() {
     if (!button) return;
     if (button.hasAttribute('data-seam-merge')) {
       changePanelMode();
-      seamFields.querySelector('[data-seam-merge]').focus({preventScroll:true});
     } else if (button.hasAttribute('data-seam-side')) {
       editor.checkpoint();
       setSingleSeamAngle(Number(button.dataset.seamSide),true);
@@ -3356,9 +3345,14 @@ function designStudio() {
       updateGuide();
     }
   });
-  let seamInput;
   seamFields.addEventListener('change',event=>{
-    if (event.target===seamInput) seamInput=undefined;
+    const input=event.target;
+    if (input.dataset.seamValue==='panelSeam' && input.valueAsNumber<=(panelSnapOffset??Number(input.min))) {
+      togglePanelSeams();
+      focusSlider(seamFields.querySelector('[data-seam-angle]'));
+      preview();
+      updateGuide();
+    }
   });
   const refreshLayers=()=>{drawLayers();refreshEditor();preview();updateGuide();};
   function appendLayer(kind) {
@@ -3410,8 +3404,7 @@ function designStudio() {
   form.addEventListener('input',event=>{
     const field = event.target;
     if (field.matches('[data-seam-angle],[data-seam-zipper],[data-seam-zipper-length],[data-seam-zipper-kind]')) {
-      if (field!==seamInput) editor.checkpoint();
-      seamInput=field;
+      rememberInput(field);
       if (field.hasAttribute('data-seam-angle')) setSingleSeamAngle(field.valueAsNumber);
       if (field.hasAttribute('data-seam-zipper')) {
         const seams=studioDesign.seams(designDraft);
@@ -3422,14 +3415,12 @@ function designStudio() {
         }
         const input=seamFields.querySelector('[data-seam-zipper-length]');
         input.disabled=!field.checked;
-        input.required=field.checked;
-        if (field.checked) studioUnits.writeLength(input,designDraft.seams.panelZipper);
+        if (field.checked) writeSlider(input,designDraft.seams.panelZipper);
         syncSeamClosure();
       }
       if (field.hasAttribute('data-seam-zipper-length')) {
-        const value=studioUnits.lengthValue(field);
-        if (!field.validity.valid || value==null) return;
-        setZipperLength(value);
+        setZipperLength(field.valueAsNumber);
+        writeSlider(field,designDraft.seams.panelZipper);
       }
       if (field.hasAttribute('data-seam-zipper-kind')) {
         designDraft.seams={...studioDesign.seams(designDraft),panelZipperKind:field.value};
@@ -3442,20 +3433,21 @@ function designStudio() {
     }
     const seamKey=field.dataset.seamEnable || field.dataset.seamValue;
     if (seamKey) {
+      rememberInput(field);
       const seams=studioDesign.seams(designDraft);
       if (field.dataset.seamEnable) {
-        editor.checkpoint();
         const input=seamFields.querySelector(`[data-seam-value="${seamKey}"]`);
-        if (field.checked) seams[seamKey]=studioUnits.lengthValue(input)??0;
-        else delete seams[seamKey];
-        designDraft.seams=studioDesign.seams({...designDraft,seams});
-        input.disabled=!field.checked;
-        if (field.checked) studioUnits.writeLength(input,designDraft.seams[seamKey]);
+        if (field.checked) seams[seamKey]=input.valueAsNumber;
+        else {
+          delete seams[seamKey];
+          writeSlider(input,0);
+        }
       } else {
-        const value=studioUnits.lengthValue(field);
-        if (value==null) return;
-        designDraft.seams=studioDesign.seams({...designDraft,seams:{...seams,[seamKey]:value}});
+        seams[seamKey]=field.valueAsNumber;
+        seamFields.querySelector(`[data-seam-enable="${seamKey}"]`).checked=true;
+        writeSlider(field,seams[seamKey]);
       }
+      designDraft.seams=studioDesign.seams({...designDraft,seams});
       refreshEditor();
       preview();
       updateGuide();
@@ -3465,10 +3457,11 @@ function designStudio() {
     if (layerKey) {
       const index=Number(field.closest('[data-layer-index]').dataset.layerIndex);
       const current=studioDesign.layers(designDraft);
-      const value=field.hasAttribute('data-length-input')?studioUnits.lengthValue(field):field.type==='number'?field.valueAsNumber:field.value;
-      if (value==null || typeof value==='number' && !Number.isFinite(value)) return;
+      const value=field.type==='range'?field.valueAsNumber:field.value;
+      rememberInput(field);
       current[index]={...current[index],[layerKey]:value};
       designDraft.layers=studioDesign.layers({...designDraft,layers:current});
+      if (field.type==='range') writeSlider(field,value);
       if (layerKey==='kind') {
         drawLayers();
         layerList.querySelector(`[data-layer-index="${index}"] select`)?.focus();
@@ -3490,6 +3483,7 @@ function designStudio() {
     }
     else if (field.hasAttribute('data-fit-slider')) {
       const value=Number(field.value);
+      rememberInput(field);
       designDraft.fitAdjustments={...designDraft.fitAdjustments,[field.name]:value};
       const output=fitSliders.querySelector(`#${field.name}-value`);
       output.textContent=adjustmentText(value);

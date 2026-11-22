@@ -48,10 +48,8 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .fit-reading{font-size:13px;color:var(--ink)}
 
 .fit-canvas{position:relative}
-#fit-handles{position:absolute;inset:0;pointer-events:none}
-.fit-handle{position:absolute;transform:translate(-50%,-50%);display:grid;place-items:center;width:32px;height:32px;min-width:32px;padding:0;border:2px solid #fffdfb;border-radius:50%;background:#423136;color:white;font-size:15px;line-height:1;box-shadow:0 1px 7px #34202c80;pointer-events:auto;touch-action:none;cursor:ew-resize;z-index:1}
-.fit-handle[data-axis=y]{cursor:ns-resize}.fit-handle[hidden]{display:none}.fit-handle:hover,.fit-handle:focus-visible,.fit-handle.is-dragging{background:#782a49;z-index:2}.fit-handle-help{grid-column:1/-1;font-size:13px;color:var(--muted)}
-#fit-undo{align-self:end;justify-self:start}#fit-undo:disabled{opacity:.48;cursor:default}
+.viewer canvas[data-component-hover]:not(:active){cursor:pointer}
+.field:has(input:is([data-component-slider],[data-fit-slider]):focus){background:var(--rose);border-radius:7px;outline:4px solid var(--rose)}
 
 .wo-path{border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 0;min-width:0}.wo-path legend{font-weight:700;padding:0 6px}.wo-path p{font-size:14px}
 .wo-measurements{margin:14px 0}.wo-measurements .table{margin-top:8px;border:1px solid var(--line);border-radius:7px}.wo-measurements p{font-size:14px;margin-top:6px}
@@ -125,15 +123,10 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-editor-toolbar{padding:12px 14px;border-bottom:1px solid var(--line)}
 .design-editor-toolbar .field,.design-editor-footer .field{margin:0}
 .design-editor-toolbar .actions{margin-top:10px}
-#design-handles [data-key=panelZipper]{margin-left:33px}
-.design-canvas canvas{cursor:grab;touch-action:none}
-.design-canvas canvas:active{cursor:grabbing}
-#design-handles{position:absolute;inset:0;pointer-events:none}
 .design-editor-footer{display:grid;gap:8px;align-items:start}
 .design-editor-footer .fields{width:100%}
 .design-editor-footer input[type=range]{min-height:26px}
 .design-editor-footer button{justify-self:start}
-#design-handle-value{font-size:14px;font-weight:700;color:var(--red)}
 #design-target-field[hidden],.design-editor-toolbar button[hidden],#design-seams[hidden],#design-layers[hidden]{display:none}
 #design-settings .field[hidden],#design-seam-fields .field[hidden]{display:none}
 

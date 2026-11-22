@@ -71,11 +71,6 @@ const studioUnits = (() => {
       unit=selector.value==='in'?'in':'cm';
       try { localStorage.setItem(key,unit); } catch {}
       for (const root of roots) refresh(root);
-      for (const button of document.querySelectorAll('[data-metric-handle]')) {
-        const label=text(button.dataset.metricHandle);
-        button.title=label;
-        button.setAttribute('aria-label',label);
-      }
     });
     const observer=new MutationObserver(changes=>{
       for (const change of changes) {

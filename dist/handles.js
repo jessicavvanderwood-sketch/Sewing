@@ -13,7 +13,7 @@ const fitHandles = (() => {
     neckDepth:{label:'Front neckline depth',axis:'y',y:-.74,x:0,neck:true},
     neckWidth:{label:'Neckline width',axis:'x',y:-.74,x:.56,neck:true},
     backNeck:{label:'Back neckline depth',axis:'y',y:-.74,x:0,neck:true,back:true},
-    waistHeight:{label:'Waistline height',axis:'y',y:-.25,x:0,direction:-1},
+    waistHeight:{label:'Waistline height',axis:'y',y:-.25,x:0},
     length:{label:'Garment length',axis:'y',end:true,x:0},
     sweep:{label:'Hem width',axis:'x',end:true},
     sleeveWidth:{label:'Upper sleeve width',axis:'x',part:'sleeve',y:-.59},
@@ -23,7 +23,7 @@ const fitHandles = (() => {
     thigh:{label:'Thigh width',axis:'x',part:'leg',y:.36},
     knee:{label:'Knee width',axis:'x',part:'leg',y:.61},
     leg:{label:'Leg opening',axis:'x',part:'leg',end:true},
-    rise:{label:'Rise length',axis:'y',y:-.21,x:0,direction:-1}
+    rise:{label:'Rise length',axis:'y',y:-.21,x:0}
   };
 
   const groups = {
@@ -43,196 +43,156 @@ const fitHandles = (() => {
     ]).filter(([,group])=>group.keys.length);
   }
 
-  function place(key,surfaces,canvas) {
-    const spec=specs[key];
-    const surface=surfaces[spec.part || (key==='length'&&surfaces.leg?'leg':'shell')];
-    if (!surface) return null;
-    const {rings,projectPoint,opening}=surface;
-    const index=spec.neck?0:spec.end?rings.length-1:rings.reduce((best,row,i)=>
-      Math.abs(row[0]-spec.y)<Math.abs(rings[best][0]-spec.y)?i:best,0);
-    const ring=rings[index];
-    const x=(key==='neckWidth'?opening:spec.x) ?? (spec.axis==='x'?.98:.67);
-    const theta=(spec.back?-1:1)*Math.acos(x);
-    const [px,py]=projectPoint(ring,theta,index);
-    return {x:100*px/canvas.width,y:100*py/canvas.height};
-  }
-
-  function editor({canvas,overlay,undoButton,redoButton,snapshot,restore,apply}) {
-    const handles=new Map();
+  function history({undoButton,redoButton,snapshot,restore}) {
     const past=[];
     const future=[];
-    let anchors={};
-    let drag;
-
-    function updateHistoryButtons() {
-      undoButton.disabled=!past.length;
-      redoButton.disabled=!future.length;
+    function refresh() {
+      if (undoButton) undoButton.disabled=!past.length;
+      if (redoButton) redoButton.disabled=!future.length;
     }
-
-    function remember(before) {
+    function checkpoint(before=snapshot()) {
       past.push(before);
       future.length=0;
-      updateHistoryButtons();
+      refresh();
     }
-
-    function checkpoint() {
-      if (drag) finishDrag();
-      remember(snapshot());
-    }
-
-    function showValue(button,control) {
-      const suffix=control.unit==='%'?'%':' cm';
-      const value=control.format ? control.format(control.value) : control.value+suffix;
-      button.dataset.metricHandle=`${control.label} · ${value}`;
-      const label=studioUnits.text(button.dataset.metricHandle);
-      button.title=label;
-      button.setAttribute('aria-label',label);
-    }
-
-    function position(nextAnchors) {
-      anchors=nextAnchors;
-      for (const [key,{button}] of handles) {
-        const anchor=anchors[key];
-        button.hidden=!anchor;
-        if (!anchor) continue;
-        button.style.left=`${Math.min(95,Math.max(5,anchor.x))}%`;
-        button.style.top=`${Math.min(96,Math.max(4,anchor.y))}%`;
-      }
-    }
-
-    function controls(list) {
-      const active=new Set(list.map(control=>control.key));
-      for (const [key,{button}] of handles) {
-        if (active.has(key)) continue;
-        if (drag?.key===key) finishDrag();
-        button.remove();
-        handles.delete(key);
-      }
-      let nextButton=overlay.firstElementChild;
-      for (const control of list) {
-        let handle=handles.get(control.key);
-        if (!handle) {
-          const button=document.createElement('button');
-          button.type='button';
-          button.className='fit-handle';
-          button.dataset.key=control.key;
-          const icon=document.createElement('span');
-          icon.setAttribute('aria-hidden','true');
-          button.append(icon);
-          handle={button,icon};
-          handles.set(control.key,handle);
-        }
-        const {button,icon}=handle;
-        if (button!==nextButton) overlay.insertBefore(button,nextButton);
-        nextButton=button.nextElementSibling;
-        if (button.dataset.axis!==control.axis) {
-          button.dataset.axis=control.axis;
-          icon.textContent=control.axis==='x'?'↔':'↕';
-        }
-        handle.control={...control};
-        showValue(button,control);
-      }
-      overlay.hidden=!list.length;
-      position(anchors);
-    }
-
-    function rounded(control,value) {
-      const snapped=control.min+Math.round((value-control.min)/control.step)*control.step;
-      const roundedValue=Number(snapped.toFixed(8));
-      if (control.wrap && (roundedValue<control.min || roundedValue>control.max)) {
-        const span=control.max-control.min;
-        return ((roundedValue-control.min)%span+span)%span+control.min;
-      }
-      return Math.min(control.max,Math.max(control.min,roundedValue));
-    }
-
-    function change(handle,value) {
-      if (value===handle.control.value) return;
-      handle.control.value=value;
-      showValue(handle.button,handle.control);
-      apply(handle.control.key,value);
-    }
-
-    function finishDrag(cancel=false) {
-      if (!drag) return;
-      const {button,id,before,initial,value}=drag;
-      drag=undefined;
-      button.classList.remove('is-dragging');
-      if (button.hasPointerCapture(id)) button.releasePointerCapture(id);
-      if (initial===value) return;
-      if (cancel) restore(before);
-      else remember(before);
-    }
-
-    function moveDrag(event) {
-      if (drag?.id!==event.pointerId) return;
-      const {control,dimension,start,initial}=drag;
-      const current=control.axis==='x'?event.clientX:event.clientY;
-      const sensitivity=control.sensitivity??(control.axis==='x'?120:100);
-      drag.value=current===start?initial:
-        rounded(control,initial+(current-start)/dimension*sensitivity*(control.direction??1));
-      change(handles.get(control.key),drag.value);
-    }
-
-    overlay.addEventListener('pointerdown',event=>{
-      const button=event.target.closest('button[data-key]');
-      const control=handles.get(button?.dataset.key)?.control;
-      if (!control || event.button!==0 || drag) return;
-      const rect=canvas.getBoundingClientRect();
-      const horizontal=control.axis==='x';
-      drag={button,control,key:control.key,id:event.pointerId,start:horizontal?event.clientX:event.clientY,
-        dimension:Math.max(1,horizontal?rect.width:rect.height),before:snapshot(),initial:control.value,value:control.value};
-      button.setPointerCapture(event.pointerId);
-      button.classList.add('is-dragging');
-    });
-    overlay.addEventListener('pointermove',moveDrag);
-    overlay.addEventListener('pointerup',event=>{
-      if (drag?.id!==event.pointerId) return;
-      moveDrag(event);
-      finishDrag();
-    });
-    function cancelDrag(event) {
-      if (drag?.id===event.pointerId) finishDrag(true);
-    }
-    overlay.addEventListener('pointercancel',cancelDrag);
-    overlay.addEventListener('lostpointercapture',cancelDrag);
-
-    overlay.addEventListener('keydown',event=>{
-      const button=event.target.closest('button[data-key]');
-      const handle=handles.get(button?.dataset.key);
-      if (!handle || drag) return;
-      const {control}=handle;
-      const [less,more]=control.axis==='x'?['ArrowLeft','ArrowRight']:['ArrowUp','ArrowDown'];
-      if (event.key!==less && event.key!==more) return;
-      event.preventDefault();
-      const direction=(event.key===less?-1:1)*(control.direction??1);
-      const value=rounded(control,control.value+direction*control.step*(event.shiftKey?4:1));
-      if (value===control.value) return;
-      checkpoint();
-      change(handle,value);
-    });
-
     function travel(from,to) {
-      if (drag) finishDrag();
       if (!from.length) return;
       to.push(snapshot());
       restore(from.pop());
-      updateHistoryButtons();
+      refresh();
     }
-
-    undoButton.addEventListener('click',()=>travel(past,future));
-    redoButton.addEventListener('click',()=>travel(future,past));
-    updateHistoryButtons();
-
-    function reset() {
-      if (drag) finishDrag();
-      past.length=0;
-      future.length=0;
-      updateHistoryButtons();
-    }
-
-    return {controls,position,checkpoint,reset};
+    const undo=()=>travel(past,future);
+    const redo=()=>travel(future,past);
+    undoButton?.addEventListener('click',undo);
+    redoButton?.addEventListener('click',redo);
+    refresh();
+    return {
+      checkpoint,undo,redo,
+      reset(){past.length=0;future.length=0;refresh();},
+      cleanup(){
+        undoButton?.removeEventListener('click',undo);
+        redoButton?.removeEventListener('click',redo);
+      }
+    };
   }
 
-  return {specs,available,place,editor};
+  function distanceToSegment(x,y,ax,ay,bx,by) {
+    const dx=bx-ax, dy=by-ay;
+    const size=dx*dx+dy*dy;
+    const t=size ? Math.min(1,Math.max(0,((x-ax)*dx+(y-ay)*dy)/size)) : 0;
+    return (x-ax-t*dx)**2+(y-ay-t*dy)**2;
+  }
+
+  function selection(canvas,{select,hover,rotate}) {
+    let hits=[];
+    let pointer;
+    let over=null;
+    let gesture;
+
+    function pick(event) {
+      const box=canvas.getBoundingClientRect();
+      const x=event.clientX-box.left, y=event.clientY-box.top;
+      if (!box.width || !box.height || x<0 || y<0 || x>box.width || y>box.height) return null;
+      const w=box.width/100, h=box.height/100;
+      const candidates=[];
+      for (const [key,{paths=[],points=[],radius=12}] of hits) {
+        const tolerance=event.pointerType==='touch'?Math.max(radius,19):radius;
+        const consider=(squared,span)=>{
+          if (squared<=tolerance*tolerance) candidates.push({key,distance:Math.sqrt(squared),span});
+        };
+        for (const [px,py] of points) consider((x-px*w)**2+(y-py*h)**2,0);
+        for (const path of paths) {
+          let distance=Infinity, span=0;
+          for (let i=1;i<path.length;i++) {
+            const [ax,ay]=path[i-1], [bx,by]=path[i];
+            distance=Math.min(distance,distanceToSegment(x,y,ax*w,ay*h,bx*w,by*h));
+            span+=Math.hypot((bx-ax)*w,(by-ay)*h);
+          }
+          consider(distance,span);
+        }
+      }
+      const nearest=Math.min(...candidates.map(candidate=>candidate.distance));
+      // A short center section can sit directly on a longer silhouette
+      // line. Let clicks on that section choose the more specific edit.
+      const winner=candidates.filter(candidate=>candidate.distance<=nearest+.3)
+        .sort((a,b)=>a.span-b.span || a.distance-b.distance)[0];
+      return winner?.key??null;
+    }
+
+    function highlight(key,event) {
+      if (key===over) return;
+      over=key;
+      canvas.toggleAttribute('data-component-hover',key!==null);
+      hover?.(key,event);
+    }
+
+    function down(event) {
+      if (gesture || event.button!==0 || event.isPrimary===false) return;
+      if (event.pointerType==='touch'||event.pointerType==='pen') event.preventDefault();
+      gesture={id:event.pointerId,x:event.clientX,y:event.clientY,lastX:event.clientX,dragged:false};
+      canvas.setPointerCapture(event.pointerId);
+      if (event.pointerType==='touch') leave(event);
+    }
+
+    function move(event) {
+      if (!gesture) {
+        if (event.pointerType==='touch') return;
+        pointer=event;
+        highlight(pick(event),event);
+        return;
+      }
+      if (gesture.id!==event.pointerId) return;
+      if (!gesture.dragged) {
+        const threshold=event.pointerType==='touch'?7:4;
+        if (Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)<threshold) return;
+        gesture.dragged=true;
+        pointer=undefined;
+        highlight(null,event);
+      }
+      const delta=event.clientX-gesture.lastX;
+      gesture.lastX=event.clientX;
+      if (delta) rotate?.(delta,event);
+    }
+
+    function leave(event) {
+      pointer=undefined;
+      highlight(null,event);
+    }
+
+    function end(event) {
+      if (gesture?.id!==event.pointerId) return;
+      move(event);
+      const {dragged}=gesture;
+      gesture=undefined;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      if (!dragged) select?.(pick(event),event);
+      if (event.pointerType!=='touch') move(event);
+    }
+
+    function cancel(event) {
+      if (gesture?.id!==event.pointerId) return;
+      gesture=undefined;
+      leave(event);
+    }
+
+    const listeners={pointerdown:down,pointermove:move,pointerup:end,pointerleave:leave,
+      pointercancel:cancel,lostpointercapture:cancel};
+    for (const [event,handle] of Object.entries(listeners)) canvas.addEventListener(event,handle);
+    return {
+      targets(data={}) {
+        hits=Object.entries(data);
+        if (pointer && !gesture) highlight(pick(pointer),pointer);
+      },
+      cleanup() {
+        for (const [event,handle] of Object.entries(listeners)) canvas.removeEventListener(event,handle);
+        if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
+        canvas.removeAttribute('data-component-hover');
+        gesture=pointer=undefined;
+        over=null;
+        hits=[];
+      }
+    };
+  }
+
+  return {specs,available,history,selection};
 })();

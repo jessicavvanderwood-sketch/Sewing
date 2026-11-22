@@ -197,7 +197,7 @@ const fittingRender = (() => {
       drawSkin(skinPoints, skinTopology, skinColor);
       drawArray(triangles(opaque,'cloth',true), gl.TRIANGLES, 1);
 
-      const lines=[], circles=[];
+      const lines=[], circles=[], wideLines=[];
       const seamColor=rgba('#28121f42');
       for (const face of opaque) {
         if (!face.seam) continue;
@@ -215,8 +215,9 @@ const fittingRender = (() => {
               [x+radius*Math.cos(b),y+radius*Math.sin(b),mark.depth]],color});
           }
         } else if (mark.points?.length>1) {
-          for (let i=1;i<mark.points.length;i++) lines.push([mark.points[i-1],mark.points[i],color]);
-          if (mark.closed) lines.push([mark.points.at(-1),mark.points[0],color]);
+          const segments=mark.width>0?wideLines:lines;
+          for (let i=1;i<mark.points.length;i++) segments.push([mark.points[i-1],mark.points[i],color,mark.width]);
+          if (mark.closed) segments.push([mark.points.at(-1),mark.points[0],color,mark.width]);
         }
       }
       if (circles.length) {
@@ -233,6 +234,27 @@ const fittingRender = (() => {
       drawArray(lineData, gl.LINES, 0);
       translucent.sort((a,b)=>a.depth-b.depth);
       drawArray(triangles(translucent,'seat'), gl.TRIANGLES, 0);
+
+      // Use camera-space triangles for component outlines because WebGL
+      // commonly limits line primitives to one pixel, even on HiDPI screens.
+      const wideData=buffer('wideLines',wideLines.length*stride*6);
+      let written=0;
+      for (const [a,b,color,width] of wideLines) {
+        const dx=b[0]-a[0],dy=b[1]-a[1];
+        const size=Math.hypot(dx,dy);
+        if (size<.001) continue;
+        const x=dx/size,y=dy/size,half=width/2;
+        const xSide=-y*half,ySide=x*half,cap=half*.24;
+        const corners=[
+          [a[0]+xSide-x*cap,a[1]+ySide-y*cap,a[2]], [a[0]-xSide-x*cap,a[1]-ySide-y*cap,a[2]],
+          [b[0]+xSide+x*cap,b[1]+ySide+y*cap,b[2]], [b[0]-xSide+x*cap,b[1]-ySide+y*cap,b[2]]
+        ];
+        for (const index of [0,1,2,2,1,3]) {
+          writeVertex(wideData,written,toView(corners[index],.0035),noNormal,color);
+          written+=stride;
+        }
+      }
+      drawArray(wideData.subarray(0,written),gl.TRIANGLES,0);
       gl.depthMask(true);
       if (gl.isContextLost()) return false;
       context.drawImage(surface, 0, 0);
