@@ -1615,7 +1615,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const floor=proportions.yAt(1.105);
     const frontHem=columns[segments/4].hem;
     const shellSurface=surfaces.shell;
-    const regularHems=garmentLayers.some(layer=>Object.hasOwn(layer,'hemStyle'))
+    const regularHems=garmentLayers.some(layer=>Object.hasOwn(layer,'hemStyle') || ['Overskirt','Underskirt'].includes(layer.kind))
       ?columns.map(({theta})=>proportions.yAt(shellSurface.standingPoint(theta,shellSurface.rings.length-1,false)[1]))
       :null;
     const entries=garmentLayers.map((layer,index)=>({layer,index}));
@@ -1627,19 +1627,33 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const under=layer.kind==='Underskirt';
       const tier=layer.kind==='Tier';
       const ruffle=layer.kind==='Ruffle';
-      const joined=tier || ruffle;
+      const waistLayer=under || layer.kind==='Overskirt';
+      const waistMounted=waistLayer && !layer.attachment && !layer.leftAttachment && !layer.rightAttachment;
       const ownContour=Object.hasOwn(layer,'hemStyle');
-      const attachmentReference=ownContour?regularHems[segments/4]:frontHem;
-      const plans=columns.map(({theta,hem},i)=>{
-        const percent=studioDesign.layerAttachmentAt?.(layer,theta) ?? layer.attachment;
-        const attachment=joined?fabricFit.mix(waist,attachmentReference,percent/100):waist;
+      const attachmentReference=ownContour || waistLayer?regularHems[segments/4]:frontHem;
+      const minimumDrop=.036;
+      const plans=columns.map(({theta,hem,levels},i)=>{
+        const percent=studioDesign.layerAttachmentAt(layer,theta,model);
+        const requested=fabricFit.mix(waist,attachmentReference,percent/100);
+        const top=levels[0].height;
+        const clothEnd=Math.min(hem,floor);
+        const supported=clothEnd>top;
         const reference=ownContour?regularHems[i]:hem;
-        const baseline=ruffle?attachment+unit*layer.depth:reference+unit*layer.hemOffset;
         const contour=ownContour?studioDesign.hemOffsetAt(layer,theta)*unit:0;
-        const end=Math.min(floor,Math.max(attachment+.036,baseline+contour));
+        const fixedHem=reference+unit*(layer.hemOffset??0)+contour;
+        // A legacy waist-mounted layer could already have an impossible
+        // shortened hem. Keep its old minimum-depth fallback until moved.
+        const lastJoin=ruffle || waistMounted?clothEnd:Math.min(clothEnd,fixedHem);
+        const bottom=Math.max(top,lastJoin-minimumDrop);
+        // An attachment must land on cloth, even where a fairy point rises
+        // above the requested seam. Keep enough room for a finished edge.
+        const attachment=supported?fabricFit.clamp(requested,top,bottom):top;
+        const desiredHem=ruffle?attachment+unit*layer.depth+contour:fixedHem;
+        const end=supported?Math.min(floor,Math.max(attachment+minimumDrop,desiredHem)):attachment;
         const sweepCm=studioDesign.layerSweepAt?.(layer,theta) ?? layer.sweep;
-        return {attachment,end,sweep:unit*sweepCm/(2*Math.PI),gather:sweepCm/(sweepCm+70)};
+        return {attachment,end,supported,sweep:unit*sweepCm/(2*Math.PI),gather:sweepCm/(sweepCm+70)};
       });
+      const joined=tier || ruffle || plans.some(plan=>plan.attachment!==waist);
       const gap=under?-.012:.008;
       const cloth=getFabric(layer.fabric);
       const weave=fabricFit.weave(layer.fabric,cloth.category);
@@ -1652,17 +1666,17 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const rows=Math.max(8,Math.ceil(length/(thumbnail?.078:.050)));
       const fluteCount=11;
       const section=columns.map(({theta,levels,restHem,hem,posedHem},i)=>{
-        const {attachment,end,sweep,gather}=plans[i];
+        const {attachment,end,supported,sweep,gather}=plans[i];
         const localLength=variableLength?Math.max(.042,end-attachment):frontLength;
         const start=under?Math.min(end,Math.max(attachment,hem-.014)):attachment;
-        const hidden=under && end<=hem+.001;
+        const hidden=!supported || under && end<=hem+.001;
         const dx=Math.cos(theta),dz=Math.sin(theta);
         const movedHem=skirtMove(restHem,theta,cloth);
         const correction=posedHem.map((n,i)=>n-movedHem[i]);
         const vertices=Array.from({length:rows+1},(_,j)=>{
           const fraction=j/rows;
           const y=fabricFit.mix(start,end,fraction);
-          const drop=fabricFit.clamp((y-attachment)/Math.max(.036,end-attachment),0,1);
+          const drop=fabricFit.clamp((y-attachment)/Math.max(minimumDrop,end-attachment),0,1);
           const extension=Math.max(0,y-hem);
           let point;
           if (extension>0) {
@@ -1696,33 +1710,56 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           if (extension>0 && shellContact) point=shellContact(point,theta);
           return point;
         });
-        return {start,end,vertices,points:vertices.map(project),hidden,gather};
+        return {start,end,vertices,points:vertices.map(project),supported,hidden,gather};
       });
       stack.push(section);
+      function layerPaths(edge,center=near,span=1.48,count=25) {
+        const paths=[];
+        let path=[];
+        for (const theta of viewArc(theta=>theta,center,span,count)) {
+          const position=((theta/(2*Math.PI)*segments)%segments+segments)%segments;
+          const i=Math.floor(position);
+          if (section[i].supported && section[(i+1)%segments].supported) path.push(aroundAt(theta,edge));
+          else {
+            if (path.length>1) paths.push(path);
+            path=[];
+          }
+        }
+        if (path.length>1) paths.push(path);
+        return paths;
+      }
       if (regions && section.some(column=>!column.hidden)) {
         const near=Math.PI/2-angle;
         const edgeTint=channels.map(channel=>Math.round(channel*.60+52));
         const style='rgba('+edgeTint.join(',')+',.68)';
         for (const row of joined?[0,rows]:[rows]) {
           const edge=section.map(column=>column.points[row]);
-          const points=Array.from({length:segments/2},(_,i)=>aroundAt(near+Math.PI*(i/(segments/2-1)-.5),edge));
-          markings.push({points,style});
+          for (const points of layerPaths(edge,near,Math.PI/2,segments/2)) markings.push({points,style});
         }
       }
+      if (editing?.layerIndex===index) {
+        const cssScale=scale*Math.cos(tilt)*(canvas.clientHeight||height)/Math.max(1,height);
+        editorMetadata.layerAttachmentDragSpan=Math.max(30,(attachmentReference-waist)*cssScale);
+      }
+      if (editing?.layerIndex===index && componentKeys.has('layerAttachment')) {
+        // The inside join is concealed by the main shell. Put the guide on
+        // the shell over that same attachment line, not at the visible hem.
+        const first=under?columns.map(({theta,levels},i)=>liftedPoint(pointAtHeight(levels,plans[i].attachment),theta)):
+          section.map(column=>column.points[0]);
+        addComponent('layerAttachment',layerPaths(first),{radius:9,guide:true});
+      }
       if (editing?.layerIndex===index && section.some(column=>!column.hidden)) {
-        const first=section.map(column=>column.points[0]);
         const hem=section.map(column=>column.points.at(-1));
-        if (joined) addComponent('layerAttachment',[viewArc(theta=>aroundAt(theta,first))],{radius:9,guide:true});
-        addComponent('layerHem',[viewArc(theta=>aroundAt(theta,hem),near,.59)],{radius:10,guide:true});
+        addComponent('layerHem',layerPaths(hem,near,.59),{radius:10,guide:true});
         if (componentKeys.has('layerSweep')) {
           const edge=section.map(column=>column.points[Math.round(rows*.77)]);
-          addComponent('layerSweep',[-1,1].map(side=>viewArc(theta=>aroundAt(theta,edge),near+side*1.07,.32)),
+          addComponent('layerSweep',[-1,1].flatMap(side=>layerPaths(edge,near+side*1.07,.32)),
             {radius:12,guide:true});
         }
       }
       for (let i=0;i<segments;i++) {
         const a=section[i],b=section[(i+1)%segments];
-        if (a.hidden && b.hidden) continue;
+        if (!a.supported || !b.supported || a.hidden && b.hidden) continue;
         const theta=(i+.5)*2*Math.PI/segments+angle;
         for (let j=0;j<rows;j++) {
           const band=(j+.5)/rows;
@@ -2262,9 +2299,12 @@ function fitSlidersMarkup(keys,values,neckline,open) {
 }
 function focusSlider(input) {
   if (!input || input.disabled) return;
-  for (let panel=input.closest('details');panel;panel=panel.parentElement.closest('details')) panel.open=true;
+  openSliderSections(input);
   input.focus({preventScroll:true});
   input.closest('.field').scrollIntoView({block:'center'});
+}
+function openSliderSections(input) {
+  for (let panel=input.closest('details');panel;panel=panel.parentElement.closest('details')) panel.open=true;
 }
 function sideFitRegions(pattern,model,body,changes,pose,material,offsets=studioDesign.asymmetry(pattern.design)) {
   if (!Object.values(offsets).some(side=>Object.keys(side).some(key=>key!=='panelSeam'))) return null;
@@ -2560,6 +2600,9 @@ function fitSummary(delta) {
     return garmentFit.fields[key]?garmentFit.fields[key][0]+' '+adjustmentText(amount):[];
   }).join(' · ');
 }
+function layerAttachmentLabel(value) {
+  return value?`${Math.abs(value)}% ${value<0?'above':'below'} waist`:'At waist';
+}
 function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBody) {
   const dimensions=Object.entries(sewingModels.dimensions).map(([key,[label]])=>[key,label]);
   const cm=value=>value==null?'—':value+' cm';
@@ -2604,10 +2647,16 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
     const key=['top','dress'].includes(model)?'bust':'hip';
     targets.push([key==='bust'?'Finished chest / bust target':'Finished hip / seat target',cm(body[key]+pattern.design.ease+(targetChanges[key]||0))]);
   }
-  const layers=make?studioDesign.layers(pattern.design).map((layer,index)=>[
-    `Layer ${index+1} · ${layer.kind}`,layer.fabric,layer.kind==='Ruffle'?cm(layer.depth)+' drop':adjustmentText(layer.hemOffset),cm(layer.sweep),
-    Object.hasOwn(layer,'attachment')?`${layer.attachment}% from waist to main hem`:'Waist seam'
-  ]):[];
+  const layers=make?studioDesign.layers(pattern.design).map((layer,index)=>{
+    const model=pattern.design.model;
+    const center=layer.attachment;
+    const sides=[['Left',0],['Right',Math.PI]].flatMap(([side,angle])=>{
+      const height=studioDesign.layerAttachmentAt(layer,angle,model);
+      return height===center?[]:[`${side} ${layerAttachmentLabel(height).toLowerCase()}`];
+    });
+    return [`Layer ${index+1} · ${layer.kind}`,layer.fabric,layer.kind==='Ruffle'?cm(layer.depth)+' drop':adjustmentText(layer.hemOffset),cm(layer.sweep),
+      [layerAttachmentLabel(center),...sides].join(' · ')];
+  }):[];
   return {headings:make?['Model measurement','Size']:['Model measurement','Source','Target'],
     rows,adjustments,targets,layers,make};
 }
@@ -3075,10 +3124,12 @@ function designStudio() {
   let hoveredComponent=null;
   let panelSnapOffset;
   let panelZipperMaxLength;
+  let layerAttachmentDragSpan;
+  const editorSnapshot=()=>({fit:activeDesignFit(),seams:studioDesign.seams(designDraft),layers:studioDesign.layers(designDraft),layerTarget,
+    hem:studioDesign.hemContour(designDraft),asymmetry:studioDesign.asymmetry(designDraft),shoulderSide:designDraft.shoulderSide});
   const editor=fitHandles.history({
     undoButton:document.querySelector('#design-undo'),redoButton:document.querySelector('#design-redo'),
-    snapshot:()=>({fit:activeDesignFit(),seams:studioDesign.seams(designDraft),layers:studioDesign.layers(designDraft),layerTarget,
-      hem:studioDesign.hemContour(designDraft),asymmetry:studioDesign.asymmetry(designDraft),shoulderSide:designDraft.shoulderSide}),
+    snapshot:editorSnapshot,
     restore:restoreEditor});
   let activeInput;
   function rememberInput(input) {
@@ -3095,8 +3146,50 @@ function designStudio() {
       hoveredComponent=key;
       preview();
     },
-    rotate:dx=>rotatePreview(dx/Math.max(1,canvas.clientWidth)*275)
+    rotate:dx=>rotatePreview(dx/Math.max(1,canvas.clientWidth)*275),
+    dragVertical:dragLayerAttachment
   });
+
+  function changeLayerValue(index,key,value) {
+    const layers=studioDesign.layers(designDraft);
+    layers[index]={...layers[index],[key]:value};
+    designDraft.layers=studioDesign.layers({...designDraft,layers});
+  }
+
+  function dragLayerAttachment(key) {
+    if (key!=='layerAttachment') return null;
+    const input=componentSlider(key);
+    if (!input) return null;
+    const before=editorSnapshot();
+    const index=layerTarget;
+    const initial=input.valueAsNumber;
+    const span=layerAttachmentDragSpan ?? Math.max(30,canvas.clientHeight*.45);
+    let height=initial;
+    selectedComponent=key;
+    canvas.setAttribute('data-layer-attachment-dragging','');
+    const apply=next=>{
+      changeLayerValue(index,'attachment',next);
+      if (input.isConnected) writeSlider(input,next);
+      height=next;
+      preview();
+    };
+    return {
+      move(dy) {
+        const next=fabricFit.clamp(initial+Math.round(100*dy/span),Number(input.min),Number(input.max));
+        if (next!==height) apply(next);
+      },
+      finish(cancelled) {
+        canvas.removeAttribute('data-layer-attachment-dragging');
+        if (height===initial) return;
+        if (cancelled) apply(initial);
+        else {
+          editor.checkpoint(before);
+          openSliderSections(input);
+        }
+        updateGuide();
+      }
+    };
+  }
 
   function componentSlider(key) {
     if (key==null) return null;
@@ -3146,12 +3239,13 @@ function designStudio() {
     return panelZipperMaxLength ?? studioDesign.panelZipperLimits[1];
   }
 
-  function slider(label,attributes,[min,max],value,{step=.5,unit='cm',disabled=false,signed=false}={}) {
+  function slider(label,attributes,[min,max],value,{step=.5,unit='cm',disabled=false,signed=false,ends}={}) {
     const display=sliderValue(value,unit,signed);
-    return `<label class="field adjustment"><span>${label} <output>${display}</output></span><input ${attributes} type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-slider-unit="${unit}"${signed?' data-slider-offset':''}${disabled?' disabled':''}></label>`;
+    return `<label class="field adjustment"><span>${label} <output>${display}</output></span><input ${attributes} type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-slider-unit="${unit}"${signed?' data-slider-offset':''}${disabled?' disabled':''}>${ends?`<span class="adjustment-ends"><span>${ends[0]}</span><span>${ends[1]}</span></span>`:''}</label>`;
   }
 
   function sliderValue(value,unit,signed) {
+    if (unit==='attachment') return layerAttachmentLabel(value);
     const prefix=signed && value>0?'+':'';
     return `${prefix}${value}${unit==='cm'?' cm':unit==='percentage points'?' points':unit}`;
   }
@@ -3242,7 +3336,9 @@ function designStudio() {
     }
     targetField.querySelector('span').textContent=mode.value==='layers'?'Active layer':mode.value==='sides'?'Side to adjust':'Controls';
     editorHelp.textContent=mode.value==='view'?'Drag the canvas to rotate.':mode.value==='layers'&&!layers.length
-      ?'Add a layer or ruffle to start.':'Select a garment detail to open its slider. Drag to rotate.';
+      ?'Add a layer or ruffle to start.':componentKeys.includes('layerAttachment')
+        ?'Drag the attachment line up or down. Select a detail to open its slider, or drag beside the garment to rotate.'
+        :'Select a garment detail to open its slider. Drag to rotate.';
     if (!componentKeys.includes(selectedComponent)) selectedComponent=null;
     if (!componentKeys.includes(hoveredComponent)) hoveredComponent=null;
   }
@@ -3411,6 +3507,7 @@ function designStudio() {
   function drawLayers() {
     layerPanel.hidden=!['dress','skirt'].includes(designDraft.model);
     const layers=studioDesign.layers(designDraft);
+    const attachmentLimits=studioDesign.layerAttachmentLimits(designDraft.model);
     const field=(layer,key,label,unit='cm')=>slider(label,
       `data-layer-field="${key}"${layerComponents[key]?` data-component-slider="${layerComponents[key]}"`:''}`,
       studioDesign.layerLimits[key],layer[key],{unit,step:unit==='%'?1:.5,signed:key==='hemOffset'});
@@ -3418,7 +3515,6 @@ function designStudio() {
       [...card.querySelectorAll('details[open]')].map(section=>section.dataset.layerSection || 'uneven').concat(card.open?'card':[])]));
     layerList.innerHTML=layers.map((layer,index)=>{
       const open=openLayers.get(index)||[];
-      const directional=Object.entries(layeredSideFields).filter(([key])=>!key.endsWith('Attachment')||Object.hasOwn(layer,'attachment'));
       return `<details class="design-options layer-card" data-layer-index="${index}"${open.includes('card')?' open':''}>
       <summary>Layer ${index+1} · ${layer.kind}</summary><div class="slider-group-content">
       <label class="field">Layer type<select data-layer-field="kind">${studioDesign.layerKinds.map(kind=>option(kind,kind,layer.kind)).join('')}</select></label>
@@ -3427,17 +3523,20 @@ function designStudio() {
         <label class="field">Color<input type="color" data-layer-field="color" value="${color(layer.color)}"></label>
         ${field(layer,'opacity','Opacity','%')}
       </div></details>
-      <details class="design-options" data-layer-section="fit"${open.includes('fit')?' open':''}><summary>Attachment and fullness</summary><div class="fields tight">
-        ${field(layer,'sweep','Extra hem sweep')}
-        ${Object.hasOwn(layer,'attachment')?field(layer,'attachment','Starts down from waist','%'):''}
-      </div></details>
+      <details class="design-options" data-layer-section="fit"${open.includes('fit')?' open':''}><summary>Attachment and fullness</summary>
+        <div class="slider-group-content">
+          ${slider('Attachment height','data-layer-field="attachment" data-component-slider="layerAttachment"',attachmentLimits,layer.attachment,
+            {unit:'attachment',step:1,ends:[attachmentLimits[0]===0?'Waist':'Higher','Lower']})}
+          <p>The percentage uses the main garment’s waist-to-base-hem length.</p>
+          ${field(layer,'sweep','Extra hem sweep')}
+        </div></details>
       <details class="design-options" data-layer-section="hem"${open.includes('hem')?' open':''}><summary>Hem and points</summary><div class="slider-group-content">
         ${layer.kind==='Ruffle'?field(layer,'depth','Ruffle depth'):field(layer,'hemOffset','Hem offset')}
         ${hemOptions(layer,true)}
       </div></details>
       <details class="design-options" data-layer-section="sides"${open.includes('sides')?' open':''}><summary>Left and right layer shape</summary>
         <p class="muted tight">Adjust each side relative to the layer’s shared fullness or attachment.</p><div class="fields tight">
-          ${directional.map(([key,label])=>slider(label,`data-layer-field="${key}" data-highlight-component="${key.endsWith('Attachment')?'layerAttachment':'layerSweep'}"`,
+          ${Object.entries(layeredSideFields).map(([key,label])=>slider(label,`data-layer-field="${key}" data-highlight-component="${key.endsWith('Attachment')?'layerAttachment':'layerSweep'}"`,
             studioDesign.layerLimits[key],layer[key]??0,{signed:true,unit:key.endsWith('Attachment')?'percentage points':'cm',step:key.endsWith('Attachment')?1:.5})).join('')}
       </div></details>
       <div class="actions tight">
@@ -3523,6 +3622,7 @@ function designStudio() {
         editor:{layerIndex:componentKeys.some(key=>key.startsWith('layer'))?layerTarget:null,showSeams:mode.value==='seams'||mode.value==='sides',zoom:Number(zoom.value)/100,
           componentKeys,componentSide:mode.value==='sides'?asymmetrySide.value:null,selectedComponent,hoveredComponent}});
     panelSnapOffset=anchors.panelSeamSnapOffset;
+    layerAttachmentDragSpan=anchors.layerAttachmentDragSpan;
     if (syncZipperLimit(anchors.panelZipperMaxLength)) {
       updateGuide();
       preview();
@@ -3781,11 +3881,9 @@ function designStudio() {
     const layerKey=field.dataset.layerField;
     if (layerKey) {
       const index=Number(field.closest('[data-layer-index]').dataset.layerIndex);
-      const current=studioDesign.layers(designDraft);
       const value=field.type==='range'?field.valueAsNumber:field.value;
       rememberInput(field);
-      current[index]={...current[index],[layerKey]:value};
-      designDraft.layers=studioDesign.layers({...designDraft,layers:current});
+      changeLayerValue(index,layerKey,value);
       if (field.type==='range') writeSlider(field,value);
       if (layerKey==='kind') {
         drawLayers();

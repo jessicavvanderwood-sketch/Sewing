@@ -83,7 +83,7 @@ const fitHandles = (() => {
     return (x-ax-t*dx)**2+(y-ay-t*dy)**2;
   }
 
-  function selection(canvas,{select,hover,rotate}) {
+  function selection(canvas,{select,hover,rotate,dragVertical}) {
     let hits=[];
     let pointer;
     let over=null;
@@ -122,14 +122,16 @@ const fitHandles = (() => {
     function highlight(key,event) {
       if (key===over) return;
       over=key;
-      canvas.toggleAttribute('data-component-hover',key!==null);
+      if (key===null) canvas.removeAttribute('data-component-hover');
+      else canvas.setAttribute('data-component-hover',key);
       hover?.(key,event);
     }
 
     function down(event) {
       if (gesture || event.button!==0 || event.isPrimary===false) return;
       if (event.pointerType==='touch'||event.pointerType==='pen') event.preventDefault();
-      gesture={id:event.pointerId,x:event.clientX,y:event.clientY,lastX:event.clientX,dragged:false};
+      gesture={id:event.pointerId,x:event.clientX,y:event.clientY,lastX:event.clientX,lastY:event.clientY,
+        target:dragVertical?pick(event):null,dragged:false,vertical:null};
       canvas.setPointerCapture(event.pointerId);
       if (event.pointerType==='touch') leave(event);
     }
@@ -142,12 +144,22 @@ const fitHandles = (() => {
         return;
       }
       if (gesture.id!==event.pointerId) return;
+      const dy=event.clientY-gesture.y;
       if (!gesture.dragged) {
         const threshold=event.pointerType==='touch'?7:4;
-        if (Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)<threshold) return;
+        const dx=event.clientX-gesture.x;
+        if (Math.hypot(dx,dy)<threshold) return;
         gesture.dragged=true;
         pointer=undefined;
-        highlight(null,event);
+        if (gesture.target!==null && Math.abs(dy)>Math.abs(dx)) gesture.vertical=dragVertical(gesture.target);
+        highlight(gesture.vertical?gesture.target:null,event);
+      }
+      if (gesture.vertical) {
+        if (event.clientY!==gesture.lastY) {
+          gesture.lastY=event.clientY;
+          gesture.vertical.move(dy,event);
+        }
+        return;
       }
       const delta=event.clientX-gesture.lastX;
       gesture.lastX=event.clientX;
@@ -159,19 +171,25 @@ const fitHandles = (() => {
       highlight(null,event);
     }
 
+    function release(cancelled) {
+      const active=gesture;
+      gesture=undefined;
+      if (active && canvas.hasPointerCapture(active.id)) canvas.releasePointerCapture(active.id);
+      active?.vertical?.finish(cancelled);
+      return active;
+    }
+
     function end(event) {
       if (gesture?.id!==event.pointerId) return;
       move(event);
-      const {dragged}=gesture;
-      gesture=undefined;
-      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-      if (!dragged) select?.(pick(event),event);
+      const active=release(false);
+      if (active && !active.dragged) select?.(pick(event),event);
       if (event.pointerType!=='touch') move(event);
     }
 
     function cancel(event) {
       if (gesture?.id!==event.pointerId) return;
-      gesture=undefined;
+      release(true);
       leave(event);
     }
 
@@ -185,9 +203,9 @@ const fitHandles = (() => {
       },
       cleanup() {
         for (const [event,handle] of Object.entries(listeners)) canvas.removeEventListener(event,handle);
-        if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
+        release(true);
         canvas.removeAttribute('data-component-hover');
-        gesture=pointer=undefined;
+        pointer=undefined;
         over=null;
         hits=[];
       }

@@ -54,6 +54,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 
 .fit-canvas{position:relative}
 .viewer canvas[data-component-hover]:not(:active){cursor:pointer}
+.viewer canvas[data-component-hover="layerAttachment"]:not(:active),.viewer canvas[data-layer-attachment-dragging]{cursor:ns-resize}
 .field:has(input:is([data-component-slider],[data-fit-slider],[data-highlight-component],[data-asymmetry-field]):focus){background:var(--rose);border-radius:7px;outline:4px solid var(--rose)}
 
 .wo-path{border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 0;min-width:0}.wo-path legend{font-weight:700;padding:0 6px}.wo-path p{font-size:14px}

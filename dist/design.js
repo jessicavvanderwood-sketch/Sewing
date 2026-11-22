@@ -26,11 +26,13 @@ const studioDesign = (() => {
   const tones = ['Solid','Contrast lower panel'];
   const layerKinds = ['Overskirt','Underskirt','Tier','Ruffle'];
   const maxLayers = 5;
-  const layerLimits = {hemOffset:[-65,65],sweep:[0,240],opacity:[20,100],attachment:[10,85],depth:[3,50],
+  const layerLimits = {hemOffset:[-65,65],sweep:[0,240],opacity:[20,100],attachment:[-25,85],depth:[3,50],
     leftSweep:[-120,120],rightSweep:[-120,120],leftAttachment:[-40,40],rightAttachment:[-40,40],...hemContourLimits};
+  const skirtAttachmentLimits=[0,85];
+  const layerAttachmentLimits=(model='dress')=>model==='dress'?layerLimits.attachment:skirtAttachmentLimits;
   const layerDefaults = {
-    Overskirt:{hemOffset:6,sweep:32,opacity:65},
-    Underskirt:{hemOffset:-6,sweep:0,opacity:100},
+    Overskirt:{hemOffset:6,sweep:32,opacity:65,attachment:0},
+    Underskirt:{hemOffset:-6,sweep:0,opacity:100,attachment:0},
     Tier:{hemOffset:0,sweep:36,opacity:100,attachment:60},
     Ruffle:{depth:14,sweep:70,opacity:100,attachment:60}
   };
@@ -98,10 +100,8 @@ const studioDesign = (() => {
     return asymmetryOffset+hemDrop(source)*(corner-.5);
   }
 
-  const layeredBand=kind=>kind==='Tier'||kind==='Ruffle';
   function layerShape(kind) {
-    return {kind,fabric:fabrics[0],color:'#783e60',leftSweep:0,rightSweep:0,...layerDefaults[kind],
-      ...(layeredBand(kind)?{leftAttachment:0,rightAttachment:0}:{})};
+    return {kind,fabric:fabrics[0],color:'#783e60',leftSweep:0,rightSweep:0,leftAttachment:0,rightAttachment:0,...layerDefaults[kind]};
   }
 
   function newLayer(kind='Overskirt') {
@@ -115,9 +115,9 @@ const studioDesign = (() => {
       const clean=layerShape(layer.kind);
       if (typeof layer.fabric==='string' && layer.fabric.trim()) clean.fabric=layer.fabric.trim();
       if (typeof layer.color==='string' && /^#[0-9a-f]{6}$/i.test(layer.color)) clean.color=layer.color.toLowerCase();
-      for (const [key,[min,max]] of Object.entries(layerLimits)) {
+      for (const [key,limits] of Object.entries(layerLimits)) {
         if (Object.hasOwn(clean,key) && Number.isFinite(layer[key])) {
-          const value=bounded(layer[key],[min,max]);
+          const value=bounded(layer[key],key==='attachment'?layerAttachmentLimits(design.model):limits);
           clean[key]=key==='opacity'||key==='attachment'?Math.round(value):value;
         }
       }
@@ -140,10 +140,10 @@ const studioDesign = (() => {
     return bounded(sweep+layerSideOffset(layer,theta,'leftSweep','rightSweep'),layerLimits.sweep);
   }
 
-  function layerAttachmentAt(layer,theta) {
-    if (!layeredBand(layer?.kind)) return 0;
-    const attachment=numeric(layer,'attachment',layerDefaults[layer.kind].attachment,layerLimits.attachment);
-    return bounded(attachment+layerSideOffset(layer,theta,'leftAttachment','rightAttachment'),layerLimits.attachment);
+  function layerAttachmentAt(layer,theta,model='dress') {
+    const limits=layerAttachmentLimits(model);
+    const attachment=numeric(layer,'attachment',layerDefaults[layer?.kind]?.attachment??0,limits);
+    return bounded(attachment+layerSideOffset(layer,theta,'leftAttachment','rightAttachment'),limits);
   }
 
   function asymmetryKeys(design) {
@@ -319,32 +319,31 @@ const studioDesign = (() => {
       const name=`Layer ${number} · ${layer.kind}`;
       const add=(phase,visual,text)=>steps[phase].push({visual,text:`${name}. ${text}`});
       const ruffle=layer.kind==='Ruffle';
-      const band=layer.kind==='Tier'||ruffle;
       const inside=layer.kind==='Underskirt';
-      const where=band?`at the marked ${ruffle?'ruffle':'tier'} attachment line`:inside?'inside the waist seam':'at the outer waist seam';
+      const where=`at the marked attachment line on the ${inside?'inside':'outside'} of the main garment`;
       const offset=Number(Math.abs(layer.hemOffset??0).toFixed(3));
       const drop=ruffle?Number(layer.depth.toFixed(3)):0;
       const contour=hemDraft(Object.hasOwn(layer,'hemStyle')?layer:design);
       const hem=ruffle?`${drop} cm below its attachment line`:offset
         ?`${offset} cm ${layer.hemOffset<0?'above':'below'} the main hem’s base line`:'level with the main hem’s base line';
       const sweep=Number(layer.sweep.toFixed(3));
-      const attachmentSides=band?['left','right'].flatMap(side=>{
-        if (!layer[side+'Attachment']) return [];
-        const target=layerAttachmentAt(layer,side==='left'?0:Math.PI);
-        return [`wearer’s ${side} ${Number(target.toFixed(3))}%`];
-      }):[];
+      const positionAt=angle=>Number(layerAttachmentAt(layer,angle,design.model).toFixed(3));
+      const placement=positionAt(Math.PI/2);
+      const sidePositions=['left','right'].map(side=>[side,positionAt(side==='left'?0:Math.PI)]);
+      const fromWaist=value=>value?`${Math.abs(value)}% of that distance ${value<0?'above':'below'} the waistline`:'at the waistline';
+      const attachmentSides=sidePositions.some(([,value])=>value!==placement)?sidePositions.map(([side,value])=>`wearer’s ${side} ${fromWaist(value)}`):[];
       const fullnessSides=['left','right'].flatMap(side=>{
         const delta=layerSweepAt(layer,side==='left'?0:Math.PI)-sweep;
         return Math.abs(delta)>.001?[`wearer’s ${side} ${Number(Math.abs(delta).toFixed(3))} cm ${delta>0?'more':'less'}`]:[];
       });
-      const reference=band
-        ?`On the fitted main skirt, measure the center-front distance from waist to the main hem’s base line. Mark the attachment at ${layer.attachment}% of that distance.${attachmentSides.length?` Mark the adjusted side positions (${attachmentSides.join(', ')}) and blend the line between them and the front and back marks.`:' Transfer the level attachment line around the skirt.'}`
-        :`Copy the waist attachment seam from the fitted main garment and mark where it sits ${where}.`;
+      const reference=placement||attachmentSides.length
+        ?`On the fitted garment, measure straight from the center-front waistline down to the main hem’s base line. Mark the attachment ${fromWaist(placement)} at center front and center back.${attachmentSides.length?` Mark the two side positions (${attachmentSides.join(', ')}) and blend them into the center marks.`:' Transfer those marks around the garment.'}`
+        :'Mark the waistline on the fitted garment and transfer the front, back and both side marks.';
       const circumference=ruffle?'the fitted main skirt around the level of the ruffle’s own bottom edge':'the main skirt’s finished hem seam line';
       const opening=closure==='Elastic waistband'
         ?'Keep the casing and threading opening clear. Test that every layer at the waist passes over the hips.'
         :`Keep the ${closure?.toLowerCase()||'garment closure'} free to open all the way. Transfer the opening to a layer that crosses it.`;
-      add('draft','layerDraft',`${reference} Start on paper with the hem ${hem}. ${contour.text?`${contour.text} `:''}Check floor clearance on the fitted sample. Measure ${circumference} without allowances. Set the layer’s starting sweep to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}.${fullnessSides.length?` Refine fullness by side at the marked edges (${fullnessSides.join(', ')} relative to the layer’s base sweep), blending to the center marks.`:''} Walk the new adjoining seam lines before adding allowances.`);
+      add('draft','layerDraft',`${reference} The layer attaches on the ${inside?'inside':'outside'} of the garment. Start on paper with the hem ${hem}. ${contour.text?`${contour.text} `:''}Check floor clearance on the fitted sample. Measure ${circumference} without allowances. Set the layer’s starting sweep to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}.${fullnessSides.length?` Refine fullness by side at the marked edges (${fullnessSides.join(', ')} relative to the layer’s base sweep), blending to the center marks.`:''} Walk the new adjoining seam lines before adding allowances.`);
       add('cut','layerCut',`Prepare and press ${layer.fabric}. Label the new pattern pieces with the layer number, material, grainline and quantities.${ruffle?` Mark the ${drop} cm base depth between the attachment stitch line and lower edge, then trace any finished shape changes before adding the upper seam and lower hem allowances.`:' Mark the finished hem and the cutting line with the allowance for the selected finish.'} Align both ends of the grainline to the same selvage, cut on the outside line and transfer attachment, center, closure and side marks.`);
       add('assemble','layerFit',`Baste the layer panels together, leaving any opening from the pattern. Mark centers and side positions on the layer and at its attachment. Match those points first. If the layer’s upper stitch line is longer, use two rows of basting in the allowance to gather it evenly between marks. Check the fit before sewing it in place.`);
       add('assemble','layerAttach',`Baste ${where} and try on the garment. ${opening} Sit, stand, and walk to check the layers hang freely. Once the fitting passes, stitch along the marked connection, secure the ends at the opening and finish the joined raw edges to suit the fabric.`);
@@ -471,7 +470,7 @@ const studioDesign = (() => {
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,hemContourLimits,hemContour,hemOffsetAt,tones,backs,rises,
-    layerKinds,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentAt,seamKeys,seamLimits,seams,asymmetryLimits,asymmetryKeys,asymmetry,
+    layerKinds,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,seamKeys,seamLimits,seams,asymmetryLimits,asymmetryKeys,asymmetry,
     centerFrontSeam,panelAngleLimits,panelSeamPaths,panelSeamSnapOffset,singleSeamAngle,singleSeamLocation,singleSeamGuide,
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,selectedShoulderSide,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};

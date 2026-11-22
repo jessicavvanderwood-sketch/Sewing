@@ -596,24 +596,29 @@ const workFigures = (() => {
     if (!layer) return [];
     const title=`Layer ${number} · ${layer.kind}`;
     const ruffle=layer.kind==='Ruffle';
-    const band=layer.kind==='Tier'||ruffle;
     const inside=layer.kind==='Underskirt';
     const contour=layerHemSource(layer,design);
     const shape=studioDesign.hemContour(contour);
+    const attachmentAt=angle=>Number(studioDesign.layerAttachmentAt(layer,angle,design.model).toFixed(3));
+    const placement=attachmentAt(Math.PI/2);
+    const percent=value=>Number(Math.abs(value).toFixed(3))+'%';
+    const direction=value=>value?`${percent(value)} ${value<0?'above':'below'}`:'At waist';
     const sideSettings=side=>{
       const angle=side==='left'?0:Math.PI;
-      return {attach:studioDesign.layerAttachmentAt(layer,angle),sweep:studioDesign.layerSweepAt(layer,angle)-layer.sweep};
+      return {attach:attachmentAt(angle),sweep:studioDesign.layerSweepAt(layer,angle)-layer.sweep};
     };
     const left=sideSettings('left'), right=sideSettings('right');
-    const changedAttachment=band && [left,right].some(side=>side.attach!==layer.attachment);
+    const changedAttachment=[left,right].some(side=>Math.abs(side.attach-placement)>.001);
     const changedSweep=[left,right].some(side=>Math.abs(side.sweep)>.001);
-    const waist=33, mainHem=122;
-    const attach=band?Math.round(waist+(mainHem-waist)*layer.attachment/100):waist;
+    const waist=58, mainHem=124;
+    const heightAt=value=>waist+(mainHem-waist)*value/100;
+    const attach=heightAt(placement);
     const offset=layer.hemOffset?Math.sign(layer.hemOffset)*18:0;
     const newHem=ruffle?Math.min(144,attach+Math.max(13,layer.depth*1.25)):Math.max(attach+11,mainHem+offset);
     const allowance=order.allowances||{};
     const seam=format(allowance.seam)||'Pattern allowance';
-    const main=path(`M105 ${waist}H173Q197 80 226 ${mainHem}H54Q91 67 105 ${waist}Z`,'wf-cloth');
+    const bodice=design.model==='dress'?path(`M92 24H186L173 ${waist}H105Z`,'wf-cloth'):'';
+    const main=bodice+path(`M105 ${waist}H173Q197 97 226 ${mainHem}H54Q91 87 105 ${waist}Z`,'wf-cloth');
     const layerTop=Math.round(105-51*(attach-waist)/(mainHem-waist));
     const edge=ruffle?`q-15 7 -31 0t-31 0t-31 0t-31 0t-31 0t-30 0`:'H47';
     const layerEdge=path(`M${layerTop} ${attach}H${278-layerTop}L232 ${newHem}${edge}Z`,'wf-right');
@@ -623,14 +628,15 @@ const workFigures = (() => {
       ?leader(278-layerTop,attach,267,attach)+leader(232,newHem,267,newHem)+tick(265,attach,newHem,format(layer.depth))
       :guide(42,mainHem,282,mainHem)+guide(47,newHem,282,newHem)+
         (offset?tick(279,Math.min(mainHem,newHem),Math.max(mainHem,newHem),hemSize,-1):dimText(281,114,hemSize,'end'));
-    const anchor=(band?tick(30,waist,attach,`${layer.attachment}%`)+guide(30,waist,105,waist)+guide(30,attach,layerTop,attach)
-      :label(103,22,inside?'Inside waist':'Outer waist'));
+    const anchor=guide(30,waist,105,waist)+guide(30,attach,layerTop,attach)+
+      (placement?tick(30,Math.min(waist,attach),Math.max(waist,attach),direction(placement))+label(105,waist-4,'Waist'):dimText(31,waist-8,'At waist'))+
+      label(308,24,inside?'Inside attachment':'Outside attachment','end');
     const hemFigure=outline+hemMarks+anchor+label(56,156,ruffle?'Base depth from the attachment':'Compare the two base hem lines');
     const hemAllowance=design.finish==='Double-fold hem' && Number.isFinite(allowance.first) && Number.isFinite(allowance.second)
       ?format(allowance.first+allowance.second):design.finish!=='Double-fold hem' && format(allowance.seam)||'Pattern hem allowance';
     if (id==='layerDraft') return [
       panel(`${title} · Mark the attachment and hem`,hemFigure,
-        `Use the fitted main skirt as a reference. ${band?'Measure the center-front waist-to-base-hem distance, multiply by '+layer.attachment+'%, and mark the starting line around the skirt.':'Copy the waist seam and matching marks.'} ${changedAttachment?'Use the separate side measurements to mark the final attachment. ':''}${ruffle?'Mark the base depth down from the attachment. ':''}Check the floor clearance before cutting.`),
+        `${placement?`Measure straight from the waistline to the base hem at center front. Multiply that distance by ${percent(placement)}, then measure that amount ${placement<0?'up':'down'} from the waistline.`:'Mark the attachment at the waistline.'} ${changedAttachment?'Use the separate side measurements to set the final line. ':''}${ruffle?'Mark the base depth down from the attachment. ':''}Check that the finished edge sits below the attachment and clears the floor.`),
       panel('Add the sweep across the pattern panels',
         path('M52 45H128L143 122H38ZM169 45H245L259 122H155Z','wf-cloth')+
         path('M51 94L45 115H137L132 94M168 94L161 115H253L249 94','wf-stitch')+
@@ -638,15 +644,15 @@ const workFigures = (() => {
         label(90,75,'Panel 1','middle')+label(206,75,'Panel 2','middle'),
         `Add the indicated base sweep across the panels at their finished seam lines. ${ruffle?'Measure the base skirt around the level where the ruffle ends. ':''}Use the panel count in your paper pattern. Keep the upper seam long enough to join the waist or attachment line as drafted.`),
       ...(changedAttachment||changedSweep?[panel('Mark the separate side settings',
-        path('M102 40H230L267 132H66Z','wf-cloth')+guide(165,39,165,133)+guide(70,87,262,87)+
+        path(`M102 39H230L267 ${mainHem}H66Z`,'wf-cloth')+guide(165,39,165,133)+guide(72,waist,260,waist)+label(165,waist-5,'Waist','middle')+
         [right,left].map((side,index)=>{
           const x=index?230:102, sign=index?1:-1;
-          const y=band?40+.88*side.attach:87;
+          const y=heightAt(side.attach);
           return label(x+sign*35,23,index?'Wearer’s left':'Wearer’s right','middle')+
-            (changedAttachment?tick(x,40,y,`${Number(side.attach.toFixed(3))}%`,sign):'')+
+            (changedAttachment?(side.attach?tick(x,Math.min(waist,y),Math.max(waist,y),direction(side.attach),sign):dimText(x+sign*10,waist+6,'At waist',index?'start':'end')):'')+
             (changedSweep?dimText(x+sign*25,151,signedLength(Number(side.sweep.toFixed(3))),'middle'):'');
         }).join(''),
-        `Face the wearer and mark their actual right and left. ${changedAttachment?'Multiply the center-front waist-to-base-hem distance by each shown percentage and transfer that depth to the named side. Blend between those marks and the center front and back. ':''}${changedSweep?'The lower dimensions show each adjustment from the base sweep setting. Baste the new fullness on the named side and blend to the center marks.':''}`)]:[]),
+        `Face the wearer and mark their actual right and left. ${changedAttachment?'Multiply the center-front waist-to-base-hem distance by each shown percentage. Measure up or down from the waist as shown at the named side, then blend to the center front and back marks. ':''}${changedSweep?'The lower dimensions show each adjustment from the base sweep setting. Baste the new fullness on the named side and blend to the center marks.':''}`)]:[]),
       ...hemShapePanels(contour,allowance,design.finish)
     ];
     if (id==='layerCut') return [
@@ -678,11 +684,11 @@ const workFigures = (() => {
         'When the layer is longer along the attachment edge, sew two long basting rows in the allowance. Leave thread tails. Hold the matching marks in place, pull the bobbin threads gently, then spread the gathers with your fingertips.')
     ];
     if (id==='layerAttach') {
-      const elastic=design.closure==='Elastic waistband';
-      const opening=format(elastic?order.plan?.casingWidth:order.plan?.zipperOpening);
+      const elastic=studioDesign.effectiveClosure(design)==='Elastic waistband';
+      const opening=format(elastic?order.plan?.casingWidth:order.plan?.zipperOpening??studioDesign.seams(design).panelZipper);
       return [
         panel(`${title} · Stitch at the attachment`,hemFigure,
-        `Baste ${band?'the '+(ruffle?'ruffle':'tier')+' to its marked line on the main skirt':inside?'the layer to the inside waist':'the layer to the outer waist'}. Check standing, sitting, and walking before stitching. Use the attachment method and allowance from your tested pattern.`),
+        `Baste the layer along its marked line on the ${inside?'inside':'outside'} of the main garment. Match the front, back and both side marks. Check standing, sitting, and walking before stitching. Use the attachment method and allowance from your tested pattern.`),
         panel('Keep the garment opening clear',
           path('M32 40H211V139H32Z','wf-cloth')+path('M32 83H107M130 83H211','wf-stitch')+
           path('M110 52V124M126 52V124','wf-dimension')+label(64,71,'Layer seam')+
