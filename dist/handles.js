@@ -95,10 +95,11 @@ const fitHandles = (() => {
       if (!box.width || !box.height || x<0 || y<0 || x>box.width || y>box.height) return null;
       const w=box.width/100, h=box.height/100;
       const candidates=[];
-      for (const [key,{paths=[],points=[],radius=12}] of hits) {
+      for (const [key,{paths=[],points=[],radius=12,priority=0}] of hits) {
         const tolerance=event.pointerType==='touch'?Math.max(radius,19):radius;
+        const rank=Number.isFinite(priority)?priority:0;
         const consider=(squared,span)=>{
-          if (squared<=tolerance*tolerance) candidates.push({key,distance:Math.sqrt(squared),span});
+          if (squared<=tolerance*tolerance) candidates.push({key,distance:Math.sqrt(squared),span,rank});
         };
         for (const [px,py] of points) consider((x-px*w)**2+(y-py*h)**2,0);
         for (const path of paths) {
@@ -112,10 +113,11 @@ const fitHandles = (() => {
         }
       }
       const nearest=Math.min(...candidates.map(candidate=>candidate.distance));
-      // A short center section can sit directly on a longer silhouette
-      // line. Let clicks on that section choose the more specific edit.
+      // Visible details sometimes share a line with the silhouette or
+      // another layer. Resolve these ties without pulling a click away
+      // from a nearer edge. Unranked ties still favor shorter sections.
       const winner=candidates.filter(candidate=>candidate.distance<=nearest+.3)
-        .sort((a,b)=>a.span-b.span || a.distance-b.distance)[0];
+        .sort((a,b)=>b.rank-a.rank || a.span-b.span || a.distance-b.distance)[0];
       return winner?.key??null;
     }
 

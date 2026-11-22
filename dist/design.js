@@ -9,15 +9,26 @@ const studioDesign = (() => {
     corset:{label:'Corset / structured bodice',type:'Tops',cuts:['Underbust','Overbust','Corset-style bodice'],lengths:['Waist','High hip','Low hip']}
   };
   const necklines = ['Crew','Scoop','V-neck','Boat','Square','Sweetheart','U-neck','Mock neck'];
-  const sleeves = ['Sleeveless','Cap','Short','Elbow','Long','Puff','Bell'];
+  const sleeves = ['Sleeveless','Cap','Short','Elbow','Long','Puff','Bell','Flutter','Bishop','Tapered'];
   const fabrics = ['Cotton poplin','Linen blend','Medium-weight twill','Fluid woven crepe'];
   const closures = ['Invisible zipper','Back button and loop','Front buttons','Elastic waistband','Side zipper','Zip fly',
     'Button fly','Wrap ties','Separating zipper','Back lacing','Front busk'];
   const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back'];
   const supports = ['Integrated shoulders','Wide straps','Narrow straps','Spaghetti straps','Halter strap','One-shoulder','Strapless'];
+  const strapShapeLimits = {strapFrontCurve:[-5,5],strapBackCurve:[-5,5],strapFrontTaper:[25,250],strapBackTaper:[25,250]};
+  const strapShapeDefaults = {strapFrontCurve:0,strapBackCurve:0,strapFrontTaper:100,strapBackTaper:100};
+  const strapShapeChoices = {
+    Straight:{...strapShapeDefaults},
+    'Curved into neckline':{...strapShapeDefaults,strapFrontCurve:2.5,strapBackCurve:1.5},
+    Tapered:{...strapShapeDefaults,strapFrontTaper:60,strapBackTaper:75},
+    'Flared at neckline':{...strapShapeDefaults,strapFrontTaper:145,strapBackTaper:125}
+  };
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
+  const laceStyles = ['Scalloped lace','Eyelet lace','Stretch lace'];
+  const laceWidthLimits = [.5,8];
+  const laceDefaults = {style:laceStyles[0],width:2,color:'#f1e6da'};
   const hemStyles = ['Level','Fairy / handkerchief'];
   const hemContourLimits = {hemDrop:[2,35],hemPointCount:[3,10],hemRotation:[-180,180],
     hemFront:[-35,35],hemLeft:[-35,35],hemBack:[-35,35],hemRight:[-35,35]};
@@ -66,6 +77,18 @@ const studioDesign = (() => {
   const closureChoices = model=>closuresByType[model];
   const supportChoices = model=>model==='corset'?supports.slice(1):supports;
   const selectedSupport = design=>design.support || (design.model==='corset'?'Strapless':supports[0]);
+  const supportsStrapShape = support=>supports.includes(support) && support!=='Integrated shoulders' && support!=='Strapless';
+  const strapShape = design=>Object.fromEntries(Object.entries(strapShapeLimits).map(([key,limits])=>
+    [key,numeric(design,key,strapShapeDefaults[key],limits)]));
+  function straplessSupportChoices(model='dress') {
+    if (model==='corset') return ['Structured bodice'];
+    return isBodice(model)?['Elastic top edge','Structured bodice']:[];
+  }
+  function selectedStraplessSupport(design) {
+    const choices=straplessSupportChoices(design?.model);
+    const chosen=design?.straplessSupport;
+    return choices.includes(chosen)?chosen:choices[0];
+  }
   const selectedShoulderSide = design=>design?.shoulderSide==='right'?'right':'left';
   const supportWidth = style=>({'Integrated shoulders':6.5,'Wide straps':4.5,'Narrow straps':2.2,'Spaghetti straps':.8,'Halter strap':2.5,'One-shoulder':4.5})[style];
   const selectedBack = design=>design.back || backs[0];
@@ -73,6 +96,31 @@ const studioDesign = (() => {
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
   const isSleeved = design => isBodice(design.model) && design.model!=='corset' && selectedSupport(design)===supports[0] && design.sleeve!==sleeves[0];
   const hasSkirt = model=>model==='dress'||model==='skirt';
+
+  const newLaceTrim = ()=>({...laceDefaults});
+  function laceTrim(value) {
+    if (!laceStyles.includes(value?.style)) return null;
+    const color=typeof value.color==='string' && /^#[0-9a-f]{6}$/i.test(value.color)?value.color.toLowerCase():laceDefaults.color;
+    return {style:value.style,width:numeric(value,'width',laceDefaults.width,laceWidthLimits),color};
+  }
+
+  function lacePlacements(design) {
+    const model=design?.model;
+    if (!Object.hasOwn(silhouettes,model)) return {};
+    const placements={};
+    if (isBodice(model)) placements.neckline='Neckline';
+    if (isSleeved(design)) placements.sleeves='Sleeve openings';
+    placements.hem=model==='trousers'?'Leg hems':'Hem';
+    return placements;
+  }
+
+  function laceTrims(design) {
+    return Object.fromEntries(Object.keys(lacePlacements(design)).flatMap(key=>{
+      const trim=laceTrim(design.laceTrims?.[key]);
+      return trim?[[key,trim]]:[];
+    }));
+  }
+
   const hasFairyHem = source => source?.hemStyle===hemStyles[1] && (!source.model || hasSkirt(source.model));
   const hemValue = (source,key)=>numeric(source,key,hemDefaults[key],hemContourLimits[key]);
   const hemDrop = source=>hemValue(source,'hemDrop');
@@ -125,6 +173,8 @@ const studioDesign = (() => {
       if (Object.hasOwn(layer,'hemStyle') || Object.keys(hemDefaults).some(key=>Number.isFinite(layer[key]))) {
         Object.assign(clean,hemContour(layer));
       }
+      const trim=laceTrim(layer.laceTrim);
+      if (trim) clean.laceTrim=trim;
       return clean;
     });
   }
@@ -352,6 +402,72 @@ const studioDesign = (() => {
     return steps;
   }
 
+  function straplessInstructions(design) {
+    if (selectedStraplessSupport(design)==='Structured bodice') return [
+      {visual:'straplessStructuredFit',text:'Fit a strapless sample with the same weight as the finished garment. Baste the stable foundation or lining, shaped body seams and closure at their planned lines. With the garment fastened, mark the upper edge at center front, center back and both sides. Check coverage and comfort while breathing, sitting and reaching. Transfer those marks and the matching facing shape to paper before cutting.'},
+      {visual:'straplessChannels',text:'Build the structured bodice from the fitted pattern. Mark the boning channel lines on the stable foundation, keeping the upper-edge allowance and closure clear. Test a channel on layered scrap with the planned bone. Cut and finish the ends as the pattern and boning maker direct, insert the bones, and secure the channel ends clear of the seam lines. Baste any waist stay to the marked internal seams as specified and test it with the full garment weight.'},
+      {visual:'straplessStructuredFinish',text:'Place the matching facing or lining and shell right sides together. Match the upper edge, notches, and closure marks, then stitch at the chosen allowance. Grade or clip curves as the pattern directs, turn the facing inside and secure it at seams so it stays flat. Recheck the closure, comfort, coverage and support with the full garment weight while standing, sitting and reaching.'}
+    ];
+    return [
+      {visual:'straplessElasticFit',text:'Baste a strapless sample in similar fabric and mark the finished upper edge at center front, center back and both sides. Fasten the intended closure and mark the exact path where the elastic will sit. Check coverage, breathing, sitting and reaching. Transfer the marks to the paper pieces and trace a facing or casing that follows the fitted edge.'},
+      {visual:'straplessElasticLength',text:'Hold the actual elastic at the marked upper edge of the fitting sample. Pin or clip the ends where the tension feels secure during movement and comfortable while breathing. For a pull-on loop, check that it stretches far enough to put on and take off. Where a zipper or button opening crosses the elastic edge, measure between the two planned anchors while the garment is fastened. Relax the elastic, measure the tested length, then add the join or anchor allowance specified by your pattern.'},
+      {visual:'straplessElasticCasing',text:'Check elastic recovery and width on a scrap of the actual layers. For a casing, finish the upper edge with the shaped facing or fold from the pattern. Leave a threading opening and enough room for the elastic to slide flat. Use a bodkin or safety pin to feed it through and hold the trailing end. For sew-in elastic, mark corresponding sections on the elastic and garment, baste at those marks, and stretch the elastic gently between the marks as you stitch. On the Brother CP2160F, test zigzag 04 with foot J and a compatible needle on the layered scrap.'},
+      {visual:'straplessElasticFinish',text:'Check that the elastic sits flat all the way around the upper edge. For a pull-on loop, overlap and secure the ends using the tested join for your elastic. Where a closure crosses the elastic edge, secure each end to its reinforced anchor under the facing so the opening stays free. Close the threading gap if used. Try the garment on while standing, sitting, reaching and taking a full breath. Adjust uncomfortable or slipping areas in the sample before permanently finishing the edge.'}
+    ];
+  }
+
+  function straplessTools(design) {
+    return selectedStraplessSupport(design)==='Structured bodice'
+      ?['stable foundation or lining','boning','channel tape','facing','boning end covers as specified','waist stay if specified']
+      :['garment elastic with good recovery','casing facing or lining','bodkin or safety pin','compatible needle'];
+  }
+
+  function strapInstructions(design) {
+    const support=selectedSupport(design);
+    const halter=support==='Halter strap';
+    const width=design.strapWidth??supportWidth(support);
+    const base=halter?'reference strap width':'shoulder width';
+    const shape=strapShape(design);
+    const placement=design.strapPlacement?` Move the attachment ${Math.abs(design.strapPlacement)} cm ${design.strapPlacement<0?'inward':'outward'} from the starting shoulder mark.`:'';
+    const route=halter?'Fit the strap around the neck from the front attachment points.':support==='One-shoulder'
+      ?`Fit from the front bodice to the back bodice over the wearer’s ${selectedShoulderSide(design)} shoulder.`:'Fit from the front bodice to the back bodice over each shoulder.';
+    const ends=supportsStrapShape(support)?[['Front attachment',shape.strapFrontCurve,shape.strapFrontTaper],
+      [halter?'Back collar segment':'Back attachment',shape.strapBackCurve,shape.strapBackTaper]].map(([name,curve,taper])=>{
+      const shift=curve?`Move its centerline ${Math.abs(curve)} cm ${curve>0?'toward the neckline':'away from the neckline'} from the starting mark.`:'Keep its starting centerline.';
+      const endWidth=Number.isFinite(width)?` (${Number((width*taper/100).toFixed(3))} cm finished)`:'';
+      return `${name} uses ${taper}% of the ${base}${endWidth}. ${shift}`;
+    }).join(' '):'';
+    return {visual:'strap',text:`Fit the ${support.toLowerCase()} ${Number.isFinite(width)?`at ${width} cm wide, finished, at the ${halter?'neck reference':'shoulder'}.`:'and mark its tested width.'} ${route}${placement}${ends?` ${ends} Blend each edge into the marked reference width.`:''} Mark the worn length and add the pattern’s attachment and edge allowances. Baste, check reach and support, then reinforce the ends.`};
+  }
+
+  function sleeveDrafting(style) {
+    return ({
+      Puff:'Slash and spread the sleeve pattern for fullness, then gather the excess into the tested sleeve cap or cuff.',
+      Bell:'Slash and spread from the hem toward the cap, keeping the cap seam intact. Draw a smooth, wider hem.',
+      Flutter:'Start with a short sleeve cap that matches the armhole. Slash from the lower edge toward the cap, leave a paper hinge, then spread evenly to make a circular flare. Keep the cap stitch length and notches, redraw the rounded edge and test a narrow finish on the curved scraps.',
+      Bishop:'Keep the cap stitch line matched to the armhole. Spread the lower sleeve for fullness and fit the wrist opening with the cuff and its closure. Baste two rows at the lower edge, draw up the gathers between matching marks and stitch the fitted cuff in place.',
+      Tapered:'Mark the upper arm, elbow and wrist on the sleeve while it is on the wearer. Blend the narrower line toward the wrist, leaving room to bend the elbow. Check the hand can pass through or mark the cuff opening and closure before adding the seam allowance.'
+    })[style]||'Keep the sleeve cap and its notches aligned to the corresponding armhole.';
+  }
+
+  function laceTrimTargets(design) {
+    const placements=lacePlacements(design);
+    const main=Object.entries(laceTrims(design)).map(([edge,trim])=>({label:placements[edge],trim}));
+    const layerHems=layers(design).flatMap((layer,index)=>layer.laceTrim
+      ?[{label:`Layer ${index+1} ${layer.kind.toLowerCase()} hem`,trim:layer.laceTrim}]:[]);
+    return [...main,...layerHems];
+  }
+
+  function laceInstructions(design) {
+    return laceTrimTargets(design).map(({label,trim})=>{
+      const flexible=trim.style==='Stretch lace';
+      const settings=flexible
+        ?'Test zigzag 04 with foot J on the Brother CP2160F using a compatible stretch or ballpoint needle. After stitching, stretch the test piece and check that the thread holds and the edge recovers.'
+        :'Test centered straight stitch 01 with foot J on the Brother CP2160F if the attachment rail and garment are both stable. If the edge must stretch, test zigzag 04 with foot J on the actual layers and use trim that stretches far enough.';
+      return {visual:'designLaceTrim',text:`${label}. Apply ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}). Finish and fit the fabric edge first. With a flexible tape, measure each actual edge along the stitching path and mark matching points, joins and any closure. Allow spare trim for the repeat, seam joins and a test piece. Match motifs on paired edges. Lay the right side of the lace outward and place its solid sewing rail just over the finished fabric edge. Let the decorative part extend beyond the garment. Clip, then baste the rail through the garment. Check that it follows curves and points while lying flat. ${settings} Stitch through the rail and fabric. Finish the ends at the joins or on each side of an opening. Keep the closure free and recheck fit with the garment fastened.`};
+    });
+  }
+
   function instructions(design,model) {
     const spec = silhouettes[design.model];
     const style = design.cut.toLowerCase();
@@ -359,6 +475,8 @@ const studioDesign = (() => {
     const add = (visual,text) => list.push({visual,text});
     const layerSteps=layerInstructions(design);
     const upper = isBodice(design.model);
+    const strapless=upper && selectedSupport(design)==='Strapless';
+    const upperEdge=strapless?straplessInstructions(design):[];
     const fitArea = upper?'chest or bust':'hip or seat';
     const target = (upper?model.bust:model.hip)+design.ease;
     const additional = sewingModels.summary(model);
@@ -373,17 +491,11 @@ const studioDesign = (() => {
       add('seam','Mark the boning channels and busk or lacing reinforcement from the pattern. Label left and right panels, join the numbered panels in order, and test the marked channel width against the actual boning before closing the lining.');
     }
     if (isBodice(design.model)) {
-      add('neck',`Draw the ${design.neckline.toLowerCase()} front edge and ${selectedBack(design).toLowerCase()} on the toile. Mark center front, center back and matching points. Check coverage and closure access, then trace matching facings or binding before cutting.`);
+      if (strapless) list.push(upperEdge[0]);
+      else add('neck',`Draw the ${design.neckline.toLowerCase()} front edge and ${selectedBack(design).toLowerCase()} on the toile. Mark center front, center back and matching points. Check coverage and closure access, then trace matching facings or binding before cutting.`);
       const strap=selectedSupport(design);
-      if (strap!=='Strapless' && (strap!==supports[0] || design.strapWidth || design.strapPlacement)) {
-        const width=design.strapWidth??supportWidth(strap);
-        const shift=design.strapPlacement?` Move the attachment ${Math.abs(design.strapPlacement)} cm ${design.strapPlacement<0?'inward':'outward'} from the starting shoulder mark.`:'';
-        const route=strap==='Halter strap'?'Fit from the two front attachment points around the neck.':strap==='One-shoulder'
-          ?`Fit from the front bodice to the back bodice over the wearer’s ${selectedShoulderSide(design)} shoulder.`:'Fit from the front bodice to the back bodice over each shoulder.';
-        add('strap',`Fit the ${strap.toLowerCase()} at ${width} cm wide, finished. ${route}${shift} Mark the worn length and add the pattern’s attachment allowances. Baste, check reach and support, then reinforce the ends.`);
-      }
-      if (strap==='Strapless') add('facing','Fit and mark the strapless upper edge on the toile. Check that it stays in place while moving. Use the support, facing and reinforcement specified for the pattern before finishing the edge.');
-      if (isSleeved(design)) add('sleeve',`Trace a sleeve for the matching armhole. Mark the ${design.sleeve.toLowerCase()} sleeve shape and finished length. ${design.sleeve==='Puff'?'Slash and spread the sleeve pattern for fullness, then gather that excess into a tested cap or cuff.':design.sleeve==='Bell'?'Slash and spread from hem toward the cap, keeping the cap seam intact. Draw a smooth, wider hem.':'Keep the sleeve cap and its notches aligned to the armhole.'} Baste it into the test garment and check reach before cutting the final fabric.`);
+      if (!strapless && (strap!==supports[0] || design.strapWidth || design.strapPlacement)) list.push(strapInstructions(design));
+      if (isSleeved(design)) add('sleeve',`Trace a sleeve for the matching armhole. Mark the ${design.sleeve.toLowerCase()} sleeve shape and finished length. ${sleeveDrafting(design.sleeve)} Baste it into the test garment and check reach before cutting the final fabric.`);
     } else if (design.model==='trousers') {
       add('rise',`Mark the ${(design.rise||rises[1]).toLowerCase()} on the toile and mark the ${style} silhouette at the thigh, knee and leg opening. Change the knee and hem widths gradually on the front and back, keeping the grainline straight. Check sitting and stride, then walk the inseams and outseams before cutting.`);
     }
@@ -396,7 +508,10 @@ const studioDesign = (() => {
     if (design.pocket==='Patch pockets') add('pocketPatch','Mark matching pocket positions on the first fitting. Finish the pocket top edge, turn and press the remaining allowances, then topstitch the pockets onto the flat garment panels before assembly.');
     if (design.pocket==='In-seam pockets') add('pocket','Mark paired openings on the side seams. Sew the pocket bags to the matching front and back opening lines before joining the side seams. Join the bags, reinforce each opening end and check that the pockets sit flat.');
     if (isBodice(design.model)) {
-      add('shoulder','Sew and press the shoulder seams. Baste body seams and confirm ease and balance. Attach the facing or binding and understitch or secure its inner edge as appropriate.');
+      if (strapless) {
+        add('seam','Join the fitted bodice panels and preserve the marked upper edge. Baste the intended closure at its marks for the trial fitting, leaving the opening accessible for final construction.');
+        list.push(...upperEdge.slice(1,-1));
+      } else add('shoulder','Sew and press the shoulder seams. Baste body seams and confirm ease and balance. Attach the facing or binding and understitch or secure its inner edge as appropriate.');
       if (isSleeved(design)) add('armhole','Match each sleeve’s marked notches to its own armhole and baste it. Try on the garment and check movement and the intended fit on both sides, then attach and finish the sleeves.');
     } else {
       add(design.model==='trousers'?'rise':'seam',design.model==='trousers'
@@ -422,6 +537,7 @@ const studioDesign = (() => {
       const foot=closure==='Invisible zipper'?'Use a compatible invisible zipper foot as directed by the pattern.':'Use zipper foot I on the Brother CP2160F and check needle clearance by turning the handwheel before sewing.';
       add('designSinglePanelZipper',`Install the ${closure.toLowerCase()} at ${singleSeamLocation(panelAngle)}. Mark ${panelZipper} cm along the seam from the finished upper edge and leave that opening free. Stabilize the opening if the fabric stretches. Baste each zipper tape to its marked edge and close the zipper to check that the upper edges and any crossing seams line up. ${foot} Sew the tapes in place, close the seam below the bottom stop, and test that the zipper opens fully.`);
     } else add(...(closureSteps[closure] || closureSteps[closureChoices(design.model)[0]]));
+    if (strapless) list.push(upperEdge.at(-1));
     if (!isBodice(design.model) && closure!=='Elastic waistband') add('band','Finish the top edge with the chosen waistband or waist facing. Test the closure and check that the waist stays level when sitting.');
     list.push(...layerSteps.assemble);
     const hem = {
@@ -432,6 +548,7 @@ const studioDesign = (() => {
     if (hemShape.text) add('finish','Let the hem hang so any bias edges settle. Recheck the finished edge at each marked point on the wearer, and test the finish on a scrap cut at the same angle before trimming. '+hem[design.finish]);
     else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
     list.push(...layerSteps.hem);
+    list.push(...laceInstructions(design));
     return list;
   }
 
@@ -448,11 +565,31 @@ const studioDesign = (() => {
     const sideSettings=asymmetry(design);
     if (Object.values(sideSettings).some(side=>Object.keys(side).length)) design.asymmetry=sideSettings;
     else delete design.asymmetry;
-    if (selectedSupport(design)==='One-shoulder') design.shoulderSide=selectedShoulderSide(design);
+    const support=selectedSupport(design);
+    if (support==='One-shoulder') design.shoulderSide=selectedShoulderSide(design);
     else delete design.shoulderSide;
+    const shape=isBodice(design.model) && supportsStrapShape(support)?strapShape(design):strapShapeDefaults;
+    for (const [key,value] of Object.entries(shape)) {
+      if (value===strapShapeDefaults[key]) delete design[key];
+      else design[key]=value;
+    }
+    if (support==='Strapless' && isBodice(design.model)) {
+      design.straplessSupport=selectedStraplessSupport(design);
+      design.sleeve='Sleeveless';
+      delete design.strapWidth;
+      delete design.strapPlacement;
+      if (design.fitAdjustments) {
+        const {sleeveWidth,sleeveCap,sleeveLength,cuff,...remaining}=design.fitAdjustments;
+        design.fitAdjustments=remaining;
+      }
+    } else delete design.straplessSupport;
+    const trims=laceTrims(design);
+    if (Object.keys(trims).length) design.laceTrims=trims;
+    else delete design.laceTrims;
     const list = instructions(design,model);
     const closure=effectiveClosure(design);
     const tools = ['Sewing machine','iron','fabric shears','measuring tape','ruler','pins or clips','tailor’s chalk','matching thread','pattern paper'];
+    if (design.straplessSupport) tools.push(...straplessTools(design));
     if (/zipper|zip fly/i.test(closure)) tools.push('zipper foot',closure==='Invisible zipper'?'invisible zipper':'pattern-specified zipper');
     if (closure===closures[1]) tools.push('button','loop cord');
     if (closure===closures[2]||closure==='Button fly') tools.push('buttonhole foot','buttons','interfacing');
@@ -461,17 +598,23 @@ const studioDesign = (() => {
     if (closure==='Back lacing') tools.push('eyelets and setting tool','lacing cord');
     if (closure==='Front busk') tools.push('busk');
     if (garmentLayers.length) tools.push('hand-basting needle','removable fabric marker');
+    const trimTargets=laceTrimTargets(design);
+    if (trimTargets.length) tools.push('foot J','hand-basting needle','compatible needle','flexible measuring tape');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
+    const trimMaterials=trimTargets.length?' '+trimTargets.map(({label,trim})=>`Use ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}) for ${label.toLowerCase()}.`).join(' ')+' Measure each finished edge and allow spare for motif matching, joins and a test piece.':'';
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
       cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase()+(hasFairyHem(design)?' · fairy hem':''),
       level:'Intermediate',color:design.primary,design,
-      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+' Confirm yardage after laying out your drafted pieces.',
-      tools:tools.join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
+      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+trimMaterials+' Confirm yardage after laying out your drafted pieces.',
+      tools:[...new Set(tools)].join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,hemContourLimits,hemContour,hemOffsetAt,tones,backs,rises,
+    laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,
     layerKinds,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,seamKeys,seamLimits,seams,asymmetryLimits,asymmetryKeys,asymmetry,
     centerFrontSeam,panelAngleLimits,panelSeamPaths,panelSeamSnapOffset,singleSeamAngle,singleSeamLocation,singleSeamGuide,
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
-    baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,selectedShoulderSide,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};
+    baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,straplessSupportChoices,selectedStraplessSupport,
+    selectedShoulderSide,supportWidth,supportsStrapShape,strapShapeLimits,strapShapeChoices,strapShape,
+    selectedBack,pocketChoices,defaults,measurements,straplessInstructions,straplessTools,strapInstructions,sleeveDrafting,laceInstructions,instructions,make};
 })();

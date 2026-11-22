@@ -35,6 +35,8 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .slider-group{margin:8px 0;background:var(--white)}
 .slider-group-content{padding-top:12px}
 .slider-group-content>.field:last-child{margin-bottom:0}
+.lace-settings{padding:0;border:0;margin:12px 0 0;min-width:0}
+.lace-settings[disabled]{display:none}
 #design-asymmetry[hidden],[data-fairy-sliders][hidden]{display:none}
 .layer-card>summary{color:var(--ink)}
 .design-rotate{width:100%;margin:0}.design-rotate input[type=range]{min-height:26px}
@@ -118,6 +120,9 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 @media(max-width:600px){.wf-reference{grid-template-columns:1fr}.wf-reference-image{justify-self:center}}
 
 [data-strap-sizing][hidden],[data-strapless-note][hidden],[data-sleeve-toggle][hidden],[data-sleeve-style][hidden]{display:none}
+[data-strapless-finish][hidden],[data-strap-shape][hidden]{display:none}
+.strapless-choice{margin:0 0 15px}
+[data-choose-strapless][aria-pressed=true]{border-color:var(--red);background:#f4e5e9}
 
 .basic-videos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-top:12px;align-items:start}
 .basic-video{padding:12px 14px}.basic-video summary{cursor:pointer;color:var(--red)}
@@ -129,6 +134,18 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-editor-toolbar{padding:12px 14px;border-bottom:1px solid var(--line)}
 .design-editor-toolbar .field,.design-editor-footer .field{margin:0}
 .design-editor-toolbar .actions{margin-top:10px}
+.design-panel-tabs{display:flex;margin-bottom:14px}
+.design-panel-tabs button{flex:1;min-width:0;padding-inline:6px}
+.design-panel-tabs button[hidden]{display:none}
+.design-panel-tabs button[aria-pressed=true]{border-color:var(--red);background:#f4e5e9}
+.design-save{padding-top:12px;background:var(--white)}
+[data-design-panel][hidden]{display:none}
+@media(min-width:960px){
+  .design-controls{position:sticky;top:15px;max-height:calc(100vh - 30px);max-height:calc(100dvh - 30px);display:flex;flex-direction:column}
+  #design-form{min-height:0;overflow:auto;padding:2px 4px 4px;scrollbar-gutter:stable}
+  .design-save{position:sticky;bottom:-4px;padding-bottom:4px}
+  .fitting-controls{position:sticky;top:15px;max-height:calc(100vh - 30px);max-height:calc(100dvh - 30px);overflow:auto}
+}
 .design-editor-footer{display:grid;gap:8px;align-items:start}
 .design-editor-footer .fields{width:100%}
 .design-editor-footer input[type=range]{min-height:26px}

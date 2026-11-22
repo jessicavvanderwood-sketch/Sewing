@@ -38,9 +38,13 @@ Tool photos show representative examples. The Brother machine photo links to the
 
 Open **Pattern Library → New custom piece** to combine a silhouette, length, neckline, sleeves, color, and fabric in the design editor. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
 
+Choose **Strapless** for a dress or top with an elastic top edge or a structured bodice. Corsets use structured support. For a garment with straps, open **Strap curve and taper** to customize the front and back joins or start from a preset. Sleeve choices include Flutter, Bishop, and Tapered, in addition to the existing width, length, cap, and cuff sliders.
+
+Open **Lace trim** to finish the upper edge, sleeve openings, or main hem. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem.
+
 Select **Fit sliders** to open the **Fit adjustments** panel. Both workflows use the same sliders, fabric weight, stretch and drape settings, poses, motion playback, and tightness map. Saved designs keep their fabric and fit settings for revisions and construction work orders.
 
-Use **Edit on garment** to choose shape and fit, seam placement, layers and ruffles, or left and right fit. Select a detail on the garment to highlight it, expand its slider group, and focus its slider. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to fit, seam, and layer edits.
+Use **Design**, **Fit**, **Seams**, **Layers**, or **Lace** to browse related controls beside the preview. Select a visible garment detail to highlight it, switch to its panel, and focus the matching control. **Edit on garment** can show extra seam guides or focus left and right fit on one side. **View only** lets you inspect the preview without selecting controls. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to fit, seam, and layer edits.
 
 In **Seam placement**, move the front seam offset slider inward until the seams merge, or select **Merge front seams**. Select the merged seam to open its position slider. In **Seam and zipper settings**, enable a standard or invisible zipper and use the opening length slider to set its stop. The illustrated work order marks the seam location, the opening length, and where to sew below the zipper.
 

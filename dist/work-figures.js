@@ -204,8 +204,10 @@ const workFigures = (() => {
     if (movement) return movement;
     if (Object.hasOwn(seatedRegions,id)) return seatedPanels(step,id,order,pattern.measurements)[0];
     if (id==='strap') return strapPanels(step,order,pattern.design)[0];
-    if (id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
-      return straplessPanels(order,pattern.measurements)[0];
+    if (id==='sleeve' && sleeveStylePattern.test(step)) return sleeveStylePanels(step,order,pattern.measurements)[0];
+    if (id==='designLaceTrim') return laceTrimPanels(step)[0];
+    if (straplessVisuals.includes(id) || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
+      return straplessPanels(id,order,pattern.measurements,pattern.design)[0];
     }
     if (seamDesignPhases.includes(id)) return designSeamPanels(id,order,pattern.design)[0];
     if (layerPhases.includes(id)) return layerPanels(step,id,order,pattern.design)[0];
@@ -297,6 +299,7 @@ const workFigures = (() => {
     const plan=order.plan||{};
     const widthMark=num(step,/(\d+(?:\.\d+)?) cm wide/i);
     const width=widthMark?widthMark+' cm':format(plan.strapWidth);
+    const measuredWidth=widthMark?Number(widthMark):plan.strapWidth??design?.strapWidth;
     const length=format(plan.strapLength);
     const placement=step.match(/(\d+(?:\.\d+)?) cm (inward|outward) from the starting shoulder mark/i);
     const halter=/\bhalter\b/i.test(step) || design?.support==='Halter strap' && !/shoulder straps|wide straps|narrow straps|spaghetti straps/i.test(step);
@@ -325,6 +328,11 @@ const workFigures = (() => {
       path(`M${start} ${yTop}V${yBottom}M${end} ${yTop}V${yBottom}`,'wf-stitch')+
       path(`M${start} ${yTop}V40M${end} ${yTop}V40M${outerRight} ${yTop}H242M${outerRight} ${yBottom}H242`,'wf-extension')+
       span(start,end,43,length||'Finished length')+tick(241,yTop,yBottom,width||'Pattern width');
+    const values={...design};
+    for (const key of Object.keys(studioDesign.strapShapeLimits)) if (Number.isFinite(plan[key])) values[key]=plan[key];
+    const shape=studioDesign.strapShape(values);
+    const shaped=studioDesign.supportsStrapShape(design?.support)||/Front attachment uses \d+%/.test(step)||
+      shape.strapFrontCurve || shape.strapBackCurve || shape.strapFrontTaper!==100 || shape.strapBackTaper!==100;
     return [
       panel(halter?'Mark front anchors for the halter':single?'Mark one shoulder on the front and back':'Locate both strap anchors on front and back',
         front+backing+connectors+offset+label(84,126,'Front','middle')+label(234,126,halter?'Back · no anchors':'Back','middle'),
@@ -332,6 +340,7 @@ const workFigures = (() => {
           :halter?'Mark where the halter ends meet the front. Check the fit around the back of the neck, including the closure.'
             :single?`Mark where the support meets the front and back over the wearer’s ${shoulderSide} shoulder. Transfer those two marks separately to the paper pattern.`
               :'Mark both ends of each strap on the fitting sample. Match the left and right sides, then transfer every marked end to the paper pattern.'),
+      ...(shaped?strapShapePanels(shape,measuredWidth,halter):[]),
       panel('Measure between the attachment lines',
         plannedStrip+label(58,119,'Front mark')+label(170,119,halter?'Neck mark':'Back mark')+
         (pad?span(outerLeft,start,145,pad):''),
@@ -343,20 +352,205 @@ const workFigures = (() => {
         `Keep each strap flat and untwisted. Baste it at the marks and try on the garment. Check reach, ${single?'balance':'symmetry'}, and coverage before permanently sewing and reinforcing the attachment as the pattern directs.`)
     ];
   }
-  function straplessPanels(order,measurements) {
-    const edge=format(order.allowances?.neck??order.allowances?.seam);
+
+  function strapShapePanels(shape,width,halter) {
+    const reference=halter?'Neck reference':'Shoulder';
+    const back=halter?'Back collar':'Back attachment';
+    const sections=[['Front attachment',57,shape.strapFrontCurve,shape.strapFrontTaper],
+      [reference,165,0,100],[back,273,shape.strapBackCurve,shape.strapBackTaper]];
+    const y=curve=>87-Math.sign(curve)*Math.min(23,Math.abs(curve)*5);
+    const halfWidth=taper=>Math.min(.12,17/Math.max(100,shape.strapFrontTaper,shape.strapBackTaper))*taper;
+    const [front,shoulder,rear]=sections.map(([,x,curve,taper])=>({x,y:y(curve),half:halfWidth(taper)}));
+    const boundary=(direction,start,end)=>`Q${(start.x+end.x)/2} ${start.y+start.half*direction} ${end.x} ${end.y+end.half*direction}`;
+    const strip=path(`M${front.x} ${front.y-front.half}${boundary(-1,front,shoulder)}${boundary(-1,shoulder,rear)}L${rear.x} ${rear.y+rear.half}${boundary(1,rear,shoulder)}${boundary(1,shoulder,front)}Z`,'wf-cloth')+
+      path(`M57 ${front.y}Q109 ${front.y} 165 87Q222 87 273 ${rear.y}`,'wf-guide');
+    const widthMarkings=sections.map(([name,x,curve,taper])=>{
+      const half=halfWidth(taper), center=y(curve);
+      const amount=Number.isFinite(width)?format(width*taper/100):`${taper}%`;
+      return tick(x,center-half,center+half,'')+label(x,21,name,'middle')+dimText(x,39,amount,'middle')+
+        label(x,138,`${taper}% of reference`,'middle');
+    }).join('');
+    const panels=[panel('Mark the finished strap widths',strip+widthMarkings,
+      `Mark the center of the ${reference.toLowerCase()} width. Measure across the strap at each reference line. Blend the front and back widths into the center width. Mark the edge allowance outside the finished outline, using the cut pattern’s instructions.`)];
+    if (shape.strapFrontCurve || shape.strapBackCurve) {
+      const marked=sections.filter(([,x])=>x!==165).map(([name,x,curve])=>{
+        const curvy=y(curve);
+        return label(x,32,name,'middle')+path(`M${x-10} 87H${x+10}`,'wf-guide')+path(`M${x-10} ${curvy}H${x+10}`,'wf-stitch')+
+          (curve?tick(x,Math.min(curvy,87),Math.max(curvy,87),''):'')+
+          dimText(x,141,curve?`${format(Math.abs(curve))} ${curve>0?'inward':'outward'}`:'Starting centerline','middle');
+      }).join('');
+      panels.push(panel('Mark the separate front and back curves',strip+marked+label(165,32,reference,'middle')+label(165,145,'Starting width mark','middle'),
+        'Measure each shift from its starting attachment centerline on the fitted pattern. Inward moves toward the neckline, and outward moves away. Blend from each shifted mark back toward the center reference while keeping the planned widths. Baste and check coverage before cutting final fabric.'));
+    }
+    return panels;
+  }
+  const straplessVisuals=['straplessElasticFit','straplessElasticLength','straplessElasticCasing','straplessElasticFinish',
+    'straplessStructuredFit','straplessChannels','straplessStructuredFinish'];
+  function straplessPanels(id,order,measurements,design) {
+    const plan=order.plan||{};
+    const legacy=!straplessVisuals.includes(id);
+    const support=plan.straplessSupport || design?.straplessSupport;
+    const stage=legacy && support
+      ?studioDesign.selectedStraplessSupport({...design,straplessSupport:support})==='Structured bodice'?'straplessStructuredFit':'straplessElasticFit'
+      :id;
+    const allowance=format(order.allowances?.neck??order.allowances?.seam)||'Pattern allowance';
     const bust=valueFor(measurements,'Chest / bust');
-    const bodice=path('M45 54Q72 39 105 54Q132 39 164 54L153 133H57Z','wf-cloth');
-    const topEdge=path('M45 54Q72 39 105 54Q132 39 164 54','wf-dimension');
+    const shell=path('M38 49Q69 35 102 51Q137 37 172 49L156 135H55Z','wf-cloth');
+    const top=path('M38 49Q69 35 102 51Q137 37 172 49','wf-dimension');
+    const fit=panel('Mark the finished strapless edge',shell+top+guide(170,49,195,38)+label(199,40,'Finished upper edge')+
+      guide(104,52,104,131)+label(105,150,'Center front','middle')+(bust?tape(51,163,89,'Model bust '+bust):''),
+      'Fasten the toile as it will be worn. Mark the finished edge at center front, center back and both sides. Check coverage while standing, sitting and reaching, then take the marks back to the pattern.');
+    const facing=panel('Match the facing to the top-edge marks',shell+
+      path('M40 52Q69 39 102 55Q138 41 171 52L168 75Q137 63 103 77Q71 62 44 75Z','wf-fold')+
+      path('M42 65Q70 51 103 67Q137 53 169 64','wf-stitch')+
+      leader(171,50,205,50)+leader(169,64,205,64)+tick(203,50,64,allowance)+label(102,109,'Garment side','middle'),
+      'Trace the shaped facing from the confirmed pattern. Match the center and side notches before sewing. Measure the seam allowance from the matched raw edges to the marked stitching line.');
+    if (stage==='straplessElasticFit' || stage==='straplessStructuredFit') {
+      const structured=stage==='straplessStructuredFit';
+      const visual=structured?path('M70 67Q74 91 66 130M103 70V131M139 65Q131 94 142 130','wf-stitch'):
+        path('M41 59Q68 46 103 62Q140 49 170 59','wf-stitch');
+      return [fit,panel(structured?'Baste the sample with its foundation':'Mark the elastic path inside the sample',
+        shell+visual+leader(166,structured?94:58,192,structured?88:56)+label(196,structured?91:59,structured?'Foundation seam':'Elastic path'),
+        structured?'Match the sample foundation to its fitted body seams. Fasten the closure and fit it with the intended underlayers and a test fabric with similar weight to the finished garment.'
+          :'Use washable chalk to mark where the elastic will sit just inside the finished edge. Carry the marks around the upper edge and check where the elastic meets any opening.')];
+    }
+    const length=format(plan.straplessElasticLength);
+    const width=format(plan.straplessElasticWidth);
+    const overlap=format(plan.straplessElasticOverlap);
+    const casing=format(plan.straplessCasingWidth);
+    if (stage==='straplessElasticLength') return [
+      panel('Test the elastic on the wearer',shell+path('M40 58Q68 45 102 59Q138 45 171 58','wf-stitch')+
+        path('M53 46v23m100-23v23','wf-dimension')+leader(154,62,183,77)+label(187,80,'Pin the fit marks')+
+        label(103,147,'Test at the actual upper edge','middle'),
+        'Use the elastic chosen for this garment. Hold it where it will sit and pin the marks on the fitting sample at a comfortable tension. For a pull-on opening, also check the loop can pass over the body when stretched.'),
+      panel('Measure the fitted length with the elastic relaxed',path('M37 65H239V105H37Z','wf-fold')+
+        path('M55 65V105M222 65V105','wf-stitch')+span(55,222,51,length||'Mark and measure relaxed length')+
+        (width?tick(246,65,105,width):label(252,86,'Elastic width'))+label(53,122,'First mark')+label(221,122,'Second mark','middle'),
+        `${length?`Recheck the recorded ${length} fitted length with the elastic relaxed. `:'Remove the elastic and let it relax before measuring between your test marks. '}Add the join or anchor allowance from the chosen construction method before marking the cut ends.`)
+    ];
+    if (stage==='straplessElasticCasing') return [
+      panel('Sew the casing with room for the elastic',path('M30 39H226V126H30Z','wf-cloth')+path('M30 39H226V91H30Z','wf-fold')+
+        path('M32 90H116M150 90H224','wf-stitch')+path('M38 63H215','wf-dimension')+
+        tick(237,39,90,casing||'Test clear width')+label(81,56,'Elastic path')+label(110,113,'Threading gap'),
+        `Fold or turn the faced edge to the marked casing width. Stitch its inner line, leaving a gap for threading. ${casing?`Check ${casing} of clear space inside. `:''}${width?`Slide a piece of the ${width} elastic through your test casing. `:''}Make sure it slides flat without rolling.`),
+      panel('Thread the elastic through the gap',path('M36 44H230V117H36Z','wf-fold')+path('M37 100H114M153 100H230','wf-stitch')+
+        path('M64 66H197l-7 -5m7 5l-7 5','wf-arrow')+path('M119 71h12v39h-12Z','wf-right')+
+        leader(127,105,145,127)+label(149,131,'Hold the trailing end')+label(61,84,'Feed with bodkin'),
+        'Attach the bodkin or safety pin to the first end. Feed it a little at a time, gathering the casing in front of the pin and pulling it off the back. Keep the other end clipped outside the gap.'),
+      panel('Baste and test the sew-in option',path('M29 44H241V123H29Z','wf-cloth')+path('M29 77H241V106H29Z','wf-fold')+
+        path('M50 70V112M135 70V112M221 70V112','wf-dimension')+
+        path('M51 92l6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5 6 -5 6 5','wf-stitch')+
+        label(59,60,'Match elastic and garment marks')+label(46,141,'Test zigzag 04 with foot J'),
+        'If your pattern uses sew-in elastic, mark matching positions on both pieces and baste them first. Stretch the elastic gently between marks while sewing. Test the zigzag on the actual layers and pull the sample to verify the stitches hold.')
+    ];
+    if (stage==='straplessElasticFinish') return [
+      panel('Secure a tested pull-on loop',path('M33 60H177V91H33ZM143 74H292V104H143Z','wf-fold')+
+        path('M145 70V104M173 70V104M146 82L171 98M171 82L146 98','wf-stitch')+
+        span(143,177,52,overlap||'Tested overlap')+label(157,126,'Secure through both ends','middle'),
+        'Lay the elastic flat without twists. Overlap by the allowance tested on your scrap and stitch the join as the elastic requires. Pull it gently to check the stitching, feed it into the casing and close the gap.'),
+      panel('Anchor elastic beside a closure that crosses the edge',path('M32 48H143V135H32ZM160 48H272V135H160Z','wf-cloth')+
+        path('M34 65H139V89H34ZM164 65H270V89H164Z','wf-fold')+path('M135 65V89M169 65V89','wf-stitch')+
+        guide(151,46,151,133)+label(152,31,'Closure opening','middle')+label(152,152,'Anchor each end separately','middle'),
+        'Where a zipper or buttons cross the elastic edge, attach the elastic ends to their marked reinforced points. Leave the closure free to open. Fasten the garment and check fit while breathing, sitting and reaching.')
+    ];
+    if (stage==='straplessChannels') return [
+      panel('Mark the boning channels on the foundation',shell+top+
+        path('M69 67Q74 100 72 126M103 66V127M138 64Q133 95 142 126','wf-stitch')+
+        guide(54,62,160,62)+leader(140,97,183,91)+label(188,94,'Boning channel')+label(194,45,'Clear top allowance'),
+        'Mark the channels and closure on the foundation from the tested pattern. Stop the bones short of the top and bottom stitching lines. Check each channel with the actual bone before closing its ends.'),
+      panel('Test the bone and the channel together',path('M55 30H151V137H55Z','wf-cloth')+
+        path('M81 37H126V129H81Z','wf-fold')+path('M101 48Q109 48 109 55V111Q109 119 101 119Q93 119 93 111V55Q93 48 101 48Z','wf-right')+
+        path('M82 42V124M125 42V124','wf-stitch')+leader(106,56,166,53)+label(170,56,'Protected bone end')+
+        leader(124,87,165,84)+label(169,87,'Channel stitching'),
+        'Sew a channel on a scrap of the support layers and slide a finished bone through it. It should sit flat and keep its end covers in place. Follow the pattern for channel widths, bone length and any internal waist stay.')
+    ];
+    if (stage==='straplessStructuredFinish') return [facing,
+      panel('Turn the facing inside and test the closure',shell+path('M44 56Q72 43 103 62Q136 47 170 55L167 79Q137 65 103 82Q71 65 47 78Z','wf-fold')+
+        path('M44 58Q72 45 103 64Q136 49 170 57','wf-stitch')+leader(163,65,192,83)+label(196,86,'Facing inside'),
+        'Grade or clip the allowance where required, then roll the seam so the facing sits inside. Anchor it at the seams as specified. Test the closure and comfort with the whole garment fastened and its weight supported.')];
     return [
-      panel('Fit the unsupported upper edge',
-        bodice+topEdge+guide(161,52,187,40)+label(192,42,'Finished upper edge')+
-        (bust?tape(52,159,85,'Model bust '+bust):''),
-        'Use a strapless pattern or toile with the specified structure before removing any support. Mark front and back upper edge heights on the wearer, then check standing, sitting, and reaching without the edge slipping.'),
-      panel('Mark the facing or support seam',
-        bodice+path('M47 65Q72 50 105 65Q132 50 162 65','wf-stitch')+path('M163 54H192M162 65H192','wf-extension')+
-        tick(192,54,65,edge||'Pattern allowance')+label(104,116,'Inside of the bodice','middle'),
-        'Trace matching front and back reinforcement and finishing pieces from the confirmed pattern. Keep the specified seam allowance and construct the support before finishing the upper edge.')
+      fit,facing
+    ];
+  }
+
+  function laceTrimPanels(step) {
+    const match=step.match(/^([^.]+)\. Apply (scalloped|eyelet|stretch) lace (\d+(?:\.\d+)?) cm wide \((#[0-9a-f]{6})\)/i);
+    const edge=match?.[1] || 'Finished edge';
+    const style=match?.[2].toLowerCase();
+    const width=format(Number(match?.[3]))||'Actual trim width';
+    const color=match?.[4]||'#f1e6da';
+    const stretchy=style==='stretch';
+    const laceBottom=style==='scalloped'?'Q218 126 203 110Q188 126 173 110Q158 126 143 110Q128 126 113 110Q98 126 83 110Q68 126 53 110':'H53';
+    const openings=[68,98,128,158,188,218].map(x=>`<circle class="wf-edge" cx="${x}" cy="101" r="4"/>`).join('');
+    const band=`<path d="M53 79H233V110${laceBottom}V79Z" fill="${color}" stroke="#70564f"/>`+openings;
+    const zigzag=Array.from({length:16},(_,index)=>index%2?'4 5':'4 -5').join(' ');
+    return [
+      panel(`Measure the stitching path for ${edge.toLowerCase()}`,
+        path('M34 43H228V101Q138 143 34 99Z','wf-cloth')+path('M36 96Q137 136 225 98','wf-dimension')+
+        path('M49 98l3-8m28 18l2-8m27 14l1-7m24 9v-8m27 5l-1-7m27 2l-2-8m28 0l-3-8','wf-dimension')+
+        guide(122,115,143,144)+label(151,149,'Flex tape along stitch path')+label(51,69,'Finished fabric face'),
+        'Finish the edge and lay it flat. Guide a flexible tape along the actual stitching path through each curve or point. Mark the joins and openings. Check each sleeve, leg or layer separately and allow extra trim to match motifs and test a seam.'),
+      panel('Baste the lace rail over the finished edge',
+        path('M53 40H233V87H53Z','wf-cloth')+band+path('M54 87H232','wf-guide')+path('M54 82H232','wf-stitch')+
+        guide(233,79,251,79)+guide(233,style==='scalloped'?118:110,251,style==='scalloped'?118:110)+
+        tick(248,79,style==='scalloped'?118:110,width)+
+        leader(86,81,70,62)+label(58,58,'Baste here')+label(156,58,'Garment right side')+
+        label(142,139,'Decorative side extends past edge','middle'),
+        'Place the lace right side out. Overlap the solid sewing rail with the finished fabric edge just enough to catch both layers. Clip at the matching marks first and baste the rail. Check the basting follows the edge without puckers.'),
+      panel(stretchy?'Test a stretch stitch and recovery':'Test the stitch on matching layers',
+        path('M33 47H139V85H111V108H46V85H33Z','wf-cloth')+path('M100 57H130V72H100Z','wf-fold')+
+        label(115,69,stretchy?'04':'01 / 04','middle')+path('M151 74H252V114H151Z','wf-fold')+
+        path(stretchy?`M158 96l${zigzag}`:'M158 94H246','wf-stitch')+label(132,140,'Test with foot J on the Brother CP2160F','middle'),
+        stretchy?'Fit foot J and use a compatible stretch or ballpoint needle for the layers. Test zigzag 04 on the actual fabric and lace rail. Pull and release the sewn scrap to check that the stitches hold and the edge recovers.'
+          :'Fit foot J and test centered straight stitch 01 if the garment and lace rail are stable. For an edge that must stretch, choose a compatible lace first, then test zigzag 04 on the actual layers and check recovery.'),
+      panel('Keep the closure free and finish the trim ends',
+        path('M36 44H148V99H36ZM166 44H279V99H166Z','wf-cloth')+
+        `<path d="M36 85H143V113H36ZM171 85H279V113H171Z" fill="${color}" stroke="#70564f"/>`+
+        path('M40 91H136M177 91H275M139 87V111M174 87V111','wf-stitch')+
+        guide(157,47,157,111)+label(157,33,'Opening or closure','middle')+label(157,138,'Finish both ends separately','middle'),
+        'Stitch through the solid rail and the fitted fabric edge. Match motifs at joins. At a zipper or other opening, finish the trim ends on each side and leave room for the fastening to work. Try on the garment and check any trimmed edge that moves or stretches.')
+    ];
+  }
+
+  const sleeveStylePattern=/\b(flutter|bishop|tapered)\b/i;
+  function sleeveStylePanels(step,order,measurements) {
+    const style=step.match(sleeveStylePattern)?.[1].toLowerCase();
+    const seam=format(order.allowances?.armhole??order.allowances?.seam)||'Pattern allowance';
+    if (style==='flutter') return [
+      panel('Keep the cap length and spread the flutter edge',
+        path('M57 105Q69 53 131 38Q203 41 228 104Q141 151 57 105Z','wf-cloth')+
+        path('M65 101Q82 54 131 47Q187 48 220 101','wf-stitch')+
+        path('M86 116L105 60M124 129L131 50M169 128L156 56M204 117L178 65','wf-guide')+
+        guide(134,39,185,28)+label(192,31,'Keep cap and notches')+label(73,152,'Slash from the lower edge'),
+        'Slash the paper from the lower edge toward the cap and leave small hinges at the cap stitch line. Spread the sections gradually so the cap still matches the armhole. Mark and true the rounded edge on paper.'),
+      panel('Test the curved finish on scrap',path('M47 38Q142 109 230 40L229 67Q143 149 46 66Z','wf-cloth')+
+        path('M48 59Q145 136 228 58','wf-stitch')+guide(228,58,255,58)+guide(229,67,255,67)+
+        tick(252,58,67,format(order.allowances?.first)||'Per pattern',-1)+label(128,135,'Support the curved edge','middle'),
+        'Test the selected narrow finish on a curved scrap cut at the same grain. Guide the fabric without pulling, then press the finished edge flat before checking the drape.')
+    ];
+    if (style==='bishop') return [
+      panel('Mark the bishop sleeve cap and gathered cuff line',
+        path('M85 54Q122 23 173 37Q190 40 211 54L258 118Q155 143 51 118Z','wf-cloth')+
+        path('M89 53Q128 35 174 46Q187 48 202 54','wf-stitch')+
+        path('M64 110Q154 135 245 109M60 116Q155 141 248 115','wf-stitch')+
+        path('M99 111v16m55-9v18m55-25v16','wf-dimension')+label(153,26,'Keep the sleeve cap','middle')+label(153,153,'Two rows of gathering stitches','middle'),
+        'Match the cap to the armhole and keep its notches. Spread the lower sleeve for fullness. Leave two long rows of basting between the matching cuff marks, with thread tails so you can pull up the gathers.'),
+      panel('Fit the cuff before trapping the gathers',path('M38 37H206V82Q121 114 38 82Z','wf-cloth')+
+        path('M49 93H196V124H49Z','wf-fold')+path('M51 102H193','wf-stitch')+guide(67,76,67,106)+guide(173,76,173,106)+
+        label(137,145,'Fitted cuff and closure','middle')+tick(215,93,102,seam),
+        'Test the cuff around the wrist with the planned opening. Draw up the basting until the sleeve fits the cuff’s sewing line. Pin at the marks first, then divide the gathers between them.')
+    ];
+    return [
+      panel('Transfer the upper arm, elbow and wrist levels',
+        path('M58 56Q97 30 126 42Q152 48 169 64L146 136H99Z','wf-cloth')+
+        guide(71,68,161,68)+guide(86,102,156,102)+guide(93,127,149,127)+
+        label(173,71,valueFor(measurements,'Upper arm circumference')?'Model upper arm '+valueFor(measurements,'Upper arm circumference'):'Upper-arm level')+
+        label(165,106,'Elbow bend')+label(161,131,valueFor(measurements,'Wrist circumference')?'Model wrist '+valueFor(measurements,'Wrist circumference'):'Wrist level'),
+        'Mark the arm and wrist levels on the wearer and transfer them to the sleeve. Blend inside the old sleeve line toward the cuff with room to bend the elbow.'),
+      panel('Mark a wrist opening only where the fitting calls for it',path('M55 43H184L171 135H72Z','wf-cloth')+
+        path('M112 129V96M126 129V96','wf-stitch')+guide(112,95,196,95)+label(200,98,'Opening end')+
+        path('M74 129H169','wf-dimension')+label(93,153,'Finished cuff edge'),
+        'Check that the hand passes through the basted cuff. If it needs an opening, mark the opening and its finish from the fitted sleeve pattern. Preserve that space when you true and stitch the sleeve.')
     ];
   }
 
@@ -1030,10 +1224,12 @@ const workFigures = (() => {
       return panels.length?`<details class="wo-how wo-storyboard"><summary>Follow this step in pictures · ${panels.length} ${panels.length===1?'action':'actions'}</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
     }
     if (id==='fairyHem' || id==='hemContour') return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures</summary><div class="wf-grid">${hemShapePanels(design || (id==='fairyHem'?{hemStyle:'Fairy / handkerchief'}:{}),order.allowances,design?.finish).join('')}</div></details>`;
+    if (id==='sleeve' && sleeveStylePattern.test(step)) return `<details class="wo-how wo-storyboard" open><summary>Check the sleeve draft in pictures</summary><div class="wf-grid">${sleeveStylePanels(step,order,measurements).slice(1).join('')}</div></details>`;
+    if (id==='designLaceTrim') return `<details class="wo-how wo-storyboard" open><summary>Attach the lace trim in pictures</summary><div class="wf-grid">${laceTrimPanels(step).slice(1).join('')}</div></details>`;
     if (order.plan?.asymmetric && ['grain','cut','designCut'].includes(id)) return `<details class="wo-how wo-storyboard" open><summary>Follow the single-layer cutting setup</summary><div class="wf-grid">${[layoutPanel(order.plan),cutEdgePanel(order.allowances||{})].join('')}</div></details>`;
     if (Object.hasOwn(seatedRegions,id)) return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · 2 actions</summary><div class="wf-grid">${seatedPanels(step,id,order,measurements).slice(1).join('')}</div></details>`;
-    if (id==='strap' || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
-      const panels=id==='strap'?strapPanels(step,order,design).slice(1):straplessPanels(order,measurements).slice(1);
+    if (id==='strap' || straplessVisuals.includes(id) || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
+      const panels=id==='strap'?strapPanels(step,order,design).slice(1):straplessPanels(id,order,measurements,design).slice(1);
       return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · ${panels.length} actions</summary><div class="wf-grid">${panels.join('')}</div></details>`;
     }
     const opening=id==='armhole'||id==='sleeve'&&/unpick the sleeves|sleeveless opening/i.test(step);
