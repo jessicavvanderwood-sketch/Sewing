@@ -40,6 +40,40 @@ const garmentFit = (() => {
       ...(sleeves ? ['sleeveWidth','sleeveCap','sleeveLength','cuff'] : []),'sweep','length'];
   }
 
+  const sizes=['XXS','XS','S','M','L','XL','XXL'];
+  const baseSize='M';
+  const normalizeSize=size=>sizes.includes(size)?size:baseSize;
+  // One adjacent size step, in centimeters. Girths are measured around
+  // the whole garment, except sleeve and leg values, which are per limb.
+  const bodiceGrade={bust:5,shoulder:1,armhole:.35,neckWidth:.5};
+  const sleeveGrade={sleeveWidth:1.5,sleeveLength:.5,cuff:1};
+  const skirtGrade={upperHip:4,lapEase:4,kneeEase:3,sweep:3,sittingLength:.35};
+  const sizeGrades={
+    dress:{...bodiceGrade,...skirtGrade,length:1.5},
+    top:{...bodiceGrade,sweep:3,length:1.2},
+    corset:{bust:5,sweep:3,length:.5},
+    skirt:{...skirtGrade,length:1},
+    trousers:{rise:.5,backRise:.25,crotch:.25,thigh:2.5,knee:1.2,leg:1,length:.75}
+  };
+
+  function grade(model,size,sleeves=false) {
+    if (!Object.hasOwn(sizeGrades,model)) return {};
+    const steps=sizes.indexOf(normalizeSize(size))-sizes.indexOf(baseSize);
+    if (!steps) return {};
+    const sleeveSteps=sleeves && (model==='dress'||model==='top')?sleeveGrade:{};
+    const rates={waist:5,hip:5,...sizeGrades[model],...sleeveSteps};
+    return Object.fromEntries(Object.entries(rates).map(([key,cm])=>[key,Number((steps*cm).toFixed(2))]));
+  }
+
+  function applyGrade(changes,model,size,sleeves=changes?.hasSleeves) {
+    const result={...changes};
+    for (const [key,delta] of Object.entries(grade(model,size,sleeves))) {
+      const base=Number.isFinite(result[key])?result[key]:0;
+      result[key]=Number((base+delta).toFixed(3));
+    }
+    return result;
+  }
+
   const seatedKeys=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
   function seatedRegions(model) {
     if (model==='trousers') return {waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
@@ -159,5 +193,5 @@ const garmentFit = (() => {
     return ['taper',`Change the ${label} by ${n} cm on each leg. If inseam and outseam share the change equally, move each seam line ${n/4} cm on both layers ${smaller?'toward the leg body':'toward the raw edge'}. Blend into the unchanged leg, preserve the grainline, and baste both legs. Check sitting room and that the foot passes through the finished opening.`];
   }
 
-  return {fields,keys,seatedKeys,suggestEase,directions};
+  return {fields,keys,sizes,baseSize,normalizeSize,grade,applyGrade,seatedKeys,suggestEase,directions};
 })();

@@ -77,8 +77,9 @@ try {
 } catch {}
 const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
+const previewDialog = document.querySelector('#garment-preview-dialog');
 const notice = document.querySelector('#notice');
-studioUnits.watch(document.querySelector('#length-units'),view,modal);
+studioUnits.watch(document.querySelector('#length-units'),view,modal,previewDialog);
 const titles = {overview:'Overview',design:'New custom piece',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'Fit and revise garment',models:'Model Library',basics:'Sewing Basics'};
 const features = [['design','✧','Create an original garment or start from a reference photo.'],['library','▤','Browse patterns, try on garments in 3D, and revisit saved revisions.']];
 const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -172,7 +173,31 @@ function archiveItem(key,id) {
 }
 const basePattern = pattern => patterns.find(base => base.id === (pattern.model || pattern.id)) || patterns[0];
 const canTryOn=pattern=>!pattern.external || pattern.tryOn;
-const hasSleeves = pattern => pattern.fit?.changes.hasSleeves ?? Boolean(pattern.sleeves);
+const hasSleeves = pattern => pattern.fit?.changes?.hasSleeves ?? Boolean(pattern.sleeves);
+function snapshotModelMeasurements(body) {
+  const keys=[...Object.keys(sewingModels.dimensions),'name','profile','cup','braSize','braSystem','skin','scan'];
+  return Object.fromEntries(keys.filter(key=>Object.hasOwn(body,key)).map(key=>[key,body[key]]));
+}
+function garmentReference(pattern,fallbackId) {
+  const model=getModel(pattern.fit?.modelId || pattern.design?.fitModelId || fallbackId);
+  const reference=pattern.fit?.modelMeasurements || pattern.fitReference;
+  if (reference?.profile) return {id:model.id,name:model.name,...reference};
+  if (!reference && pattern.design && pattern.measurements?.make && pattern.measurements.rows) {
+    const values=new Map(pattern.measurements.rows);
+    const entries=Object.entries(sewingModels.dimensions).flatMap(([key,[label]])=>{
+      const raw=values.get(label);
+      const value=typeof raw==='string' && raw.endsWith(' cm')?Number(raw.slice(0,-3)):0;
+      return Number.isFinite(value)&&value>0?[[key,value]]:[];
+    });
+    return {...model,...Object.fromEntries(entries)};
+  }
+  return {...model,...reference};
+}
+function garmentPreviewChanges(pattern,size) {
+  const changes={...pattern.design?.fitAdjustments,...pattern.fit?.changes,hasSleeves:hasSleeves(pattern)};
+  const type=pattern.design?.model || basePattern(pattern).id;
+  return garmentFit.applyGrade(changes,type,size);
+}
 function shoulderSettings(pattern) {
   const design=pattern.design||{};
   const fit=pattern.fit?.changes||{};
@@ -523,8 +548,12 @@ function uploadFabric() {
     materialLibrary();
   });
 }
+function previewTrigger(pattern,art,attributes='',label='Preview in 3D') {
+  return `<button type="button" class="garment-preview-trigger" data-action="preview-garment" data-id="${escape(pattern.id)}" ${attributes}
+    aria-label="${escape(label+' · '+pattern.name)}">${art}<span class="garment-preview-label">${escape(label)}</span></button>`;
+}
 function library() {
-  view.innerHTML = heading('Pattern Library','Browse construction guides, fit and revise a garment in 3D, or design a new custom piece.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ New custom piece</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
+  view.innerHTML = heading('Pattern Library','Click a garment to preview it on a model, browse construction guides, or start a new design.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ New custom piece</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
   const search = document.querySelector('#pattern-search');
   const filter = document.querySelector('#pattern-filter');
   const container = document.querySelector('#patterns');
@@ -544,10 +573,14 @@ function library() {
       .sort((a,b)=>Number(state.custom.includes(b))-Number(state.custom.includes(a)));
     document.querySelector('#pattern-count').textContent=`${matches.length} garments`;
     more.hidden=matches.length<=limit;
-    container.innerHTML = matches.length ? matches.slice(0,limit).map(p=>`<article class="card pattern"><div class="pattern-art">${!canTryOn(p)?`<span class="pattern-source">${escape(p.external.publisher)}<small>Free pattern</small></span>`:`<canvas width="360" height="155" data-pattern="${escape(p.id)}" role="img" aria-label="${escape(p.cut)} illustration"></canvas>`}</div><div class="pattern-body"><span class="badge">${escape(p.type)} · ${escape(patternCategory(p))}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${p.revision?'Revision '+p.revision:escape(p.level)}</p><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">${p.family?'View guide and revisions':'View construction guide'}</button> ${canTryOn(p)?`<button class="secondary" data-action="fit" data-id="${escape(p.id)}">${p.external?'Try on in 3D':'Fit and revise'}</button>`:''}</div></article>`).join('') : '<p>No styles match your search.</p>';
+    container.innerHTML = matches.length ? matches.slice(0,limit).map(p=>{
+      const art=canTryOn(p)?previewTrigger(p,`<canvas width="360" height="155" data-pattern="${escape(p.id)}" aria-hidden="true"></canvas>`)
+        :`<span class="pattern-source">${escape(p.external.publisher)}<small>Free pattern</small></span>`;
+      return `<article class="card pattern"><div class="pattern-art">${art}</div><div class="pattern-body"><span class="badge">${escape(p.type)} · ${escape(patternCategory(p))}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${p.revision?'Revision '+p.revision:escape(p.level)}</p><div class="actions"><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">${p.family?'View guide and revisions':'View construction guide'}</button>${canTryOn(p)&&!p.external?`<button class="secondary" data-action="fit" data-id="${escape(p.id)}">Fit and revise</button>`:''}</div></div></article>`;
+    }).join('') : '<p>No styles match your search.</p>';
     for (const canvas of container.querySelectorAll('canvas')) {
       const item=getPattern(canvas.dataset.pattern);
-      drawModel(canvas,item,-.35,item.fit?.changes||{hasSleeves:hasSleeves(item)}, {},true,
+      drawModel(canvas,item,-.35,garmentPreviewChanges(item),garmentReference(item),true,
         {pose:fabricFit.poses.stand,show:false,...patternPreviewFabric(item),redraw:results});
     }
   }
@@ -568,20 +601,33 @@ const orderKind=order=>order.kind ||
   (getPattern(order.pattern)?.fit && !order.snapshot?.measurements?.make && !getOrderPattern(order).measurements?.make &&
     (!order.snapshot || /Revision .* to |->/.test(order.notes))?'Tailoring':'Construction');
 
+function orderPreviewPattern(order,frame) {
+  const item=getPattern(order.pattern);
+  if (frame==='before') return getPattern(order.before || item?.fit?.source);
+  const snapshot=order.snapshot;
+  return item?{...item,...snapshot}:snapshot?.id?snapshot:null;
+}
 function orderPreview(order) {
-  const after=getPattern(order.pattern);
+  const after=orderPreviewPattern(order,'after');
   if (!after) return '';
   if (!canTryOn(after)) return `<div class="wo-preview wo-reference"><span>${escape(after.cut)}</span></div>`;
-  const before=orderKind(order)==='Tailoring'?getPattern(order.before || after.fit?.source):null;
-  const frames=[...(before?[[before,'Before']]:[]),[after,before?'After':'Garment preview']];
-  return `<div class="wo-preview">${frames.map(([pattern,label])=>`<figure><canvas width="150" height="130" data-order-preview="${escape(pattern.id)}"${order.plan?.modelId?` data-order-model="${escape(order.plan.modelId)}"`:''} role="img" aria-label="${escape(label+' · '+pattern.name)}"></canvas><figcaption>${label}</figcaption></figure>`).join('')}</div>`;
+  const before=orderKind(order)==='Tailoring'?orderPreviewPattern(order,'before'):null;
+  const frames=[...(before && canTryOn(before)?[[before,'before','Before']]:[]),[after,'after',before?'After':'Garment preview']];
+  return `<div class="wo-preview">${frames.map(([pattern,frame,label])=>{
+    const art=`<canvas width="150" height="130" data-order-preview="${escape(pattern.id)}" aria-hidden="true"></canvas>`;
+    const attributes=`data-order-id="${escape(order.id)}" data-preview-frame="${frame}"`;
+    return `<figure>${previewTrigger(pattern,art,attributes,'Preview in 3D')}<figcaption>${label}${frame==='after'&&order.size?' · '+escape(order.size):''}</figcaption></figure>`;
+  }).join('')}</div>`;
 }
 
 function drawOrderPreviews(root) {
   for (const canvas of root.querySelectorAll('[data-order-preview]')) {
-    const item=getPattern(canvas.dataset.orderPreview);
-    if (!item) continue;
-    drawModel(canvas,item,-.27,item.fit?.changes||{hasSleeves:hasSleeves(item)},item.fit?.modelMeasurements||(canvas.dataset.orderModel||item.design?.fitModelId?getModel(canvas.dataset.orderModel||item.design.fitModelId):{}),true,
+    const {orderId,previewFrame}=canvas.closest('button').dataset;
+    const order=state.orders.find(item=>item.id===orderId);
+    if (!order) continue;
+    const item=orderPreviewPattern(order,previewFrame);
+    const size=previewFrame==='after'?order.size:undefined;
+    drawModel(canvas,item,-.27,garmentPreviewChanges(item,size),garmentReference(item,order.plan?.modelId),true,
       {pose:fabricFit.poses.stand,show:false,...patternPreviewFabric(item),redraw:()=>drawOrderPreviews(root)});
   }
 }
@@ -627,11 +673,155 @@ function showDialog(title, body) {
   studioUnits.refresh(modal);
   if (!modal.open) modal.showModal();
 }
+let previewCleanup;
+previewDialog.addEventListener('close',()=>{
+  if (previewDialog.open) return;
+  previewCleanup?.();
+  previewCleanup=undefined;
+  previewDialog.replaceChildren();
+});
+function showGarmentPreview(pattern,{size,modelId}={}) {
+  if (!pattern || !canTryOn(pattern)) return;
+  previewCleanup?.();
+  const originalBody=garmentReference(pattern,modelId);
+  const originalSize=garmentFit.normalizeSize(size);
+  const originalModel=originalBody.id;
+  const startModel=modelId || originalModel;
+  const garmentType=pattern.design?.model || basePattern(pattern).id;
+  const materialName=/denim/i.test(pattern.fabric)?'Rigid denim':garmentType==='trousers'?'Medium-weight twill':'Cotton poplin';
+  const fabric={fabricName:materialName,material:fitFabricValues(materialName),...patternPreviewFabric(pattern)};
+  previewDialog.innerHTML=`<div class="dialog-head"><div><h2 id="preview-title">${escape(pattern.name)}</h2>
+      <p class="preview-caption">View only${pattern.revision?' · Revision '+escape(pattern.revision):''}</p></div>
+    <button class="secondary close" type="button" data-action="close-garment-preview" aria-label="Close 3D preview">×</button></div>
+    <div class="preview-layout"><section class="panel viewer preview-stage" aria-label="Garment model">
+      <canvas id="preview-canvas" tabindex="0" role="img" aria-label="3D garment preview. Drag or use the arrow keys to rotate and tilt."></canvas>
+      <div class="preview-rotation-controls"><div class="fields preview-orientation">
+        <label class="field">Rotate left or right<input type="range" id="preview-rotation" min="-180" max="180" step="1" value="0"></label>
+        <label class="field">Tilt up or down<input type="range" id="preview-tilt" min="-70" max="70" step="1" value="0"></label>
+      </div>
+        <div class="actions preview-angles" role="group" aria-label="Preset views">
+          <button type="button" class="secondary" data-preview-angle="0" aria-pressed="true">Front</button>
+          <button type="button" class="secondary" data-preview-angle="90" aria-pressed="false">Side</button>
+          <button type="button" class="secondary" data-preview-angle="180" aria-pressed="false">Back</button>
+        </div>
+      </div>
+    </section><section class="preview-settings" aria-label="Try-on controls">
+      <div class="preview-fit-fields">
+        <label class="field">3D model<select id="preview-model">${modelOptions(startModel)}</select></label>
+        <label class="field">Garment size<select id="preview-size" aria-describedby="preview-size-note">${garmentFit.sizes.map(value=>option(value,value===garmentFit.baseSize?'M · Saved fit':value,originalSize)).join('')}</select></label>
+        <p id="preview-size-note" class="muted">${pattern.external?'Approximate publisher style and sizing. ':''}Sizes are relative to this garment’s base fit. Changing the model keeps the selected garment size.</p>
+        <p class="preview-size-delta" id="preview-size-delta" aria-live="polite"></p>
+        <p class="preview-fit-note muted" id="preview-fit-note" role="status" hidden></p>
+      </div>
+      ${fitAnalysisControls('preview','',{viewOnly:true})}
+    </section></div>`;
+  const canvas=previewDialog.querySelector('#preview-canvas');
+  const modelField=previewDialog.querySelector('#preview-model');
+  const sizeField=previewDialog.querySelector('#preview-size');
+  const rotationField=previewDialog.querySelector('#preview-rotation');
+  const tiltField=previewDialog.querySelector('#preview-tilt');
+  const deltaLabel=previewDialog.querySelector('#preview-size-delta');
+  const fitNote=previewDialog.querySelector('#preview-fit-note');
+  const angles=previewDialog.querySelectorAll('[data-preview-angle]');
+  let angle=0;
+  let pitch=0;
+  let pointer;
+  let wearer=getModel(modelField.value);
+  let garmentGrade,changes;
+  function draw() {
+    if (!previewDialog.open || !canvas.isConnected) return;
+    const ratio=Math.min(window.devicePixelRatio||1,2);
+    const width=Math.round(canvas.clientWidth*ratio),height=Math.round(canvas.clientHeight*ratio);
+    if (!width || !height) return;
+    if (canvas.width!==width) canvas.width=width;
+    if (canvas.height!==height) canvas.height=height;
+    drawModel(canvas,pattern,angle*Math.PI/180,changes,wearer,false,
+      {...fabric,pose:analysis.pose(),show:false,pitch:pitch*Math.PI/180,garmentBody:originalBody,garmentGrade,tryOn:true,redraw:draw});
+  }
+  function selectSize() {
+    const size=sizeField.value;
+    garmentGrade=garmentFit.grade(garmentType,size,hasSleeves(pattern));
+    changes=garmentPreviewChanges(pattern,size);
+    const measured=[['bust','Chest / bust'],['waist','Waist'],['hip','Hip / seat']]
+      .filter(([key])=>garmentGrade[key]).map(([key,label])=>label+' '+adjustmentText(garmentGrade[key]));
+    deltaLabel.textContent=measured.length?measured.join(' · '):'Base garment measurements';
+    studioUnits.refresh(deltaLabel);
+    reportFit();
+    draw();
+  }
+  function reportFit() {
+    const upper=studioDesign.isBodice(garmentType);
+    const ease=pattern.design?.ease ?? 5;
+    const areas=[
+      ...(upper?[['bust','chest / bust',ease]]:[]),
+      ['waist','waist',upper?ease:2.7],
+      ...(!upper || garmentType==='dress' || pattern.design?.length==='Low hip'?[['hip','hip / seat',ease]]:[])
+    ];
+    const tight=areas.filter(([key,,room])=>{
+      if (!Number.isFinite(wearer[key]) || !Number.isFinite(originalBody[key])) return false;
+      const available=originalBody[key]+room+(changes[key]||0);
+      return wearer[key]>available*(1+fabric.material.cross)+1;
+    }).map(([,label])=>label);
+    fitNote.textContent=tight.length?'This size may be tight at the '+tight.join(', ')+'.':'';
+    fitNote.hidden=!tight.length;
+  }
+  function rotate(value,tilt=pitch) {
+    angle=((value+180)%360+360)%360-180;
+    pitch=fabricFit.clamp(tilt,Number(tiltField.min),Number(tiltField.max));
+    rotationField.value=angle===-180 && value>0?180:angle;
+    tiltField.value=pitch;
+    for (const button of angles) {
+      const selected=Number(button.dataset.previewAngle);
+      button.setAttribute('aria-pressed',String(pitch===0 && (angle===selected || Math.abs(angle)===180&&selected===180)));
+    }
+    draw();
+  }
+  const analysis=bindFitAnalysis('preview',{draw});
+  const observer=new ResizeObserver(draw);
+  modelField.addEventListener('change',()=>{
+    wearer=getModel(modelField.value);
+    reportFit();
+    draw();
+  });
+  sizeField.addEventListener('change',selectSize);
+  rotationField.addEventListener('input',()=>rotate(Number(rotationField.value)));
+  tiltField.addEventListener('input',()=>rotate(angle,Number(tiltField.value)));
+  for (const button of angles) {
+    button.addEventListener('click',()=>rotate(Number(button.dataset.previewAngle),0));
+  }
+  canvas.addEventListener('pointerdown',event=>{
+    if (!event.isPrimary || event.button!==0) return;
+    pointer={id:event.pointerId,x:event.clientX,y:event.clientY};
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove',event=>{
+    if (pointer?.id!==event.pointerId) return;
+    rotate(angle+(event.clientX-pointer.x)*.55,pitch+(event.clientY-pointer.y)*.5);
+    pointer.x=event.clientX;
+    pointer.y=event.clientY;
+  });
+  canvas.addEventListener('lostpointercapture',()=>{pointer=undefined;});
+  canvas.addEventListener('keydown',event=>{
+    const yaw={ArrowLeft:-10,ArrowRight:10};
+    const tilt={ArrowUp:10,ArrowDown:-10};
+    if (!Object.hasOwn(yaw,event.key) && !Object.hasOwn(tilt,event.key)) return;
+    event.preventDefault();
+    rotate(angle+(yaw[event.key]||0),pitch+(tilt[event.key]||0));
+  });
+  previewCleanup=()=>{
+    observer.disconnect();
+    analysis.cleanup();
+  };
+  if (!previewDialog.open) previewDialog.showModal();
+  selectSize();
+  observer.observe(canvas);
+}
 const referenceLinks=pattern=>pattern?.external?`<div class="actions tight"><a href="${escape(pattern.external.url)}" target="_blank" rel="noopener" class="button">Open free pattern at ${escape(pattern.external.publisher)}</a>${pattern.external.sewing?`<a href="${escape(pattern.external.sewing)}" target="_blank" rel="noopener" class="button secondary">Publisher sewing instructions</a>`:''}<a href="${escape(pattern.external.terms)}" target="_blank" rel="noopener" class="button secondary">Publisher terms</a></div>`:'';
 function patternDetails(pattern) {
   const revisions = pattern.family ? allPatterns().filter(p=>p.family===pattern.family && isArchived('patterns',p.id)===isArchived('patterns',pattern.id)).sort((a,b)=>b.revision-a.revision) : [];
   const revisionPicker = revisions.length ? `<label class="field">Revision<select id="revision-picker">${revisions.map(p=>option(p.id,'Revision '+p.revision,p.id===pattern.id?p.id:null)).join('')}</select></label>` : '';
-  showDialog(pattern.name,`${revisionPicker}${referenceLinks(pattern)}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button>${canTryOn(pattern)?`<button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">${pattern.external?'Try on in 3D':'Fit and revise'}</button>`:''}${pattern.design && !pattern.external?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}<button class="secondary" data-action="archive-pattern" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore':pattern.revision?'Archive this revision':'Archive garment'}</button>${revisions.length>1?`<button class="secondary" data-action="archive-family" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore all revisions':'Archive all revisions'}</button>`:''}</div>`);
+  const preview=canTryOn(pattern)?`<button type="button" class="secondary" data-action="preview-garment" data-id="${escape(pattern.id)}">Preview in 3D</button>`:'';
+  showDialog(pattern.name,`${revisionPicker}${preview}${referenceLinks(pattern)}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p class="tight">${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button>${canTryOn(pattern)&&!pattern.external?`<button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">Fit and revise</button>`:''}${pattern.design && !pattern.external?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}<button class="secondary" data-action="archive-pattern" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore':pattern.revision?'Archive this revision':'Archive garment'}</button>${revisions.length>1?`<button class="secondary" data-action="archive-family" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore all revisions':'Archive all revisions'}</button>`:''}</div>`);
   modal.querySelector('#revision-picker')?.addEventListener('change',event=>patternDetails(getPattern(event.target.value)));
 }
 function addPattern() {
@@ -649,12 +839,63 @@ function addPattern() {
     library();
   });
 }
+function productionSizeField(value='',locked=false) {
+  return `<label class="field">Production size<select name="productionSize"${locked?' disabled':''}>
+    ${option('','As fitted',value)}${garmentFit.sizes.map(size=>option(size,size,value)).join('')}
+    </select></label>${locked?'':'<p class="muted tight">M uses the saved fit. Other sizes grade the same garment from M. For publisher patterns, use the publisher’s sizing instructions.</p>'}`;
+}
+
+function withProductionSize(order,pattern,value,modelId) {
+  if (!pattern || !garmentFit.sizes.includes(value)) return order;
+  const size=garmentFit.normalizeSize(value);
+  const body=garmentReference(pattern,modelId);
+  const model=pattern.design?.model || basePattern(pattern).id;
+  const sleeves=hasSleeves(pattern);
+  const original={...pattern.design?.fitAdjustments,...pattern.fit?.changes,hasSleeves:sleeves};
+  const bodice=studioDesign.isBodice(model);
+  const referenceChanges={...original};
+  if (bodice) {
+    const {support,straplessSupport,strapWidth,strapPlacement,sleeveStyle}=shoulderSettings(pattern);
+    Object.assign(referenceChanges,{support,neckline:original.neckline??pattern.design?.neckline,sleeveStyle});
+    if (support==='Strapless') referenceChanges.straplessSupport=straplessSupport;
+    else Object.assign(referenceChanges,{strapWidth,strapPlacement});
+    if (studioDesign.supportsStrapShape(support)) Object.assign(referenceChanges,studioDesign.strapShape({...pattern.design,...original,support}));
+  }
+  const grade=pattern.external?{}:garmentFit.grade(model,size,sleeves);
+  const entries=Object.entries(grade);
+  const measurements=fitMeasurementSheet(body,referenceChanges,{},true,pattern,body);
+  measurements.headings=['Reference model measurement',`Saved ${garmentFit.baseSize} fit`];
+  if (pattern.external) measurements.targets=[];
+  else {
+    const key=bodice?'bust':'hip';
+    measurements.targets=measurements.targets.map(([label])=>[
+      label.replace(/^Finished/,'Estimated finished'),
+      `${Number((body[key]+pattern.design.ease+(original[key]||0)+(grade[key]||0)).toFixed(3))} cm`
+    ]);
+  }
+  const gradeRows=entries.map(([key,delta])=>[garmentFit.fields[key][0],adjustmentText(delta)]);
+  measurements.adjustments.unshift(...gradeRows.map(([label,change])=>[`${label} · size grade from M`,change]));
+  const sizingStep=pattern.external
+    ?`Production size ${size} is the work-order label. Use the reference measurements to select a size or generate a draft using the publisher’s own sizing instructions. Confirm the publisher’s finished ease, cut dimensions and allowances on a fitted sample.`
+    :entries.length?`Grade the paper pattern for size ${size} from the saved M fit before cutting. Trace the fitted M stitch lines on fresh paper. Mark the listed grade changes at each garment level, then redraw the curves and check matching seams and notches. These are garment changes around the full circumference, except sleeves and legs, which are measured around one piece, and widths or depths as named. Split a change across the pattern edges that meet at that level. Check the grade on a fitting sample, then restore the cutting allowances.`
+      :`Production size ${size} uses the saved fit. Check the fitted M stitch lines and their allowances on paper before cutting.`;
+  const dimensions=gradeRows.map(([label,change])=>`${label} ${change}`).join(', ');
+  const base=order.snapshot || pattern;
+  const steps=[sizingStep,...(dimensions?[`Mark the following changes from M. ${dimensions}. Recheck finished lengths and fit before cutting the final fabric.`]:[]),...base.steps];
+  const baseVisuals=base.visuals || sewingVisuals.patterns[pattern.id] || base.steps.map(sewingVisuals.identify);
+  const modelMeasurements=snapshotModelMeasurements(body);
+  const {id,name,type,cut,color,design,external,tryOn}=pattern;
+  return {...order,size,snapshot:{id,name,type,cut,color,design:design?structuredClone(design):undefined,external,tryOn,model:pattern.model,sleeves,
+    fit:{modelId:body.id,modelMeasurements,changes:original,fabric:pattern.fit?.fabric},
+    steps,visuals:['measure',...(dimensions?['designCut']:[]),...baseVisuals],fabric:base.fabric,tools:base.tools,measurements}};
+}
+
 function newOrder(id,existing,modelId) {
   if (!id && !existing && !activeChoices(allPatterns(),'patterns').length) {
     showDialog('New work order','<p>Add or restore a garment in the Pattern Library to create a work order.</p><a class="button tight" href="#library">Open Pattern Library</a>');
     return;
   }
-  showDialog(existing ? 'Edit work order' : 'New work order', `<form id="order-form"><label class="field">Work order name<input name="title" required maxlength="120" value="${escape(existing?.title || (getPattern(id)?.revision?getPattern(id).name+' · Revision '+getPattern(id).revision:''))}"></label><label class="field">Pattern<select name="pattern" ${(existing?.done.length || existing?.snapshot || getPattern(id)?.revision) ? 'disabled' : ''}>${options(existing?.pattern || id)}</select></label><label class="field">Due date<input type="date" name="due" value="${escape(existing?.due || '')}"></label><label class="field">Fabric, sizing or fitting notes<textarea name="notes" rows="4" maxlength="7000">${escape(existing?.notes || '')}</textarea></label><button>Save work order</button></form>`);
+  showDialog(existing ? 'Edit work order' : 'New work order', `<form id="order-form"><label class="field">Work order name<input name="title" required maxlength="120" value="${escape(existing?.title || (getPattern(id)?.revision?getPattern(id).name+' · Revision '+getPattern(id).revision:''))}"></label><label class="field">Pattern<select name="pattern" ${(existing?.done.length || existing?.snapshot || getPattern(id)?.revision) ? 'disabled' : ''}>${options(existing?.pattern || id)}</select></label>${!existing || existing.size?productionSizeField(existing?.size,Boolean(existing)):''}<label class="field">Due date<input type="date" name="due" value="${escape(existing?.due || '')}"></label><label class="field">Fabric, sizing or fitting notes<textarea name="notes" rows="4" maxlength="7000">${escape(existing?.notes || '')}</textarea></label><button>Save work order</button></form>`);
   const form = document.querySelector('#order-form');
   form.addEventListener('submit',event => {
     event.preventDefault();
@@ -669,7 +910,7 @@ function newOrder(id,existing,modelId) {
       if (selected?.rebuildSteps) order.snapshot = {name:selected.name,steps:selected.rebuildSteps,visuals:selected.rebuildVisuals,
         fabric:selected.buildFabric,tools:selected.buildTools,measurements:selected.measurements?.make?selected.measurements:undefined};
       if (modelId) order.plan={modelId};
-      state.orders.unshift(order);
+      state.orders.unshift(withProductionSize(order,selected,data.get('productionSize'),modelId));
     }
     save('Work order saved');
     if (!existing) showNewOrders();
@@ -780,7 +1021,7 @@ function orderFigureSections(order,pattern,measurements) {
 }
 function orderDetails(order) {
   const original=getPattern(order.pattern);
-  const pattern={...getOrderPattern(order),design:original?.design,reference:original?.reference};
+  const pattern={...original,...getOrderPattern(order)};
   const referenceBody=order.plan?.modelId?getModel(order.plan.modelId):null;
   const measurements=pattern.measurements || (referenceBody?fitMeasurementSheet(referenceBody,{hasSleeves:hasSleeves(original||pattern)},{},true,original||pattern,referenceBody):null);
   const notes=order.notes || original?.design?.details;
@@ -838,6 +1079,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   if (!pattern && !body.mesh && typeof humanPreview!=='undefined') {
     return humanPreview.draw(canvas,body,angle);
   }
+  const wearer=body;
+  const independentFit=Boolean(pattern && analysis?.tryOn && analysis.garmentBody);
+  if (independentFit) body=analysis.garmentBody;
   changes={...pattern?.design?.fitAdjustments,...changes};
   const context = canvas.getContext('2d');
   const width = canvas.width;
@@ -845,7 +1089,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const lifted=analysis?.pose?.arm||0;
   const shoulderRaising=Math.max(0,lifted-.45*(analysis?.pose?.reach||0)-.12*(analysis?.pose?.sit||0));
   const zoom=fabricFit.clamp(Number(analysis?.editor?.zoom)||1,.7,1.45);
-  const scale = Math.min(height * (thumbnail && pattern ? .44 : .345)/Math.max(1,(body.height||168)/174),width*.57)*(1-.21*lifted)*zoom;
+  const scale = Math.min(height * (thumbnail && pattern ? .44 : .345)/Math.max(1,(wearer.height||168)/174),width*.57)*(1-.21*lifted)*zoom;
   const cx = width/2;
   const cy = height*(thumbnail && pattern ? .49 : .51+.05*lifted);
   const faces = [];
@@ -874,10 +1118,24 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   }
   const sideOffset=(key,leftWeight)=>fabricFit.mix(right[key]||0,left[key]||0,leftWeight);
   const fitBand=(y,center,width)=>Math.max(0,1-Math.abs(y-center)/width);
+  const sizeGrade=independentFit?analysis.garmentGrade:null;
+  function gradeClearance(y,part) {
+    if (!sizeGrade) return 0;
+    if (part==='arm') return Math.min(0,fabricFit.mix(sizeGrade.sleeveWidth||0,sizeGrade.cuff||0,
+      fabricFit.clamp((y+.57)/.50,0,1)))/450;
+    if (part==='leg') return Math.min(0,(sizeGrade.thigh||0)*fitBand(y,.33,.31)+(sizeGrade.knee||0)*fitBand(y,.62,.27)
+      +(sizeGrade.leg||0)*fitBand(y,.99,.35))/450;
+    return Math.min(0,((sizeGrade.bust||0)*fitBand(y,-.49,.26)+(sizeGrade.waist||0)*fitBand(y,-.25,.31)
+      +(sizeGrade.hip||0)*fitBand(y,.16,.42)+2*(sizeGrade.shoulder||0)*fitBand(y,-.75,.18))/450);
+  }
   const garmentLayers=studioDesign.layers(design);
   const garmentSeams=studioDesign.seams?.(design) || {};
   const garmentLace=studioDesign.laceTrims(design);
+  const seamLace=garmentLace.seams?studioDesign.laceSeamPlacement(design):null;
+  const stitchDetails=studioDesign.stitchDetails?.(design) || [];
   const designClosure=Number.isFinite(garmentSeams.panelZipper)?null:design?.closure;
+  const fastener=designClosure?garmentFasteners.saved(design):null;
+  const casing=fastener?.kind==='drawstring'?fastener.casingDepth*centimeter:0;
   const designShape = design ? studioDesign.measurements(design) : null;
   const necklineStyle = changes.neckline || design?.neckline;
   const support=changes.support || (design?studioDesign.selectedSupport(design):'Integrated shoulders');
@@ -907,16 +1165,19 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const materialName=analysis?.fabricName || design?.fabric;
   const selectedSwatch=materialName?getFabric(materialName):null;
   const weave=materialName?fabricFit.weave(materialName,selectedSwatch?.category):'plain';
-  const regions = analysis?.show ? fabricFit.estimate(pattern,model,body,changes,analysis.pose,analysis.material) : null;
-  const sided=regions?sideFitRegions(pattern,model,body,changes,analysis.pose,analysis.material,{left,right}):null;
+  const regions = analysis?.show ? fabricFit.estimate(pattern,model,wearer,changes,analysis.pose,analysis.material) : null;
+  const sided=regions?sideFitRegions(pattern,model,wearer,changes,analysis.pose,analysis.material,{left,right}):null;
   const splitRegions=sided?{[-1]:sided.right,[1]:sided.left}:null;
   const spin = Math.cos(angle);
   const sine = Math.sin(angle);
-  const tilt = -.105;
+  const tilt = -.105+(analysis?.pitch||0);
   const proportions=sewingModels.proportions(body);
+  const wearerProportions=independentFit?sewingModels.proportions(wearer):proportions;
   const bustGeometry=sewingModels.bustGeometry(body,proportions);
   const avatar=pattern && !thumbnail && !body.mesh && typeof humanPreview!=='undefined'
     ?humanPreview.fittingSurface(body,proportions):null;
+  const wearerAvatar=independentFit && (wearer!==body || !avatar) && !thumbnail && typeof humanPreview!=='undefined'
+    ?humanPreview.fittingSurface(wearer,wearerProportions):avatar;
   const rotateView = ([x,y,z]) => {
     const px = x*spin-z*sine;
     const pz = x*sine+z*spin;
@@ -928,7 +1189,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const perspective = 3.7/(3.7-depth);
     return [cx+px*scale*perspective,cy+py*scale*perspective,depth];
   };
-  const project=point=>screen(rotateView(point));
+  const projectView=point=>screen(rotateView(point));
+  let garmentOffset;
+  const project=point=>projectView(garmentOffset?point.map((n,i)=>n+garmentOffset[i]):point);
   const coordinate=([x,y])=>[100*x/width,100*y/height];
   function addComponent(key,paths,{radius=10,guide=false,priority=0}={}) {
     if (!componentKeys.has(key)) return;
@@ -962,19 +1225,25 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     return paths;
   }
   let shellContact;
+  let seatContact;
+  let legContact;
   let skinPoints=null;
+  let skinTopology=null;
+  let skinCovered;
   let posedSkin=null;
-  function drawLace(trim,edge,inside,key,{visible,contact=null,opacity=1}={}) {
+  function drawLace(trim,edge,inside,key,{visible,contact=null,opacity=1,closed=true,alignment=0,normalAt,acrossAt}={}) {
     const size=edge.length;
+    if (size<2) return;
     const center=[0,1,2].map(axis=>edge.reduce((sum,p)=>sum+p[axis],0)/size);
     const distance=(a,b)=>Math.hypot(...a.map((n,i)=>n-b[i]));
-    const perimeter=edge.reduce((sum,p,i)=>sum+distance(p,edge[(i+1)%size]),0);
+    const spanCount=closed?size:size-1;
+    const perimeter=edge.slice(0,spanCount).reduce((sum,p,i)=>sum+distance(p,edge[(i+1)%size]),0);
     const width=trim.width*centimeter, overlap=Math.min(.0065,width*.20);
     const scalloped=trim.style==='Scalloped lace';
     const eyelet=trim.style==='Eyelet lace';
     const neckline=key==='laceNeckline';
     const span=fabricFit.clamp(width*(scalloped?1.3:1.10),.035,.11);
-    const repeats=fabricFit.clamp(Math.round(perimeter/span),10,38);
+    const repeats=fabricFit.clamp(Math.round(perimeter/span),closed?10:1,38);
     const cells=8, count=repeats*cells;
     const colors=trim.color.slice(1).match(/../g).map(n=>parseInt(n,16));
     const paints=[0,1].map(row=>{
@@ -982,20 +1251,20 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const alpha=opacity*(row===0?.98:scalloped?.88:eyelet?.91:.66);
       return 'rgba('+colors.map(n=>Math.round(n*tone)).join(',')+','+alpha+')';
     });
-    const sections=Array.from({length:count},(_,i)=>{
-      const s=i*size/count, j=Math.floor(s), k=(j+1)%size;
+    const sections=Array.from({length:count+(closed?0:1)},(_,i)=>{
+      const s=i*spanCount/count, j=Math.min(Math.floor(s),closed?size-1:size-2), k=(j+1)%size;
       const t=s-j;
       const a=edge[j].map((n,i)=>fabricFit.mix(n,edge[k][i],t));
       const inner=inside[j].map((n,i)=>fabricFit.mix(n,inside[k][i],t));
       const direction=a.map((n,i)=>n-inner[i]);
       const length=Math.hypot(...direction)||1;
       const radial=a.map((n,i)=>n-center[i]);
-      const tangent=edge[k].map((n,i)=>n-edge[(j+size-1)%size][i]);
+      const tangent=edge[k].map((n,i)=>n-edge[closed?(j+size-1)%size:Math.max(0,j-1)][i]);
       const normal=[tangent[1]*direction[2]-tangent[2]*direction[1],
         tangent[2]*direction[0]-tangent[0]*direction[2],tangent[0]*direction[1]-tangent[1]*direction[0]];
       const outside=normal.reduce((sum,n,k)=>sum+n*radial[k],0)<0?-1:1;
       const magnitude=Math.hypot(...normal)||1;
-      const unit=normal.map(n=>n*outside/magnitude);
+      const unit=normalAt?.(j,k,t) || normal.map(n=>n*outside/magnitude);
       const theta=s*2*Math.PI/size;
       if (neckline) {
         // Roll the trim toward the neck over the shoulder rather than
@@ -1008,25 +1277,26 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const drop=Math.hypot(...direction)||1;
       const crest=scalloped?.76+.24*Math.sin(Math.PI*(i%cells)/cells)**2:1;
       const rows=[0,.17,.41,.69,1].map(fraction=>{
-        const offset=width*fraction*crest-overlap;
-        let p=a.map((n,k)=>n+direction[k]/drop*offset+unit[k]*.0038);
+        const offset=width*(fraction*crest-alignment)-overlap;
+        const base=acrossAt?.(j,k,t,offset) || a.map((n,k)=>n+direction[k]/drop*offset);
+        let p=base.map((n,k)=>n+unit[k]*.0038);
         if (p[1]>1.126) p=[p[0]+unit[0]*(p[1]-1.126)*.45,1.126,p[2]+unit[2]*(p[1]-1.126)*.45];
         if (contact) p=contact(p,theta);
         return project(p);
       });
-      return {rows,visible:!visible || visible(j)&&visible(k),near:rotateView(unit)[2]>.05};
+      return {rows,visible:!visible || visible(j)&&visible(k),near:rotateView(unit)[2]>(closed?.05:-.045)};
     });
     const hitPaths=[];
     let path=[];
     for (let i=0;i<=count;i++) {
-      const a=sections[i%count];
+      const a=sections[i%sections.length];
       if (a.visible && a.near) path.push(a.rows[2]);
       else if (path.length) {
         if (path.length>1) hitPaths.push(path);
         path=[];
       }
       if (i===count) break;
-      const b=sections[(i+1)%count];
+      const b=sections[(i+1)%sections.length];
       if (!a.visible || !b.visible) continue;
       const u=i%cells;
       for (let row=0;row<4;row++) {
@@ -1043,7 +1313,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     addComponent(key,hitPaths,{radius:8,priority:4});
   }
   function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
-    const segments = part==='shell' ? 64 : hex===skin && !detail ? 54 : 38;
+    const trouserJoin=part==='leg' && model==='trousers'?surfaces.shell:null;
+    const segments = part==='shell' || trouserJoin ? 64 : hex===skin && !detail ? 54 : 38;
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
     const side = part==='sleeve'||part==='leg' ? Math.sign((rings[0][3]||0)+offset) : 0;
     const asymmetricShell=part==='shell' && hasAsymmetricShell;
@@ -1081,7 +1352,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const shoulderCap=avatar && changes.hasSleeves && neck?.065*absX**2*Math.max(0,1-(y-rings[0][0])/.12):0;
       const neckline=neck ? Math.max(0,1-(y-rings[0][0])/transition)*edge-shoulderCap : 0;
       const ribbed=design?.ribbing && (part==='sleeve'||part==='shell') && y>rings.at(-1)[0]-.06;
-      const gathered=designClosure==='Elastic waistband' && part==='shell' && y<rings[0][0]+.07;
+      const gathered=(designClosure==='Elastic waistband'||casing) && part==='shell' && y<rings[0][0]+(casing||.07);
       const looseSkirt=part==='shell' && (model==='dress'||model==='skirt') ? Math.max(0,(y-.06)/.78) : 0;
       const fold = (detail ? looseSkirt*.013*Math.cos(theta*(fairyHem?8:7)+y*1.9) : 0)+(ribbed?.002*Math.cos(theta*37):0)
         +(gathered?.0035*Math.cos(theta*16):0);
@@ -1157,18 +1428,61 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const contact=part==='shell'?shellContact:null;
     const rest=rings.map((row,index)=>Array.from({length:segments},(_,i)=>restPoint(row,thetaAt(i),index)));
     const targets=rest.map((row,index)=>row.map((p,i)=>movePoint(p,thetaAt(i),index)));
+    const outsideLeg=i=>side*Math.cos(thetaAt(i))>=-1e-7;
+    if (trouserJoin) {
+      const hip=trouserJoin.geometry.at(-1);
+      const front=hip[segments/4],back=hip[segments*3/4];
+      const transition=Math.min(.24,Math.max(.06,(rings.at(-1)[0]-rings[0][0])*.78));
+      for (let i=0;i<segments;i++) {
+        const theta=thetaAt(i);
+        const u=(1-Math.sin(theta))*.5;
+        // Outer arcs share the hip edge. Inner arcs share one recessed
+        // crotch seam so the two leg openings close into the same cloth.
+        let join=outsideLeg(i)?hip[i]:front.map((n,k)=>fabricFit.mix(n,back[k],u)+(k===1?.092*4*u*(1-u):0));
+        if (seatContact && !outsideLeg(i) && u>.55) join=seatContact(join,pose.sit*(u-.55)/.45);
+        const base=targets[0][i];
+        targets[0][i]=join;
+        for (let row=1;row<targets.length;row++) {
+          const t=fabricFit.clamp((rest[row][i][1]-rest[0][i][1])/transition,0,1);
+          if (t===1) break;
+          const blend=1-t*t*(3-2*t);
+          targets[row][i]=targets[row][i].map((n,k)=>n+(join[k]-base[k])*blend);
+        }
+      }
+    }
     const seat=skirtFit && part==='shell'
       ? {top:proportions.yAt(-.12),bottom:proportions.yAt(.32),weight:1-pose.sit**.7}
       : null;
     const geometry=contact?clothContact.drape(targets,rest.map(row=>row.map(([x,y,z])=>[x,proportions.yAt(y),z])),
       contact,material,{free:model==='dress'?.29:.13,seat}):targets;
-    const projected=geometry.map(row=>row.map(project));
+    if (seatContact && (part==='shell'||trouserJoin)) for (let j=trouserJoin?1:0;j<geometry.length;j++) {
+      for (let i=0;i<segments;i++) {
+        const y=rest[j][i][1];
+        const back=Math.max(0,-Math.sin(thetaAt(i)));
+        if (y<.06 || y>.43 || back<.05) continue;
+        const band=trouserJoin?fabricFit.clamp((.43-y)/.095,0,1):fabricFit.clamp((y-.06)/.11,0,1);
+        const support=fabricFit.clamp((back-.05)/.43,0,1);
+        geometry[j][i]=seatContact(geometry[j][i],pose.sit*band*support);
+      }
+    }
+    if (trouserJoin && legContact && rings.at(-1)[0]<.71) {
+      const limit=Math.min(.09,(rings.at(-1)[0]-rings[0][0])*.67);
+      for (let j=1;j<geometry.length;j++) {
+        const y=rings[j][0];
+        const t=fabricFit.clamp((y-rings[0][0])/Math.max(.035,limit),0,1);
+        const barrier=t*t*(3-2*t);
+        const size=gradeClearance(y,'leg');
+        for (let i=0;i<segments;i++) geometry[j][i]=legContact(geometry[j][i],y,thetaAt(i),side,barrier,size);
+      }
+    }
+    const projected=geometry.map((row,j)=>row.map((point,i)=>trouserJoin && j===0 && outsideLeg(i)
+      ?trouserJoin.projected.at(-1)[i]:project(point)));
     function sampleRing(theta,index) {
       const position=((theta/(2*Math.PI)*segments)%segments+segments)%segments;
       const column=Math.floor(position);
       return geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
     }
-    if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,opening:neckWidth,sampleRing,side,
+    if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,projected,opening:neckWidth,sampleRing,side,
       moveEnd:(point,theta)=>movePoint(point,theta,rings.length-1),
       standingPoint:(theta,index,applyHemContour=true)=>restPoint(rings[index],theta,index,0,applyHemContour),projectPoint:(row,theta,index)=>{
       const point=sampleRing(theta,index);
@@ -1179,7 +1493,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       return project(point);
     }};
-    if (componentKeys.size && surfaces[part] && part!=='torso-skin') {
+    if ((componentKeys.size || stitchDetails.length) && surfaces[part] && part!=='torso-skin') {
       (surfaceParts[part]??=[]).push(surfaces[part]);
     }
     const contrast = design?.accent ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)) : channels;
@@ -1215,11 +1529,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const grain=part && detail?(weave==='twill'?Math.sin(theta*11+band*40)*.015:
           weave==='knit'?Math.cos(theta*13)*Math.sin(band*36)*.012:
           weave==='satin'?Math.max(0,Math.cos(theta-1.95))**12*.13:Math.sin(theta*9+band*48)*.009):0;
-        const waistband=designClosure==='Elastic waistband' && part==='shell' && band<rings[0][0]+.061;
+        const waistband=(designClosure==='Elastic waistband'||casing) && part==='shell' && band<rings[0][0]+(casing||.061);
         const palette=contrastPanel||ribbed?contrast:waistband?channels.map(c=>c*.93):swatch || channels;
         const fiber=(level>0?fabricFit.tint(palette,level):palette).map(c=>fabricFit.clamp(Math.round(c*(light+grain)),0,255));
         const panelSeam=structured && neck && [0,3,6,segments/2,segments/2+3,segments/2+6].includes(i);
-        faces.push({points,depth,paint:'rgb('+fiber.join(',')+')',seam:detail&&(i===0||i===segments/2||ring===rings.length-2||panelSeam)});
+        const finishedEdge=ring===rings.length-2 && (part!=='shell'||model!=='trousers');
+        faces.push({points,depth,paint:'rgb('+fiber.join(',')+')',seam:detail&&(i===0||i===segments/2||finishedEdge||panelSeam)});
       }
     }
     if (part==='shell' && neck && garmentLace.neckline) {
@@ -1269,10 +1584,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   context.beginPath();
   const pose = analysis?.pose || fabricFit.poses.stand;
   const rig = fabricFit.rig(pose,proportions.yAt);
-  const [floorX,floorY]=project(rig.foot([0,1.127,.055]));
+  const wearerRig=independentFit?fabricFit.rig(pose,wearerProportions.yAt):rig;
+  const [floorX,floorY]=projectView(wearerRig.foot([0,1.127,.055]));
   context.ellipse(floorX,floorY+2,scale*.35,scale*.055,0,0,Math.PI*2);
   context.fill();
-  const skin = color(body.skin||'#d7b69d');
+  const skin = color(wearer.skin||'#d7b69d');
   const calibrate=(rings,part)=>sewingModels.smoothRings(sewingModels.calibrated(body,rings,part,bustGeometry));
   const baseTorso=body.scan?modelCamera.rings(mannequin,body.scan):mannequin;
   const torso = calibrate(resize(baseTorso,0,0,0,{shoulder:modeledShoulder}),'torso');
@@ -1299,8 +1615,17 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const shoulders = modeledShoulder/240;
   const armScale=avatar?1:fabricFit.clamp((body.arm||56)/56,.78,1.27);
   const articulated=avatar?.pose?.(pose);
+  const wearerPose=independentFit?wearerAvatar?.pose?.(pose):articulated;
   const torsoMove=articulated?.torso||rig.torso;
   const legMove=articulated?.leg||rig.leg;
+  const wearerTorso=wearerPose?.torso||wearerRig.torso;
+  if (independentFit) {
+    const anchor=[0,model==='trousers'||model==='skirt'?-.25:support==='Strapless'?-.56:-.71,0];
+    const source=model==='trousers'?rig.pelvis(anchor,Math.PI/2):torsoMove(anchor);
+    const target=model==='trousers'?wearerRig.pelvis(anchor,Math.PI/2):wearerTorso(anchor);
+    // Move the whole piece to the new wearer without grading it to them.
+    garmentOffset=target.map((n,i)=>n-source[i]);
+  }
   const skirtMove=(point,theta,cloth=analysis?.material)=>{
     if (articulated && pose.sit && point[1]>.045) {
       const [x,y,z]=point;
@@ -1387,6 +1712,13 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const tailored = {...changes,bust:modeledBust+(changes.bust||0),shoulder:modeledShoulder+(changes.shoulder||0),
     rise:(changes.rise||0)+(designShape?.rise||0)};
   const shell = pattern?hang(resize(shells[model],bodyWaist+waistDelta,bodyHip+hipDelta,model==='trousers'?0:lengthDelta,tailored,true)):null;
+  if (model==='trousers') {
+    const [hipY,hipW,hipD]=shell.at(-2);
+    const [tailY,tailW,tailD]=shell.at(-1);
+    const y=Math.min(tailY,Math.max(.19,hipY+.036));
+    const t=(y-hipY)/Math.max(.001,tailY-hipY);
+    shell[shell.length-1]=[y,fabricFit.mix(hipW,tailW,t),fabricFit.mix(hipD,tailD,t)];
+  }
   const legRings=[[.19,.12,.128],[.36,.123,.132],[.57,.107,.112],[.8,.103,.108],[.93,.103,.106]];
   const trouserFitKeys=['thigh','knee','leg'];
   function trouserRings(side) {
@@ -1395,11 +1727,12 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const baseHem=fabricFit.clamp(.93+lengthDelta,.35,1.09);
     const length=offsetOnSide(side,'length');
     const legHem=length?fabricFit.clamp(proportions.baseAt((1.128-proportions.yAt(baseHem))/centimeter-length),.35,1.09):baseHem;
+    const start=shell.at(-1)[0];
     return expanded(hang(resize(legRings,0,hipDelta+offsetOnSide(side,'hip')/450,0,fit,true).map(([y,w,d])=>{
       const t=(y-.19)/.74;
       const [thigh,knee,hem]=designShape?.leg || [0,0,0];
       const variation=t<.53?fabricFit.mix(thigh,knee,t/.53):fabricFit.mix(knee,hem,(t-.53)/.47);
-      return [fabricFit.mix(.19,legHem,t),w+variation,d+variation*.82];
+      return [fabricFit.mix(start,legHem,t),w+variation,d+variation*.82];
     })));
   }
   const trouserLegs=model==='trousers'?{[-1]:trouserRings(-1),[1]:trouserRings(1)}:null;
@@ -1423,6 +1756,20 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       fabricFit.mix(shoulder[1]-.027,elbow[1],sleeveProfile?.armFraction??({Cap:.35,Puff:.91})[sleeveStyle]??.77);
     return [start,Math.max(start+.11,naturalEnd+(changes.sleeveLength||0)/75+offsetOnSide(side,'sleeveLength')*centimeter)];
   };
+  function drawImportedTorso(mesh,move,projectPoint,visible=()=>true) {
+    const points=mesh.vertices.map(v=>projectPoint(move(v)));
+    for (const triangle of mesh.triangles) {
+      if (triangle.every(index=>!visible(mesh.vertices[index][1]))) continue;
+      const corners=triangle.map(index=>points[index]);
+      const [a,b,c]=corners;
+      const area=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+      if (Math.abs(area)<.1) continue;
+      const depth=(a[2]+b[2]+c[2])/3;
+      const light=Math.round(Math.max(-36,Math.min(36,depth*62)));
+      const paint=skin.slice(1).match(/../g).map(channel=>fabricFit.clamp(parseInt(channel,16)+light,0,255));
+      faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
+    }
+  }
   if (avatar) {
     const arms=[armMove(-1),armMove(1)];
     const bodyPoints=articulated?.vertices || avatar.vertices.map(([x,y,z,arm])=>{
@@ -1433,25 +1780,33 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       return main.map((value,index)=>fabricFit.mix(value,movingArm[index],arm));
     });
     posedSkin=bodyPoints;
-    skinPoints=bodyPoints.map(rotateView);
-    if (typeof clothContact!=='undefined' && humanPreview.topology) {
-      shellContact=clothContact.fromAvatar(bodyPoints,avatar.vertices,humanPreview.topology);
+    if (!independentFit) {
+      skinPoints=bodyPoints.map(rotateView);
+      skinTopology=humanPreview.topology;
     }
-  } else if (fullBody) {
-    if (body.mesh) {
-      const points = body.mesh.vertices.map(v=>project(torsoMove(v)));
-      for (const triangle of body.mesh.triangles) {
-        if (triangle.every(index=>!visibleTorso(body.mesh.vertices[index][1]))) continue;
-        const corners = triangle.map(index=>points[index]);
-        const [a,b,c] = corners;
-        const area = (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
-        if (Math.abs(area)<.1) continue;
-        const depth = (a[2]+b[2]+c[2])/3;
-        const light = Math.round(Math.max(-36,Math.min(36,depth*62)));
-        const paint=skin.slice(1).match(/../g).map(channel=>fabricFit.clamp(parseInt(channel,16)+light,0,255));
-        faces.push({points:corners,depth,paint:'rgb('+paint.join(',')+')'});
+    if (typeof clothContact!=='undefined' && humanPreview.topology) {
+      // A seated thigh and pelvis can share a posed height. Use only the
+      // nearby avatar area for the trouser seat's collision envelope.
+      const contact=clothContact.fromAvatar(bodyPoints,avatar.vertices,humanPreview.topology,model==='trousers'?.305:Infinity);
+      if (model==='trousers' && pose.sit>.005) seatContact=clothContact.beneathSeat(bodyPoints,avatar.vertices,humanPreview.topology);
+      if (trouserLegs && Object.values(trouserLegs).some(leg=>leg.at(-1)[0]<.71)) {
+        legContact=clothContact.legSections(bodyPoints,avatar.vertices,humanPreview.topology,legMove);
       }
-    } else mesh(torso,skin,0,false,false,false,torsoMove,'torso-skin',visibleTorso);
+      if (sizeGrade && Object.values(sizeGrade).some(value=>value<0)) {
+        shellContact=(point,theta)=>{
+          const y=proportions.baseAt((1.128-point[1])/centimeter);
+          const setback=-gradeClearance(y,'torso');
+          if (!setback) return contact(point,theta);
+          const dx=setback*Math.cos(theta),dz=setback*.70*Math.sin(theta);
+          const sample=[point[0]+dx,point[1],point[2]+dz];
+          const guarded=contact(sample,theta);
+          return guarded===sample?point:[guarded[0]-dx,guarded[1],guarded[2]-dz];
+        };
+      } else shellContact=contact;
+    }
+  } else if (fullBody && !independentFit) {
+    if (body.mesh) drawImportedTorso(body.mesh,torsoMove,projectView,visibleTorso);
+    else mesh(torso,skin,0,false,false,false,torsoMove,'torso-skin',visibleTorso);
     mesh(sewingModels.smoothRings(head,.012),skin,0,false,false,false,(point,theta)=>{
       const [x,y,z]=point;
       const front=Math.max(0,Math.sin(theta));
@@ -1481,6 +1836,22 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         [.073,.006,.006,side*(.337+shoulders)]],skin,0,false,false,false,moveArm);
       if (exposedLeg.length>1) mesh(exposedLeg,skin,side*legSpacing,false,false,false,legMove);
       mesh(foot,skin,side*legSpacing,false,false,false,p=>rig.foot([p[0],p[1],p[2]+.045]),null,y=>y>legCover);
+    }
+  }
+
+  if (independentFit && wearerPose) {
+    skinPoints=wearerPose.vertices.map(rotateView);
+    skinTopology=humanPreview.topology;
+    if (wearer.mesh) {
+      const range=wearer.mesh.vertices.reduce(([lo,hi],[,y])=>[Math.min(lo,y),Math.max(hi,y)],[Infinity,-Infinity]);
+      skinCovered=wearerAvatar.vertices.map(([,y,,arm])=>arm<.46 && y>=range[0] && y<=range[1]);
+      const uncovered=[];
+      for (let i=0;i<skinTopology.length;i+=4) {
+        const face=skinTopology.slice(i,i+4);
+        if (!face.every(index=>skinCovered[index])) uncovered.push(...face);
+      }
+      skinTopology=uncovered;
+      drawImportedTorso(wearer.mesh,wearerTorso,projectView);
     }
   }
 
@@ -1733,6 +2104,203 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const i=Math.floor(position);
     return points[i].map((n,k)=>fabricFit.mix(n,points[(i+1)%points.length][k],position-i));
   }
+  const decorMix=(a,b,t)=>a.map((n,i)=>fabricFit.mix(n,b[i],t));
+  const decorDistance=(a,b)=>Math.hypot(...a.map((n,i)=>n-b[i]));
+  const thetaDelta=(a,b)=>Math.abs(Math.atan2(Math.sin(a-b),Math.cos(a-b)));
+  function surfaceRowPoint(surface,theta,row) {
+    const at=fabricFit.clamp(row,0,surface.geometry.length-1);
+    const low=Math.floor(at), high=Math.ceil(at);
+    return decorMix(surface.sampleRing(theta,low),surface.sampleRing(theta,high),at-low);
+  }
+  function shellHeightPoint(theta,height) {
+    const columns=columnsOfShell();
+    const position=((theta/(2*Math.PI)*columns.length)%columns.length+columns.length)%columns.length;
+    const i=Math.floor(position);
+    return decorMix(pointAtHeight(columns[i].levels,height),pointAtHeight(columns[(i+1)%columns.length].levels,height),position-i);
+  }
+  function pocketBounds(surface) {
+    const start=Math.max(surface.rings[0][0]+.065,model==='top'?-.47:model==='trousers'?-.10:-.035);
+    const end=Math.min(surface.rings.at(-1)[0]-.025,start+(model==='top'?.155:.21));
+    return {start,end};
+  }
+  function verticalTrim(surface,path,trim,{skip,frontEdge=false,key='laceSeam'}={}) {
+    let run=[];
+    function paintRun() {
+      if (run.length<2) {run=[];return;}
+      const edge=run.map(({theta,row})=>surfaceRowPoint(surface,theta,row));
+      const normalAt=(j,k,t)=>{
+        const theta=fabricFit.mix(run[j].theta,run[k].theta,t);
+        return [Math.cos(theta),0,Math.sin(theta)];
+      };
+      const direction=frontEdge && Math.cos(run[0].theta)<0?-1:1;
+      drawLace(trim,edge,edge,key,{closed:false,alignment:frontEdge?0:.5,normalAt,
+        acrossAt:(j,k,t,offset)=>{
+          const row=fabricFit.mix(run[j].row,run[k].row,t);
+          const theta=fabricFit.mix(run[j].theta,run[k].theta,t);
+          const radius=Math.max(.045,decorDistance(surfaceRowPoint(surface,theta-.03,row),surfaceRowPoint(surface,theta+.03,row))/.06);
+          const shift=frontEdge?Math.max(.005,offset+.007)*direction:offset;
+          return surfaceRowPoint(surface,theta+shift/radius,row);
+        }});
+      run=[];
+    }
+    for (const entry of path) {
+      if (skip?.(entry)) paintRun();
+      else run.push(entry);
+    }
+    paintRun();
+  }
+  function decorativeSeam(surface,angles,trim,panel=false) {
+    const pocket=pocketBounds(surface);
+    const closure=designClosure;
+    const closureTheta=closure==='Invisible zipper'||closure==='Back lacing'||closure==='Back button and loop'?
+      1.5*Math.PI:closure==='Side zipper'?.14:Math.PI/2;
+    const closureStop=({ 'Invisible zipper':.68,'Side zipper':.43,'Zip fly':.26,'Separating zipper':1,
+      'Button fly':.30,'Front buttons':.87,'Front busk':.87,'Back lacing':.86,'Back button and loop':.16 })[closure];
+    const skipClosures=surface===surfaces.shell;
+    const zipped=skipClosures && panel && Number.isFinite(garmentSeams.panelZipper);
+    let distance=0;
+    let previous;
+    const path=angles.map((theta,row)=>{
+      const [x,y,z]=surface.standingPoint(theta,row);
+      const point=[x,proportions.yAt(y),z];
+      if (previous) distance+=decorDistance(point,previous);
+      previous=point;
+      return {theta,row,y,distance};
+    });
+    verticalTrim(surface,path,trim,{skip:({theta,row,y,distance})=>
+      (zipped && distance<(garmentSeams.panelZipper+1)*centimeter) ||
+      (skipClosures && closureStop && thetaDelta(theta,closureTheta)<.15+trim.width*.024 && row/path.length<closureStop+.03) ||
+      (skipClosures && design.pocket==='In-seam pockets' && Math.abs(Math.cos(theta))>.95 &&
+        y>=pocket.start-.011 && y<=pocket.end+.011)});
+  }
+  function waistbandTrim(surface,trim) {
+    const edge=surface.geometry[0];
+    const columns=columnsOfShell();
+    const count=edge.length;
+    const opening=designClosure==='Side zipper'?.14:/^(?:Zip fly|Button fly)$/.test(designClosure)?Math.PI/2:null;
+    drawLace(trim,edge,surface.geometry[1],'laceWaistband',{
+      visible:opening===null?null:index=>thetaDelta(index/count*2*Math.PI,opening)>.06,
+      normalAt:(j,k,t)=>{const theta=(j+t)/count*2*Math.PI;return [Math.cos(theta),0,Math.sin(theta)];},
+      acrossAt:(j,k,t,offset)=>{
+        const a=columns[j].levels, b=columns[k].levels;
+        const drop=Math.max(0,offset+.007);
+        return decorMix(pointAtHeight(a,a[0].height+drop),pointAtHeight(b,b[0].height+drop),t);
+      }
+    });
+  }
+  function paintStitchedDetails() {
+    for (const [index,detail] of stitchDetails.entries()) {
+      const part=detail.placement==='sleeves'?'sleeve':detail.placement==='hem'&&model==='trousers'?'leg':'shell';
+      for (const surface of surfaceParts[part] || []) drawStitchedDetail(surface,detail,'stitchDetail:'+index);
+    }
+  }
+  function drawStitchedDetail(surface,detail,key) {
+    const {style,placement,depth,spacing,fullness}=detail;
+    const gathered=style==='Gathered ruffle';
+    const pintuck=style==='Pintucks';
+    const atEnd=placement==='hem'||placement==='sleeves';
+    const waist=placement==='waist'&&model==='dress'?
+      proportions.yAt(-.25)+(garmentSeams.waistSeam||0)*centimeter:null;
+    const drop=depth*centimeter;
+    const count=surface.geometry[0].length;
+    const centerRing=Array.from({length:count},(_,i)=>waist===null?
+      surface.geometry[atEnd?surface.geometry.length-1:0][i]:
+      shellHeightPoint(i/count*2*Math.PI,waist));
+    const perimeter=centerRing.reduce((sum,p,i)=>sum+decorDistance(p,centerRing[(i+1)%count]),0);
+    const repeat=fabricFit.clamp(Math.round(perimeter/(gathered?.115/Math.sqrt(fullness||1):spacing*centimeter)),1,42);
+    const samples=Math.max(count,repeat*(pintuck?10:6));
+    const softness=(1-.60*(material?.bend||0))/(1+(material?.gsm||0)/720);
+    const fold=studioDesign.stitchFoldDepth(detail)*centimeter;
+    const wrinkle=fabricFit.clamp((fullness-1)*.42,.14,1);
+    const fullnessLift=gathered?Math.min(.091,drop*.48)*(.49+.51*softness)*wrinkle:
+      Math.min(.060,drop*.36,fold*.68)*(1-.32*softness);
+    const paintBase=color(pattern.color).slice(1).match(/../g).map(hex=>parseInt(hex,16));
+    const frontClosures=['Front buttons','Front busk','Separating zipper','Zip fly','Button fly'];
+    const backClosures=['Back button and loop','Back lacing','Invisible zipper'];
+    const opening=atEnd?null:placement==='neckline'&&Number.isFinite(garmentSeams.panelZipper)?
+      Math.PI/2-(garmentSeams.panelAngle||0)*Math.PI/180:frontClosures.includes(designClosure)?Math.PI/2:
+        backClosures.includes(designClosure)?1.5*Math.PI:designClosure==='Side zipper'?.14:null;
+    const rows=5;
+    const outline=centerRing.map((_,i)=>{
+      if (waist!==null) {
+        const {levels}=columnsOfShell()[i];
+        return [centerRing[i],...levels.filter(level=>level.height>waist+.0001).map(level=>level.point)];
+      }
+      if (!atEnd) return surface.geometry.map(row=>row[i]);
+      const last=surface.geometry.at(-1)[i];
+      if (pintuck) return surface.geometry.map((_,j)=>surface.geometry.at(-1-j)[i]);
+      const previous=surface.geometry.at(-2)[i];
+      const distance=decorDistance(previous,last);
+      return [last,last.map((n,k)=>n+(n-previous[k])*drop/Math.max(.003,distance))];
+    });
+    function pointAlong(path,distance) {
+      if (!distance) return path[0];
+      for (let i=1;i<path.length;i++) {
+        const edge=decorDistance(path[i-1],path[i]);
+        if (distance<=edge) return decorMix(path[i-1],path[i],distance/Math.max(.0001,edge));
+        distance-=edge;
+      }
+      const last=path.at(-1), previous=path.at(-2);
+      if (!previous) return last;
+      return last.map((n,k)=>n+(n-previous[k])*distance/Math.max(.003,decorDistance(last,previous)));
+    }
+    function normalBetween(a,b,c,theta) {
+      const u=b.map((n,k)=>n-a[k]);
+      const v=c.map((n,k)=>n-a[k]);
+      const cross=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+      const magnitude=Math.hypot(...cross);
+      if (magnitude<.0000001) return [Math.cos(theta),0,Math.sin(theta)];
+      const winding=atEnd&&pintuck?1:-1;
+      return cross.map(n=>winding*n/magnitude);
+    }
+    function foldProfile(value) {
+      if (gathered) return .5+.5*Math.cos(2*Math.PI*value);
+      const t=value-Math.floor(value);
+      if (pintuck) return Math.max(0,1-Math.abs(t-.25)*7);
+      if (style==='Knife pleats') return t<.72?t/.72:(1-t)/.28;
+      const box=fabricFit.clamp(1-Math.max(0,Math.abs(t-.5)-.22)*8,0,1);
+      return style==='Inverted pleats'?1-box:box;
+    }
+    const ribbon=Array.from({length:samples},(_,i)=>{
+      const theta=i/samples*2*Math.PI;
+      const station=i/samples*count;
+      const column=Math.floor(station), next=(column+1)%count, t=station-column;
+      const start=centerRing[column], adjacent=centerRing[next];
+      const inward=pointAlong(outline[column],.03);
+      const norm=normalBetween(start,adjacent,inward,theta);
+      const points=Array.from({length:rows+1},(_,j)=>{
+        const fall=j/rows;
+        const profile=foldProfile(i*repeat/samples+fall*(gathered?.26:0));
+        const base=decorMix(pointAlong(outline[column],drop*fall),pointAlong(outline[next],drop*fall),t);
+        const amplitude=pintuck?fold*Math.sin(Math.PI*fall)**.58:fullnessLift*fall**.73;
+        const flare=gathered?drop*.16*fall**1.8:0;
+        const lift=.006+amplitude*profile+flare;
+        let point=base.map((n,k)=>n+norm[k]*lift);
+        if (point[1]>1.126) point=[point[0]+norm[0]*(point[1]-1.126)*.4,1.126,point[2]+norm[2]*(point[1]-1.126)*.4];
+        return {projected:project(point),profile};
+      });
+      return {points,theta};
+    });
+    for (let i=0;i<samples;i++) {
+      const a=ribbon[i],b=ribbon[(i+1)%samples],theta=a.theta+Math.PI/samples+angle;
+      if (opening!==null && thetaDelta(theta-angle,opening)<.09) continue;
+      for (let j=0;j<rows;j++) {
+        const vertices=[a.points[j],b.points[j],b.points[j+1],a.points[j+1]];
+        const points=vertices.map(p=>p.projected);
+        const profile=vertices.reduce((sum,p)=>sum+p.profile,0)/4;
+        const light=(.78+.17*Math.cos(theta-1.95)+.086*Math.sin(theta))*(.82+profile*.24);
+        const swatch=fabricFit.sample(selectedSwatch?.photo,i/samples*3,j/rows*drop*3,analysis?.redraw);
+        const paint='rgb('+(swatch||paintBase).map(n=>Math.min(255,Math.round(n*light))).join(',')+')';
+        faces.push({points,depth:points.reduce((sum,p)=>sum+p[2],0)/4,paint,skipStroke:true});
+      }
+    }
+    const angles=ribbon.map(({theta})=>opening!==null && thetaDelta(theta,opening)<.09?-angle:theta);
+    const mid=ribbon.map(station=>station.points[Math.ceil(rows/2)].projected);
+    const edge=ribbon.map(station=>station.points.at(-1).projected);
+    const rail=ribbon.map(station=>station.points[0].projected);
+    addComponent(key,[...visiblePaths(mid,angles),...visiblePaths(edge,angles)],{radius:12,priority:4});
+    for (const points of visiblePaths(rail,angles)) markings.push({points,style:'rgba(53,30,43,.39)'});
+  }
   function markSeams() {
     if (!design) return;
     const showGuides=analysis?.editor?.showSeams;
@@ -1776,6 +2344,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (matchesSide && (!single || !Number.isFinite(garmentSeams.panelZipper))) {
           addComponent(single?'panelAngle':'panelSeam',visiblePaths(points,path),{radius:9});
         }
+        if (panelSaved && garmentLace.seams) decorativeSeam(surface,path,garmentLace.seams,true);
       }
       if (single && (analysis?.editor || Number.isFinite(garmentSeams.panelZipper))) {
         const theta=paths[0][0];
@@ -2027,7 +2596,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const restCenter=centerOf(restHem);
     const floor=proportions.yAt(1.105);
     const minimumDrop=.036;
-    const legJoin=side?proportions.yAt(shell.at(-1)[0])-.012:-Infinity;
+    const legJoin=side?proportions.yAt(shell.at(-1)[0])+.041:-Infinity;
     const mapOpacity=regions?1-.68**(1/garmentLayers.length):1;
     const stack=[];
     const columns=restHem.map((end,i)=>{
@@ -2174,6 +2743,133 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     }
   }
 
+  function drawConfiguredClosure(surface,closure,detail) {
+    const theta=closure==='Back button and loop'?Math.PI*1.5:
+      detail.placement==='left'?.38:detail.placement==='right'?Math.PI-.38:Math.PI/2;
+    const vector=(a,b)=>a.map((n,i)=>n-b[i]);
+    const dot=(a,b)=>a.reduce((sum,n,i)=>sum+n*b[i],0);
+    const normalized=points=>{
+      const length=Math.hypot(...points)||1;
+      return points.map(n=>n/length);
+    };
+    const cross=([x,y,z],[a,b,c])=>[y*c-z*b,z*a-x*c,x*b-y*a];
+    const ringCount=surface.rings.length;
+    function trace(around) {
+      const rest=surface.rings.map((_,i)=>{
+        const [x,y,z]=surface.standingPoint(around,i);
+        return [x,proportions.yAt(y),z];
+      });
+      const distances=[0];
+      for (let i=1;i<ringCount;i++) distances.push(distances[i-1]+Math.hypot(...vector(rest[i],rest[i-1]))/centimeter);
+      function point(distance) {
+        const i=distances.findIndex(value=>value>=distance);
+        const hi=i<0?ringCount-1:Math.max(1,i),lo=hi-1;
+        const t=fabricFit.clamp((distance-distances[lo])/Math.max(.001,distances[hi]-distances[lo]),0,1);
+        const a=surface.sampleRing(around,lo),b=surface.sampleRing(around,hi);
+        return a.map((n,k)=>fabricFit.mix(n,b[k],t));
+      }
+      return {distances,length:distances.at(-1),point};
+    }
+    const channel=detail.color.slice(1).match(/../g).map(n=>parseInt(n,16));
+    const colorAt=light=>'rgb('+channel.map(n=>Math.round(fabricFit.clamp(n*light,0,255))).join(',')+')';
+    const plain=colorAt(1),rim=colorAt(.74);
+    const track=trace(theta);
+    const left=trace(theta-.032),right=trace(theta+.032);
+    const outward=[Math.cos(theta),0,Math.sin(theta)];
+    function frame(distance) {
+      const center=track.point(distance);
+      const across=normalized(vector(left.point(distance),right.point(distance)));
+      const heading=vector(track.point(distance+1),track.point(distance-1));
+      const along=dot(heading,across);
+      const down=normalized(heading.map((n,i)=>n-along*across[i]));
+      let normal=normalized(cross(across,down));
+      if (dot(normal,outward)<0) normal=normal.map(n=>-n);
+      const local=(x,y,depth)=>center.map((n,i)=>n+across[i]*x+down[i]*y+normal[i]*depth);
+      return {local,normal,down};
+    }
+    function surfaceFace(vertices,paint) {
+      const points=vertices.map(project);
+      faces.push({points,depth:points.reduce((sum,p)=>sum+p[2],0)/points.length,paint});
+    }
+    function circle(local,x,y,depth,radius,paint) {
+      surfaceFace(Array.from({length:14},(_,i)=>{
+        const a=2*Math.PI*i/14;
+        return local(x+radius*Math.cos(a),y+radius*Math.sin(a),depth);
+      }),paint);
+    }
+    const hits=[];
+    if (detail.kind==='buttons') {
+      const end=closure==='Button fly'?Math.min(track.length*.64,20):track.length;
+      const radius=detail.diameter*centimeter*.5;
+      for (let i=0;i<detail.count;i++) {
+        const distance=detail.offset+i*(detail.spacing||0);
+        if (distance>end) break;
+        const {local,normal}=frame(distance);
+        if (rotateView(normal)[2]<.06) continue;
+        circle(local,0,0,.0045,radius,rim);
+        circle(local,0,0,.0063,radius*.85,plain);
+        for (const x of [-radius*.28,radius*.28]) circle(local,x,0,.0075,radius*.12,colorAt(.58));
+        hits.push([project(local(-radius,0,.0075)),project(local(radius,0,.0075))]);
+      }
+    } else {
+      const drawstring=detail.kind==='drawstring';
+      const seamY=-.25+(garmentSeams.waistSeam||0)*centimeter;
+      const waistRow=surface.rings.reduce((best,[y],i)=>Math.abs(y-seamY)<Math.abs(surface.rings[best][0]-seamY)?i:best,0);
+      const distance=drawstring?detail.casingDepth*.52:(skirtFit && model==='skirt'?1.2:track.distances[waistRow]);
+      if (drawstring) {
+        const casingPath=viewArc(around=>{
+          const point=trace(around).point(detail.casingDepth);
+          return liftedPoint(point,around);
+        });
+        markings.push({points:casingPath,style:colorAt(.86)});
+        hits.push(casingPath);
+      }
+      const {local,normal,down}=frame(distance);
+      if (rotateView(normal)[2]>.085) {
+        const top=surface.geometry[0];
+        const waist=top.reduce((sum,p,i)=>sum+Math.hypot(...vector(p,top[(i+1)%top.length])),0)/centimeter;
+        const loose=drawstring?Math.max(5,(detail.length-waist)*.50):detail.length;
+        const length=loose*centimeter;
+        const width=detail.width*centimeter;
+        const spread=Math.min(.21,Math.max(width*1.05,length*.28));
+        const bowRise=Math.min(.104,spread*.52);
+        const depth=.021+width*.20;
+        const loop=(sign,t)=>local(sign*(width*.36+spread*Math.sin(Math.PI*t)),
+          bowRise*(-.84*Math.sin(2*Math.PI*t)+.14*Math.sin(Math.PI*t)),depth+spread*.10*Math.sin(Math.PI*t));
+        const tail=(sign,t)=>{
+          const overhang=length*.56*t;
+          const at=track.point(distance+overhang/centimeter);
+          const after=Math.max(0,overhang-(track.length-distance)*centimeter);
+          const drift=(pose.flow||0)*Math.sin((pose.phase||0)*2+t*4)*.030*t;
+          const offset=local(sign*(width*.36+spread*.78*Math.sin(t*1.5))+drift,0,depth*(1-.36*t));
+          const anchor=track.point(distance);
+          return at.map((n,k)=>n+offset[k]-anchor[k]+down[k]*after);
+        };
+        function ribbon(path,ribbonWidth) {
+          const edges=path.map((point,i)=>{
+            const flow=vector(path[Math.min(path.length-1,i+1)],path[Math.max(0,i-1)]);
+            const lateral=normalized(cross(normal,flow));
+            return [-1,1].map(side=>point.map((n,k)=>n+side*lateral[k]*ribbonWidth*.5));
+          });
+          for (let i=1;i<edges.length;i++) {
+            surfaceFace([edges[i-1][0],edges[i-1][1],edges[i][1],edges[i][0]],plain);
+          }
+          hits.push(path.map(project));
+        }
+        circle(local,0,0,depth+.002,Math.max(.008,width*.63),plain);
+        for (const sign of [-1,1]) {
+          if (drawstring) {
+            circle(local,sign*Math.max(.016,width*1.45),-.004,.004,Math.max(.004,width*.76),rim);
+            ribbon([local(sign*Math.max(.016,width*1.45),-.004,.005),local(sign*width*.36,0,depth)],width);
+          }
+          ribbon(Array.from({length:15},(_,i)=>loop(sign,i/14)),width);
+          ribbon(Array.from({length:13},(_,i)=>tail(sign,i/12)),width);
+        }
+      }
+    }
+    addComponent('designClosure',hits,{radius:9,priority:3});
+  }
+
   function addFitComponents() {
     if (componentKeys.has('mainHem') && skirtFit && surfaces.shell) {
       const {rings,sampleRing}=surfaces.shell;
@@ -2226,7 +2922,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           const span=key==='length'?.53:key==='waistHeight'?.34:1.33;
           paths=arc(index,near,span);
         }
-        const guide=componentKeys.size<=7 || ['waist','hip','neckDepth','length'].includes(key);
+        const trouserHip=model==='trousers' && key==='hip';
+        const guide=!trouserHip && (componentKeys.size<=7 || ['waist','hip','neckDepth','length'].includes(key));
         addComponent(key,paths,{radius:part==='sleeve'?10:11,guide});
       }
     }
@@ -2237,7 +2934,15 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const sample=avatar?.sectionAt(part,y);
       if (!sample) return [y,w,d,center,centerZ];
       const [bw,bd,x,z]=sample;
-      return [y,Math.max(w,bw+.012),Math.max(d,bd+.014),side*x,z];
+      const grade=gradeClearance(y,part);
+      if (part!=='leg') return [y,Math.max(w,bw+.012+grade),Math.max(d,bd+.014+grade*.70),side*x,z];
+      // The upper leg buckets still contain some of the pelvis. Ease into
+      // the independent thigh width after the cloth branches into legs.
+      const end=Math.min(.41,Math.max(.32,trouserLegs[side].at(-1)[0]-.012));
+      const t=fabricFit.clamp((y-.26)/(end-.26),0,1);
+      const blend=t*t*(3-2*t);
+      return [y,fabricFit.mix(w,Math.max(w,bw+.012+grade),blend),fabricFit.mix(d,Math.max(d,bd+.014+grade*.70),blend),
+        fabricFit.mix(center,side*x,blend),fabricFit.mix(centerZ,z,blend)];
     };
     let guarded = shellContact?sewingModels.smoothRings(shell,.028):avatar?expanded(shell).map(row=>{
       const anatomy=['dress','skirt'].includes(model) && row[0]>.30?'bothLegs':'torso';
@@ -2272,7 +2977,14 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           return laid;
         }
         if (model==='dress'||model==='skirt') return skirtMove(moved,theta);
-        return model==='trousers'?rig.pelvis(moved,theta):torsoMove(moved);
+        if (model==='trousers') {
+          const settled=rig.pelvis(moved,theta);
+          const wrap=pose.sit*back**1.25*fabricFit.clamp((y+.11)/.31,0,1)**2;
+          settled[1]+=.112*wrap;
+          settled[2]-=.020*wrap;
+          return settled;
+        }
+        return torsoMove(moved);
       },'shell');
     if (support==='Strapless' && (model==='dress' || model==='top') &&
         (elasticStrapless || componentKeys.has('straplessSupport'))) {
@@ -2316,9 +3028,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         addMark([[.87,1.02],[.77,1.05],[.61,1.23],[.61,1.91],[.77,2.09],[.87,2.12]],'rgba(29,22,38,.60)',true,'designPocket');
       }
       if (!design.kangaroo && ['Patch pockets','In-seam pockets'].includes(design.pocket)) {
-        const bottom=surface.rings.at(-1)[0];
-        const start=Math.max(surface.rings[0][0]+.065,model==='top'?-.47:model==='trousers'?-.10:-.035);
-        const end=Math.min(bottom-.025,start+(model==='top'?.155:.21));
+        const {start,end}=pocketBounds(surface);
         const level=y=>surface.rings.reduce((best,row,i)=>Math.abs(row[0]-y)<Math.abs(surface.rings[best][0]-y)?i:best,0)/(surface.rings.length-1);
         const channels=color(pattern.color).slice(1).match(/../g).map(n=>parseInt(n,16));
         const light=channels[0]*.213+channels[1]*.715+channels[2]*.072>135;
@@ -2326,12 +3036,25 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (end-start>.055) for (const side of [-1,1]) {
           if (design.pocket==='Patch pockets') {
             const center=front+side*(model==='top'?.58:.74), half=model==='top'?.24:.27;
+            if (garmentLace.pockets) {
+              const angles=Array.from({length:17},(_,i)=>center-half+2*half*i/16);
+              const y=proportions.yAt(start);
+              const edge=angles.map(theta=>shellHeightPoint(theta,y));
+              drawLace(garmentLace.pockets,edge,edge,'lacePocket',{closed:false,
+                normalAt:(j,k,t)=>{const theta=fabricFit.mix(angles[j],angles[k],t);return [Math.cos(theta),0,Math.sin(theta)];},
+                acrossAt:(j,k,t,offset)=>shellHeightPoint(fabricFit.mix(angles[j],angles[k],t),y+Math.min(end-start-.012,Math.max(.004,offset+.008)))});
+            }
             if (!visible(center)) continue;
             const top=level(start), low=level(end), bend=level(end-.030);
             addMark([[top,center-half],[top,center+half],[bend,center+half],[low,center+half*.74],
               [low,center-half*.74],[bend,center-half]],ink,true,'designPocket');
           } else {
             const sideTheta=side>0?.09:Math.PI-.09;
+            if (garmentLace.pockets) {
+              const ringCount=surface.rings.length-1;
+              const path=Array.from({length:10},(_,i)=>({theta:sideTheta,row:fabricFit.mix(level(start),level(end),i/9)*ringCount}));
+              verticalTrim(surface,path,garmentLace.pockets,{frontEdge:true,key:'lacePocket'});
+            }
             if (!visible(sideTheta)) continue;
             addMark(Array.from({length:8},(_,i)=>[level(fabricFit.mix(start,end,i/7)),sideTheta]),ink,false,'designPocket');
           }
@@ -2342,7 +3065,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       const closure=designClosure;
       const center=closure==='Invisible zipper'||closure==='Back lacing'||closure==='Back button and loop'?back:closure==='Side zipper'?.14:front;
-      if (visible(center)) {
+      if (fastener) drawConfiguredClosure(surface,closure,fastener);
+      else if (visible(center)) {
         if (['Front buttons','Button fly','Front busk','Back button and loop'].includes(closure)) {
           const last=closure==='Button fly'?.29:.87;
           const buttons=[];
@@ -2365,6 +3089,10 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const row=surface.rings.findIndex(([y])=>y>=surface.rings[0][0]+.035);
         addComponent('designClosure',[viewArc(theta=>liftedPoint(surface.sampleRing(theta,Math.max(0,row)),theta))],
           {radius:8,priority:3});
+      }
+      if (garmentLace.waistband) waistbandTrim(surface,garmentLace.waistband);
+      if (seamLace?.kind==='sides') {
+        for (const theta of [0,Math.PI]) decorativeSeam(surface,surface.rings.map(()=>theta),garmentLace.seams);
       }
     }
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
@@ -2471,18 +3199,20 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           moved[2]+=pose.sit*knee*Math.max(0,Math.sin(theta))*(changes.kneeFlex||0)/145;
           return moved;
         },'leg');
+        if (seamLace?.kind==='sides') decorativeSeam(surfaces.leg,surfaces.leg.rings.map(()=>side>0?0:Math.PI),garmentLace.seams);
         drawFittedLayers(surfaces.leg);
       }
     }
+    if (stitchDetails.length) paintStitchedDetails();
   }
   if (analysis && pose.sit>.15 && fullBody) {
-    const height= avatar?.pose?.(fabricFit.poses.sit).seatY ??
-      (pose.sit===1?rig:fabricFit.rig(fabricFit.poses.sit,proportions.yAt)).seatY;
-    const wide=Math.max(.30,.28+bodyHip);
+    const height=wearerAvatar?.pose?.(fabricFit.poses.sit).seatY ??
+      (pose.sit===1?wearerRig:fabricFit.rig(fabricFit.poses.sit,wearerProportions.yAt)).seatY;
+    const wide=Math.max(.30,.28+((wearer.hip||98)-98)/450);
     const near=.24, far=-.27, floor=1.126;
     const opacity=Math.min(1,(pose.sit-.15)*1.4);
     function seatFace(vertices,fill) {
-      const points=vertices.map(project);
+      const points=vertices.map(projectView);
       faces.push({points,depth:points.reduce((n,point)=>n+point[2],0)/points.length,paint:fill});
     }
     seatFace([[-wide,height,far],[wide,height,far],[wide,height,near],[-wide,height,near]],`rgba(138,112,98,${.29*opacity})`);
@@ -2495,11 +3225,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   }
   if (componentKeys.size) addFitComponents();
   const depthRendered=(skinPoints||garmentLayers.length||componentKeys.size) && typeof fittingRender!=='undefined' && fittingRender.paint(context,{
-    faces,skinPoints,skinTopology:skinPoints?humanPreview.topology:null,skinColor:skin,width,height,cx,cy,scale,markings
+    faces,skinPoints,skinTopology,skinColor:skin,width,height,cx,cy,scale,markings
   });
   if (!depthRendered && skinPoints) {
     const channels=skin.slice(1).match(/../g).map(value=>parseInt(value,16));
-    faces.push(...humanPreview.skinFaces(skinPoints,skinPoints.map(screen),channels));
+    faces.push(...humanPreview.skinFaces(skinPoints,skinPoints.map(screen),channels,skinCovered));
   }
   for (const face of depthRendered?[]:faces.sort((a,b)=>a.depth-b.depth)) {
     context.beginPath();
@@ -2795,17 +3525,24 @@ const strapShapeSigned=key=>key.endsWith('Curve')||key.endsWith('Angle');
 function strapShapePreset(shape) {
   return Object.keys(studioDesign.strapShapeChoices).find(name=>strapShapeKeys.every(key=>shape[key]===studioDesign.strapShapeChoices[name][key])) || 'Custom';
 }
-function strapShapeControls(support,settings) {
+function strapShapeControls(support,settings,construction) {
   const shape=studioDesign.strapShape(settings);
   const preset=strapShapePreset(shape);
   const active=studioDesign.supportsStrapShape(support);
-  const group=(side,label)=>`<details class="design-options slider-group"><summary>${label}</summary><div class="slider-group-content">
+  const choices=construction?studioDesign.onePieceChoices(construction):{};
+  const continuous=construction?studioDesign.onePiece(construction):{};
+  const group=(side,label)=>{
+    const join=`strap${side}`;
+    return `<details class="design-options slider-group"><summary>${label}</summary><div class="slider-group-content">
+    ${construction?`<div data-one-piece-wrap${choices[join]?'':' hidden'}><label class="sleeve-choice"><input type="checkbox" data-one-piece="${join}" data-highlight-component="${join}Join"${continuous[join]?' checked':''}${choices[join]?'':' disabled'}> ${escape(choices[join]||`Cut the strap and ${side.toLowerCase()} bodice in one piece`)}</label></div>`:''}
     ${strapShapeKeys.filter(key=>key.startsWith(`strap${side}`)).map(key=>{
       const unit=strapShapeUnit(key);
       const backBodice=['strapBackJoin','strapBackAngle'].includes(key);
-      return slider(strapShapeLabels[key],`name="${key}" data-strap-shape-field data-component-slider="${key}"${backBodice?' data-back-bodice-join':''}`,
+      const attachment=key.endsWith('Join')||key.endsWith('Angle');
+      return slider(strapShapeLabels[key],`name="${key}" data-strap-shape-field data-component-slider="${key}"${backBodice?' data-back-bodice-join':''}${attachment?` data-separate-strap-join="${join}"`:''}`,
         studioDesign.strapShapeLimits[key],shape[key],{unit,step:unit==='cm'?.5:1,signed:strapShapeSigned(key),disabled:!active});
     }).join('')}</div></details>`;
+  };
   return `<details class="design-options" data-strap-shape${active?'':' hidden'}><summary>Strap curve and taper</summary>
     <div class="slider-group-content"><label class="field">Strap shape<select data-strap-preset${active?'':' disabled'}>${[...Object.keys(studioDesign.strapShapeChoices),'Custom'].map(name=>option(name,name,preset)).join('')}</select></label>
     <p>Join depth extends the strap onto the bodice. A positive angle lowers the neckline side of the join. Join width is a percentage of shoulder width.</p>
@@ -2849,6 +3586,24 @@ function refreshStraplessControls(form) {
       field.disabled=shape.hidden||collar;
       if (field.hasAttribute('data-back-bodice-join')) field.closest('.field').hidden=collar;
     }
+  }
+}
+function refreshOnePieceStraps(form,construction) {
+  const shape=form.querySelector('[data-strap-shape]');
+  if (!shape) return;
+  const choices=studioDesign.onePieceChoices(construction);
+  const continuous=studioDesign.onePiece(construction);
+  for (const toggle of shape.querySelectorAll('[data-one-piece]')) {
+    const key=toggle.dataset.onePiece;
+    toggle.checked=Boolean(continuous[key]);
+    toggle.disabled=shape.hidden||!choices[key];
+    toggle.closest('[data-one-piece-wrap]').hidden=toggle.disabled;
+  }
+  for (const input of shape.querySelectorAll('[data-separate-strap-join]')) {
+    const collar=form.elements.support.value==='Halter strap' && input.hasAttribute('data-back-bodice-join');
+    const hidden=collar||Boolean(continuous[input.dataset.separateStrapJoin]);
+    input.disabled=shape.hidden||hidden;
+    input.closest('.field').hidden=hidden;
   }
 }
 function bindStraplessChoice(form) {
@@ -2914,19 +3669,19 @@ function bindFitEase(prefix,analysis,solve) {
   document.getElementById(`${idPrefix}add-seat-ease`).onclick=()=>run(false);
   document.getElementById(`${idPrefix}add-all-ease`).onclick=()=>run(true);
 }
-function fitAnalysisControls(prefix,extra='') {
+function fitAnalysisControls(prefix,extra='',{viewOnly=false}={}) {
   const id=key=>fitAnalysisId(prefix,key);
   return `<div class="fit-preview-controls">
     <label class="field">Movement<select id="${id('pose')}"><optgroup label="Poses">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</optgroup><optgroup label="Motion loops">${Object.entries(fabricFit.motions).map(([key,value])=>option(key,value.name)).join('')}</optgroup></select></label>
-    <label class="fit-map-toggle"><input type="checkbox" id="${id('map')}" checked> Show tightness</label>
+    ${viewOnly?'':`<label class="fit-map-toggle"><input type="checkbox" id="${id('map')}" checked> Show tightness</label>`}
     <div class="fit-motion-controls" id="${id('motion-controls')}" hidden>
       <button type="button" class="secondary" id="${id('play-motion')}">Play motion</button>
       <label class="field">Motion progress<input id="${id('motion-progress')}" type="range" min="0" max="100" step=".1" value="0"></label>
       <label class="field">Speed<select id="${id('motion-speed')}"><option value=".5">Half speed</option><option value="1" selected>Normal</option><option value="1.5">1.5×</option></select></label>
     </div>
     ${extra}
-    <div class="fit-legend" id="${id('legend')}"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
-    <p id="${id('reading')}" class="fit-reading" aria-live="polite"></p>
+    ${viewOnly?'':`<div class="fit-legend" id="${id('legend')}"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
+    <p id="${id('reading')}" class="fit-reading" aria-live="polite"></p>`}
   </div>`;
 }
 function bindFitAnalysis(prefix,{draw,estimate}) {
@@ -2946,6 +3701,7 @@ function bindFitAnalysis(prefix,{draw,estimate}) {
   let progress=0;
 
   function report() {
+    if (!estimate || !reading) return;
     const regions=estimate(pose);
     const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level||(b.load??0)-(a.load??0));
     if (peak) {
@@ -2959,7 +3715,7 @@ function bindFitAnalysis(prefix,{draw,estimate}) {
     cancelAnimationFrame(animation);
     playing=false;
     playButton.textContent='Play motion';
-    reading.setAttribute('aria-live','polite');
+    reading?.setAttribute('aria-live','polite');
   }
 
   function scrub(next) {
@@ -2979,7 +3735,7 @@ function bindFitAnalysis(prefix,{draw,estimate}) {
     if (!motion) return;
     playing=true;
     playButton.textContent='Pause motion';
-    reading.setAttribute('aria-live','off');
+    reading?.setAttribute('aria-live','off');
     let last=performance.now(),lastRead=0;
     function frame(now) {
       if (!playing || !poseField.isConnected) return;
@@ -3003,7 +3759,7 @@ function bindFitAnalysis(prefix,{draw,estimate}) {
     report();
   });
 
-  map.addEventListener('change',()=>{
+  map?.addEventListener('change',()=>{
     legend.hidden=!map.checked;
     draw();
   });
@@ -3046,7 +3802,7 @@ function bindFitAnalysis(prefix,{draw,estimate}) {
     return all?[...Object.values(fabricFit.poses),...samples]:samples;
   }
 
-  return {pose:()=>pose,show:()=>map.checked,report,easePoses,cleanup:pause};
+  return {pose:()=>pose,show:()=>Boolean(map?.checked),report,easePoses,cleanup:pause};
 }
 function straplessFitDesign(pattern,changes) {
   return {...pattern.design,model:pattern.design?.model || basePattern(pattern).id,support:'Strapless',
@@ -3217,6 +3973,18 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
     for (const [key,trim] of Object.entries(studioDesign.laceTrims(pattern.design))) {
       adjustments.push([`${laceLabels[key]} trim`,`${trim.style} · ${cm(trim.width)}`]);
     }
+    const detailPositions=studioDesign.stitchPlacements(pattern.design);
+    for (const [index,detail] of studioDesign.stitchDetails(pattern.design).entries()) {
+      const repeat=detail.spacing?`${cm(detail.spacing)} spacing`:`${detail.fullness}× gathering ratio`;
+      adjustments.push([`Detail ${index+1} · ${detail.style}`,`${detailPositions[detail.placement]} · ${cm(detail.depth)} depth · ${repeat}`]);
+    }
+    const fastener=studioDesign.effectiveClosure(pattern.design)===pattern.design?.closure && garmentFasteners.saved(pattern.design);
+    if (fastener) {
+      for (const [key,[label]] of Object.entries(garmentFasteners.fields[fastener.kind])) {
+        if (Number.isFinite(fastener[key])) adjustments.push([label,key==='count'?String(fastener[key]):cm(fastener[key])]);
+      }
+      if (fastener.placement) adjustments.push([fastener.kind==='ties'?'Tie placement':'Drawstring exit',garmentFasteners.placements[fastener.placement]]);
+    }
     studioDesign.layers(pattern.design).forEach((layer,index)=>{
       if (layer.laceTrim) adjustments.push([`Layer ${index+1} hem trim`,`${layer.laceTrim.style} · ${cm(layer.laceTrim.width)}`]);
     });
@@ -3295,7 +4063,7 @@ function fitting() {
   const canHaveSleeves=shoulders.support==='Integrated shoulders';
   const fitTools=`${fitEaseControls('fit')}
     ${studioDesign.layers(pattern.design).length?'<p id="fit-layer-map-note" class="fit-reading muted">The map shows tightness on the main garment. Layers are faded in this view.</p>':''}`;
-  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p><h1>${publisher?'Try on garment':titles.fitting}</h1><p>${publisher?'Choose a model to preview this pattern in 3D.':'Preview the fit on a model, then save a revision or create an illustrated work order.'}</p></div><div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Select a garment area to open its fit slider. Use the left and right arrow keys to turn."></canvas></div><div class="viewer-footer"><span class="muted">Select a garment area to jump to its slider. Drag or use arrow keys to turn.</span><button class="secondary" id="reset-view">Front view</button></div>${fitAnalysisControls('fit',fitTools)}
+  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p><h1>${publisher?'Try on garment':titles.fitting}</h1><p>${publisher?'Choose a model to preview this pattern in 3D.':'Preview the fit on a model, then save a revision or create an illustrated work order.'}</p></div><div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Select a garment area to open its fit slider. Use arrow keys to rotate and tilt."></canvas></div><div class="viewer-footer"><span class="muted">Select a garment area to jump to its slider. Drag or use arrow keys to turn.</span><div class="actions"><button type="button" class="secondary" id="reset-view">Front view</button><button type="button" class="secondary" id="preview-current-fit">Preview on models</button></div></div><label class="field fitting-tilt">Tilt up or down<input type="range" id="fit-tilt" min="-70" max="70" step="1" value="0"></label>${fitAnalysisControls('fit',fitTools)}
 </section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
     <p class="model-link"><a href="#models">Open Model Library</a></p>
@@ -3327,6 +4095,7 @@ function fitting() {
   const form = document.querySelector('#fitting-form');
   bindStraplessChoice(form);
   const canvas = document.querySelector('#model');
+  const tiltControl = document.querySelector('#fit-tilt');
   const fitGuide = document.querySelector('#fit-guide');
   const sliders = document.querySelector('#fit-sliders');
   let angle = 0;
@@ -3424,7 +4193,7 @@ function fitting() {
     if (!componentKeys.includes(selectedComponent)) selectedComponent=null;
     if (!componentKeys.includes(hoveredComponent)) hoveredComponent=null;
     const preview=drawModel(canvas,pattern,angle,adjustments(),body(),false,
-      {pose:analysis.pose(),material:material(),show:analysis.show(),fabricName:pickedFabric(),redraw:draw,
+      {pose:analysis.pose(),material:material(),show:analysis.show(),fabricName:pickedFabric(),redraw:draw,pitch:Number(tiltControl.value)*Math.PI/180,
         editor:{componentKeys,hoveredComponent,selectedComponent}});
     picker.targets(preview?.componentHits || {});
     if (layerMapNote) layerMapNote.hidden=!analysis.show();
@@ -3475,13 +4244,21 @@ function fitting() {
     selectedComponent=hoveredComponent=null;
     form.dispatchEvent(new Event('input'));
   });
+  tiltControl.addEventListener('input',draw);
   canvas.addEventListener('keydown',event=>{
-    if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
     event.preventDefault();
-    angle += event.key==='ArrowLeft'?-.2:.2;
+    if (event.key==='ArrowUp' || event.key==='ArrowDown') tiltControl.value=Number(tiltControl.value)+(event.key==='ArrowUp'?10:-10);
+    else angle += event.key==='ArrowLeft'?-.2:.2;
     draw();
   });
-  document.querySelector('#reset-view').onclick = ()=>{angle=0;draw();};
+  document.querySelector('#reset-view').onclick = ()=>{angle=0;tiltControl.value=0;draw();};
+  document.querySelector('#preview-current-fit').onclick=()=>{
+    analysis.cleanup();
+    const reference=body();
+    showGarmentPreview({...pattern,fit:{modelId:reference.id,modelMeasurements:snapshotModelMeasurements(reference),
+      changes:adjustments(),fabric:{name:pickedFabric(),...material()}}});
+  };
   form.addEventListener('submit',event=>{
     event.preventDefault();
     if (publisher) return;
@@ -3503,7 +4280,7 @@ function fitting() {
     const summary=fitSummary(compare);
     const {tools,steps,visuals}=kit;
     const measurements=fitMeasurementSheet(targetBody,targetChanges,compare,make,pattern,sourceBody);
-    const modelMeasurements=Object.fromEntries(Object.keys(sewingModels.dimensions).filter(key=>targetBody[key]).map(key=>[key,targetBody[key]]));
+    const modelMeasurements=snapshotModelMeasurements(targetBody);
     const packet={...(savedTarget||pattern),design:designForFit((savedTarget||pattern).design,targetChanges),steps,visuals,measurements};
     const draftOrder={kind:make?'Construction':'Tailoring',plan:{
       ...(studioDesign.supportsStrapShape(targetChanges.support)?{strapWidth:targetChanges.strapWidth,...studioDesign.strapShape(targetChanges)}:{}),
@@ -3513,7 +4290,7 @@ function fitting() {
     fittingDraft={garment:pattern,...kit,summary,modelId:targetBody.id,modelMeasurements,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
     fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}${workFigures.bodySheet(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p>${sewingVisuals.tools(tools)}${allowanceEditor(draftOrder,packet,'preview-allowance-form')}<p id="preview-fit-status" role="status"></p>
-      <form id="save-fit-form">${savedTarget?'':`<label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(make?pattern.name+' new':pattern.family?pattern.name:pattern.name+' fitted')}" ${!make&&pattern.family?'readonly':''}></label>`}<button>${savedTarget?'Save tailoring work order':make?'Save new garment and work order':'Save revision and create work order'}</button></form>
+      <form id="save-fit-form">${savedTarget?'':`<label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(make?pattern.name+' new':pattern.family?pattern.name:pattern.name+' fitted')}" ${!make&&pattern.family?'readonly':''}></label>`}${make?productionSizeField():''}<button>${savedTarget?'Save tailoring work order':make?'Save new garment and work order':'Save revision and create work order'}</button></form>
       <div id="fit-packet-drawings">${drawings()}</div>`;
     studioUnits.refresh(fitGuide);
     const readPreviewMeasurements=bindMeasurementEditor(fitGuide,settings=>{
@@ -3525,7 +4302,8 @@ function fitting() {
     });
     fitGuide.querySelector('#save-fit-form').addEventListener('submit',event=>{
       event.preventDefault();
-      const name = savedTarget?.name || new FormData(event.target).get('garmentName').trim();
+      const fields=new FormData(event.target);
+      const name = savedTarget?.name || fields.get('garmentName').trim();
       if (!name) {notify('Enter a garment name.');return;}
       const figureForm=fitGuide.querySelector('#preview-allowance-form');
       if (!figureForm.checkValidity()) {
@@ -3536,14 +4314,14 @@ function fitting() {
       }
       const figureSettings=readPreviewMeasurements();
       fittingDraft.figureSettings={...figureSettings,plan:{...draftOrder.plan,...figureSettings.plan}};
-      saveFit(name);
+      saveFit(name,fields.get('productionSize'));
     });
     fitGuide.scrollIntoView({block:'nearest'});
   });
   draw();
   analysis.report();
 }
-function saveFit(name) {
+function saveFit(name,productionSize) {
   if (!fittingDraft) return;
   const {garment,tools,steps,visuals,summary,modelId,modelMeasurements,changes,fabric,make,savedTarget,route,materials,measurements,figureSettings} = fittingDraft;
   const notes=[route,getModel(modelId).name,fabric.name,fabric.gsm+' g/m²',summary].filter(Boolean).join(' · ');
@@ -3575,8 +4353,9 @@ function saveFit(name) {
     buildFabric:make?materials:garment.buildFabric || garment.fabric,buildTools:make?tools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
     fit:{modelId,modelMeasurements,changes,fabric,source:garment.id}};
   state.custom.push(plan);
-  state.orders.unshift({id:'WO-'+String(state.next++).padStart(3,'0'),title:name+' · Revision '+revision,pattern:id,kind:make?'Construction':'Tailoring',before:make?undefined:garment.id,
-    due:'',notes,done:[],...figureSettings});
+  const order={id:'WO-'+String(state.next++).padStart(3,'0'),title:name+' · Revision '+revision,pattern:id,kind:make?'Construction':'Tailoring',before:make?undefined:garment.id,
+    due:'',notes,done:[],...figureSettings};
+  state.orders.unshift(withProductionSize(order,plan,make?productionSize:''));
   save('Revision and work order saved');
   showNewOrders();
   fittingDraft = undefined;
@@ -3604,15 +4383,17 @@ function designStudio() {
       <div class="fit-canvas"><canvas id="design-model" role="img" tabindex="0" aria-label="Three-dimensional design preview" aria-describedby="design-editor-help"></canvas></div>
       <div class="viewer-footer design-editor-footer">
         <p class="muted tight" id="design-editor-help">Select a garment detail to open its slider. Drag to rotate.</p>
-        <div class="fields tight"><label class="field design-rotate">Rotate preview<input type="range" id="design-angle" min="-180" max="180" step="0.1" value="-21"></label>
+        <div class="fields design-orientation tight"><label class="field design-rotate">Rotate preview<input type="range" id="design-angle" min="-180" max="180" step="0.1" value="-21"></label>
+          <label class="field">Tilt up or down<input type="range" id="design-tilt" min="-70" max="70" step="1" value="0"></label>
           <label class="field">Zoom<input type="range" id="design-zoom" min="70" max="145" value="100"></label></div>
-        <button type="button" class="secondary" id="design-front-view">Front view</button>
+        <div class="actions"><button type="button" class="secondary" id="design-front-view">Front view</button>
+          <button type="button" class="secondary" id="preview-current-design">Preview on models</button></div>
       </div>
       ${fitAnalysisControls('design',`${fitEaseControls('design')}
         <p id="design-layer-map-note" class="fit-reading muted" hidden>The map shows tightness on the main garment. Layers are faded in this view.</p>`)}
     </div><div class="panel design-controls">
       <div class="actions design-panel-tabs" aria-label="Design controls">
-        ${[['design','Design'],['fit','Fit'],['seams','Seams'],['layers','Layers'],['lace','Lace']].map(([key,label])=>`<button type="button" class="secondary" data-design-panel-tab="${key}" aria-pressed="${key==='design'}">${label}</button>`).join('')}
+        ${[['design','Design'],['fit','Fit'],['seams','Seams'],['layers','Layers'],['lace','Trims & details']].map(([key,label])=>`<button type="button" class="secondary" data-design-panel-tab="${key}" aria-pressed="${key==='design'}">${label}</button>`).join('')}
       </div><form id="design-form">
       <section data-design-panel="design" aria-label="Design settings">
       <label class="field">Fit to model<select name="fitModelId">${modelOptions(designDraft.fitModelId)}</select></label>
@@ -3649,8 +4430,12 @@ function designStudio() {
       </details>
       </section><section data-design-panel="seams" aria-label="Seam settings" hidden>
         <details class="design-options" id="design-seams"><summary>Seam placement</summary><div id="design-seam-fields"></div></details>
-      </section><section data-design-panel="lace" aria-label="Lace settings" hidden>
+      </section><section data-design-panel="lace" aria-label="Trim and detail settings" hidden>
         <details class="design-options" id="design-lace"><summary>Lace trim</summary><div id="design-lace-fields"></div></details>
+        <details class="design-options" id="design-stitch-details" open><summary>Stitched details</summary>
+          <div id="design-stitch-fields"></div>
+          <button type="button" class="secondary" id="add-stitch-detail">＋ Add stitched detail</button>
+        </details>
       </section><section data-design-panel="layers" aria-label="Layer settings" hidden>
       <details class="design-options" id="design-layers">
         <summary>Fabric layers</summary>
@@ -3658,7 +4443,7 @@ function designStudio() {
         <div id="design-layer-list"></div>
         <button type="button" class="secondary" id="add-design-layer">＋ Add layer</button>
       </details>
-      </section><div class="actions design-save"><button name="save" value="library">Save to Pattern Library</button><button class="secondary" name="save" value="order">Save and create work order</button></div>
+      </section>${productionSizeField()}<div class="actions design-save"><button name="save" value="library">Save to Pattern Library</button><button class="secondary" name="save" value="order">Save and create work order</button></div>
     </form></div></div>
     <details class="panel instructions" id="design-guide"><summary>Preview illustrated construction plan</summary><div id="design-guide-content"></div></details>`;
   const form = document.querySelector('#design-form');
@@ -3693,6 +4478,7 @@ function designStudio() {
   form.addEventListener('invalid',revealInvalidFitFabric,true);
   const canvas = document.querySelector('#design-model');
   const angle = document.querySelector('#design-angle');
+  const tiltControl = document.querySelector('#design-tilt');
   const zoom = document.querySelector('#design-zoom');
   const mode = document.querySelector('#design-edit-mode');
   const target = document.querySelector('#design-edit-target');
@@ -3709,6 +4495,8 @@ function designStudio() {
   const seamPanel = document.querySelector('#design-seams');
   const seamFields = document.querySelector('#design-seam-fields');
   const laceFields = document.querySelector('#design-lace-fields');
+  const stitchFields = document.querySelector('#design-stitch-fields');
+  const addStitch = document.querySelector('#add-stitch-detail');
   const asymmetryPanel = document.querySelector('#design-asymmetry');
   const asymmetryFields = document.querySelector('#design-asymmetry-fields');
   const asymmetrySide = document.querySelector('#design-asymmetry-side');
@@ -3750,13 +4538,21 @@ function designStudio() {
     draw:preview,
     estimate:pose=>fitRegionSummary(draftPattern(),modelType(),body(),adjustments(),pose,material())
   });
+  view.querySelector('#preview-current-design').onclick=()=>{
+    fitAnalysis.cleanup();
+    const reference=body();
+    showGarmentPreview({...draftPattern(),name:designDraft.name || 'New custom piece',
+      fit:{modelId:reference.id,modelMeasurements:snapshotModelMeasurements(reference),changes:adjustments(),
+        fabric:{name:designDraft.fabric,...material()}}},{size:form.elements.namedItem('productionSize').value});
+  };
   function refreshFitPreview() {
     preview();
     fitAnalysis.report();
   }
   const seamNames={waistSeam:'Waist join seam',panelSeam:'Front panel seams'};
   const layerComponents={attachment:'layerAttachment',hemOffset:'layerHem',depth:'layerHem',sweep:'layerSweep'};
-  const laceComponents={neckline:'laceNeckline',sleeves:'laceSleeves',hem:'laceHem',layer:'layerLaceTrim'};
+  const laceComponents={neckline:'laceNeckline',sleeves:'laceSleeves',hem:'laceHem',pockets:'lacePocket',
+    waistband:'laceWaistband',seams:'laceSeam',layer:'layerLaceTrim'};
   const hemLabels={hemDrop:'High-to-low drop',hemPointCount:'Number of points',hemRotation:'Rotate the points',
     hemFront:'Center front',hemLeft:'Left side',hemBack:'Center back',hemRight:'Right side'};
   const hemSides=['hemFront','hemLeft','hemBack','hemRight'];
@@ -3774,7 +4570,8 @@ function designStudio() {
   let guidedComponents=[];
   const editorSnapshot=()=>({fit:activeDesignFit(),seams:studioDesign.seams(designDraft),layers:studioDesign.layers(designDraft),layerTarget,
     hem:studioDesign.hemContour(designDraft),asymmetry:studioDesign.asymmetry(designDraft),shoulderSide:designDraft.shoulderSide,
-    strapShape:studioDesign.strapShape(designDraft),straplessSupport:designDraft.straplessSupport,laceTrims:studioDesign.laceTrims(designDraft)});
+    strapShape:studioDesign.strapShape(designDraft),straplessSupport:designDraft.straplessSupport,laceTrims:designDraft.laceTrims,
+    stitchDetails:designDraft.stitchDetails,closure:designDraft.closure,fastener:designDraft.fastener});
   const editor=fitHandles.history({
     undoButton:document.querySelector('#design-undo'),redoButton:document.querySelector('#design-redo'),
     snapshot:editorSnapshot,
@@ -3853,9 +4650,16 @@ function designStudio() {
       if (input) return input;
     }
     const name={designClosure:'closure',designPocket:'pocket',straplessSupport:'straplessSupport'}[key];
-    if (name) return form.elements.namedItem(name);
+    if (name) {
+      if (key==='designClosure') {
+        const controls=settings.querySelector('#design-fastener-fields:not([hidden])');
+        if (controls) return controls.querySelector('[data-fastener-field]') || form.elements.namedItem(name);
+      }
+      return form.elements.namedItem(name);
+    }
     return settings.querySelector(`[data-component-slider="${key}"]`) ||
       laceFields.querySelector(`[data-component-slider="${key}"]`) ||
+      stitchFields.querySelector(`[data-component-slider="${key}"]`) ||
       seamFields.querySelector(`[data-component-slider="${key}"]`) ||
       layerList.querySelector(`[data-layer-index="${layerTarget}"] [data-component-slider="${key}"]`) ||
       fitSliders.querySelector(`[data-fit-slider][name="${key}"]`);
@@ -3879,7 +4683,7 @@ function designStudio() {
     } else if (input.dataset.mainHem) {
       mode.value='fit';
       fitTarget='length';
-    } else if (laceFields.contains(input)) {
+    } else if (laceFields.contains(input) || stitchFields.contains(input)) {
       mode.value='fit';
     } else if (seamFields.contains(input)) mode.value='seams';
     else {
@@ -3948,6 +4752,7 @@ function designStudio() {
     return `<details class="design-options slider-group" data-lace-placement="${placement}"${placement==='layer'?' data-layer-section="lace"':''}${open?' open':''}>
       <summary>${label}</summary><div class="slider-group-content">
         <label class="sleeve-choice"><input type="checkbox" data-lace-enable${trim?' checked':''}> Add lace trim</label>
+        ${placement==='seams'?'<p class="muted tight" data-lace-seam-location></p>':''}
         <fieldset class="lace-settings"${trim?'':' disabled'}><div class="fields">
           <label class="field">Lace style<select data-lace-field="style">${studioDesign.laceStyles.map(style=>option(style,style,display.style)).join('')}</select></label>
           <label class="field">Lace color<input type="color" data-lace-field="color" value="${escape(display.color)}"></label>
@@ -3963,12 +4768,59 @@ function designStudio() {
     studioUnits.refresh(laceFields);
   }
 
+  const stitchSources=()=>Array.isArray(designDraft.stitchDetails)?designDraft.stitchDetails:[];
+  function visibleStitchDetails() {
+    return stitchSources().flatMap((entry,sourceIndex)=>{
+      const detail=studioDesign.stitchDetail(entry,designDraft);
+      return detail?[{detail,sourceIndex}]:[];
+    });
+  }
+
+  function drawStitchDetails() {
+    const placements=studioDesign.stitchPlacements(designDraft);
+    const open=new Set([...stitchFields.querySelectorAll('[data-stitch-index][open]')].map(card=>Number(card.dataset.stitchSource)));
+    const current=stitchSources();
+    const visible=visibleStitchDetails();
+    const visibleSources=new Set(visible.map(({sourceIndex})=>sourceIndex));
+    const unavailable=current.flatMap((detail,sourceIndex)=>visibleSources.has(sourceIndex)?[]:[{detail,sourceIndex}]);
+    const cards=visible.map(({detail,sourceIndex},index)=>{
+      const gathered=detail.style==='Gathered ruffle';
+      const pick=(key,label,items)=>`<label class="field">${label}<select data-stitch-field="${key}">${items.map(([value,text])=>option(value,text,detail[key])).join('')}</select></label>`;
+      const depth=slider(gathered?'Ruffle depth':'Folded section length',`data-stitch-field="depth" data-component-slider="stitchDetail:${index}"`,studioDesign.stitchLimits.depth,detail.depth,{step:.1});
+      const repeat=gathered
+        ?slider('Gathering fullness',`data-stitch-field="fullness" data-highlight-component="stitchDetail:${index}"`,studioDesign.stitchLimits.fullness,detail.fullness,{unit:'×',step:.05})
+        :slider('Spacing between folds',`data-stitch-field="spacing" data-highlight-component="stitchDetail:${index}"`,studioDesign.stitchLimits.spacing,detail.spacing,{step:.1});
+      return `<details class="design-options slider-group" data-stitch-index="${index}" data-stitch-source="${sourceIndex}"${open.has(sourceIndex)?' open':''}>
+        <summary>${escape(detail.style)} · ${escape(placements[detail.placement])}</summary><div class="slider-group-content">
+          <div class="fields">${pick('style','Technique',studioDesign.stitchStyles.map(style=>[style,style]))}${pick('placement','Placement',Object.entries(placements))}</div>
+          ${depth}${repeat}${gathered?'<p class="muted tight">2× fullness uses a strip twice the length of the sewn edge.</p>':''}
+          <button type="button" class="secondary" data-remove-stitch-detail aria-label="Remove ${escape(detail.style)} at ${escape(placements[detail.placement].toLowerCase())}">Remove</button>
+        </div></details>`;
+    }).join('');
+    const unavailableOpen=stitchFields.querySelector('[data-inactive-stitch-details]')?.open;
+    stitchFields.innerHTML=cards+(unavailable.length?`<details class="design-options" data-inactive-stitch-details${unavailableOpen?' open':''}>
+      <summary>Unavailable placements (${unavailable.length})</summary><div class="slider-group-content">
+        <p class="muted tight">These details will return if you switch back to a garment type or sleeve that supports them.</p>
+        ${unavailable.map(({detail,sourceIndex})=>`<div class="actions tight" data-stitch-source="${sourceIndex}">
+          <button type="button" class="secondary" data-remove-stitch-detail>Remove ${escape(String(detail?.style||'detail').toLowerCase())}</button></div>`).join('')}
+      </div></details>`:'');
+    addStitch.disabled=current.length>=studioDesign.maxStitchDetails;
+    studioUnits.refresh(stitchFields);
+  }
+
   function refreshEditor() {
     const groups=fitHandles.available(fitKeys());
     const seamKeys=studioDesign.seamKeys(designDraft.model);
     const asymmetryKeys=studioDesign.asymmetryKeys(designDraft);
     const seams=studioDesign.seams(designDraft);
     const single=singleSeam(seams);
+    const seamLaceNote=laceFields.querySelector('[data-lace-seam-location]');
+    if (seamLaceNote) {
+      const seam=studioDesign.laceSeamPlacement(designDraft);
+      const overlay=seam.kind==='single'?`the seam at ${studioDesign.singleSeamLocation(seam.angle)}`:seam.kind==='panels'?'the two front panel seams':'the side seams';
+      const location=`Lace follows ${overlay}.`;
+      if (seamLaceNote.textContent!==location) seamLaceNote.textContent=location;
+    }
     const layerAllowed=studioDesign.layerKindChoices(designDraft.model).length>0;
     mode.querySelector('[value=seams]').disabled=!seamKeys.length;
     mode.querySelector('[value=layers]').disabled=!layerAllowed;
@@ -4013,7 +4865,8 @@ function designStudio() {
       const indicatedSeams=mode.value==='seams'?seamComponents:
         seamComponents.filter(key=>Object.hasOwn(seams,key==='panelAngle'?'panelSeam':key));
       componentKeys=[...fitComponents,...layerKeys,...indicatedSeams,'designClosure','designPocket',
-        ...Object.keys(studioDesign.laceTrims(designDraft)).map(key=>laceComponents[key])];
+        ...Object.keys(studioDesign.laceTrims(designDraft)).map(key=>laceComponents[key]),
+        ...studioDesign.stitchDetails(designDraft).map((_,index)=>`stitchDetail:${index}`)];
       if (studioDesign.supportsStrapShape(support)) componentKeys.push(...strapShapeKeys);
       if (support==='Strapless') componentKeys.push('straplessSupport');
     }
@@ -4066,6 +4919,7 @@ function designStudio() {
     const active=Number.isFinite(studioDesign.seams(designDraft).panelZipper);
     select.disabled=active;
     select.closest('label').hidden=active;
+    settings.querySelector('#design-fastener-fields').hidden=active;
     const note=settings.querySelector('[data-seam-closure-note]');
     if (note) {
       note.hidden=!active;
@@ -4144,7 +4998,13 @@ function designStudio() {
     designDraft.asymmetry=snapshot.asymmetry;
     designDraft.shoulderSide=snapshot.shoulderSide;
     designDraft.straplessSupport=snapshot.straplessSupport;
+    if (studioDesign.closureChoices(designDraft.model).includes(snapshot.closure)) {
+      form.elements.closure.value=designDraft.closure=snapshot.closure;
+      designDraft.fastener=snapshot.fastener;
+      drawFastenerFields();
+    }
     designDraft.laceTrims=snapshot.laceTrims;
+    designDraft.stitchDetails=snapshot.stitchDetails;
     panelZipperMaxLength=undefined;
     if (mode.value==='seams') angle.value=snapshot.seams.panelAngle??0;
     designDraft.layers=snapshot.layers;
@@ -4153,6 +5013,7 @@ function designStudio() {
     drawSeams();
     drawLayers();
     drawLace();
+    drawStitchDetails();
     drawMainHem();
     drawAsymmetry();
     if (form.elements.shoulderSide) form.elements.shoulderSide.value=studioDesign.selectedShoulderSide(designDraft);
@@ -4202,6 +5063,26 @@ function designStudio() {
     }
   }
   const select = (key,label,items) => `<label class="field">${label}<select name="${key}">${items.map(item=>option(item,item,designDraft[key])).join('')}</select></label>`;
+  function drawFastenerFields(open=false) {
+    const host=settings.querySelector('#design-fastener-fields');
+    const detail=garmentFasteners.settings(designDraft);
+    if (!detail) {
+      host.replaceChildren();
+      return;
+    }
+    const titles={buttons:'Button layout',ties:'Wrap tie details',drawstring:'Drawstring and casing'};
+    const controls=Object.entries(garmentFasteners.fields[detail.kind]).filter(([key])=>
+      Object.hasOwn(detail,key) && (key!=='count'||designDraft.closure!=='Back button and loop'));
+    const expanded=open || host.querySelector('details')?.open;
+    host.innerHTML=`<details class="design-options"${expanded?' open':''}><summary>${titles[detail.kind]}</summary>
+      <div class="slider-group-content"><div class="fields">${controls.map(([key,[label,min,max,step]])=>
+        slider(label,`data-fastener-field="${key}" data-highlight-component="designClosure"`,[min,max],detail[key],{unit:key==='count'?'':'cm',step})).join('')}
+      ${detail.placement?`<label class="field">${detail.kind==='ties'?'Tie placement':'Exit placement'}<select data-fastener-field="placement" data-highlight-component="designClosure">${Object.entries(garmentFasteners.placements).map(([key,label])=>option(key,label,detail.placement)).join('')}</select></label>`:''}
+      <label class="field">${{buttons:'Button',ties:'Tie',drawstring:'Drawstring'}[detail.kind]} color<input type="color" data-fastener-field="color" data-highlight-component="designClosure" value="${escape(detail.color)}"></label></div>
+      ${detail.kind==='buttons'&&detail.count>1?'<p class="muted">Check that the last button lands on the finished placket.</p>':''}
+      </div></details>`;
+    studioUnits.refresh(host);
+  }
   function drawLayers() {
     const model=designDraft.model;
     const kinds=studioDesign.layerKindChoices(model);
@@ -4277,6 +5158,7 @@ function designStudio() {
       ${['dress','skirt'].includes(model)?'<details class="design-options" id="design-main-hem"><summary>Main hem and points</summary><div id="design-main-hem-fields" class="slider-group-content"></div></details>':''}
       <div class="fields">${select('closure','Closure',studioDesign.closureChoices(model))}${model==='trousers'?select('rise','Waist rise',studioDesign.rises):''}</div>
       <p class="muted tight" data-seam-closure-note hidden>The zipper in Seam placement is the closure for this design.</p>
+      <div id="design-fastener-fields"></div>
       <label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label>
       ${fitFabricFields(designDraft.fabric,designDraft.fabricSettings)}
       <details class="design-options"${open?' open':''}><summary>Finishes, pockets and fit</summary>
@@ -4286,11 +5168,13 @@ function designStudio() {
         <label class="field">Custom detail notes<textarea name="details" rows="3" maxlength="2000" placeholder="e.g. Contrast stitching, back tie placement or special hardware">${escape(designDraft.details || '')}</textarea></label>
       </details>`;
     studioUnits.refresh(settings);
+    drawFastenerFields();
     refreshDesignStraps();
     drawFitSliders();
     drawSeams();
     drawLayers();
     drawLace();
+    drawStitchDetails();
     drawMainHem();
     drawAsymmetry();
     refreshEditor();
@@ -4327,7 +5211,7 @@ function designStudio() {
     if (canvas.width!==width) canvas.width=width;
     if (canvas.height!==height) canvas.height=height;
     const anchors=drawModel(canvas,draftPattern(),Number(angle.value)*Math.PI/180,adjustments(),body(),false,
-      {pose:fitAnalysis.pose(),show:fitAnalysis.show(),material:material(),fabricName:designDraft.fabric,redraw:preview,
+      {pose:fitAnalysis.pose(),show:fitAnalysis.show(),material:material(),fabricName:designDraft.fabric,redraw:preview,pitch:Number(tiltControl.value)*Math.PI/180,
         editor:{layerIndex:componentKeys.some(key=>key.startsWith('layer'))?layerTarget:null,showSeams:mode.value==='seams'||mode.value==='sides',zoom:Number(zoom.value)/100,
           componentKeys,guidedComponents,componentSide:mode.value==='sides'?asymmetrySide.value:null,selectedComponent,hoveredComponent}});
     panelSnapOffset=anchors.panelSeamSnapOffset;
@@ -4366,7 +5250,9 @@ function designStudio() {
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
-    designDraft = {...studioDesign.defaults(model),...studioDesign.hemContour(designDraft),...studioDesign.strapShape(designDraft),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details,layers:designDraft.layers,seams:designDraft.seams,laceTrims:designDraft.laceTrims,asymmetry:designDraft.asymmetry,shoulderSide:designDraft.shoulderSide,straplessSupport:designDraft.straplessSupport};
+    const {name,reference,photoOutline,fitModelId,primary,accent,details,layers,seams,laceTrims,stitchDetails,asymmetry,shoulderSide,straplessSupport}=designDraft;
+    designDraft = {...studioDesign.defaults(model),...studioDesign.hemContour(designDraft),...studioDesign.strapShape(designDraft),
+      name,reference,photoOutline,fitModelId,primary,accent,details,layers,seams,laceTrims,stitchDetails,asymmetry,shoulderSide,straplessSupport};
     panelZipperMaxLength=undefined;
     editor.reset();
     settingsForModel();
@@ -4399,16 +5285,20 @@ function designStudio() {
     return changed;
   });
   angle.addEventListener('input',preview);
+  tiltControl.addEventListener('input',preview);
   zoom.addEventListener('input',preview);
-  document.querySelector('#design-front-view').onclick=()=>{angle.value=0;preview();};
+  document.querySelector('#design-front-view').onclick=()=>{angle.value=0;tiltControl.value=0;preview();};
   function rotatePreview(change) {
     angle.value=wrapAngle(Number(angle.value)+change);
     preview();
   }
   canvas.addEventListener('keydown',event=>{
-    if (!['ArrowLeft','ArrowRight'].includes(event.key)) return;
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
     event.preventDefault();
-    rotatePreview(event.key==='ArrowLeft'?-10:10);
+    if (event.key==='ArrowUp' || event.key==='ArrowDown') {
+      tiltControl.value=Number(tiltControl.value)+(event.key==='ArrowUp'?10:-10);
+      preview();
+    } else rotatePreview(event.key==='ArrowLeft'?-10:10);
   });
   function activateEditor(value) {
     mode.value=value;
@@ -4492,6 +5382,29 @@ function designStudio() {
   };
   quickLayer.onclick=()=>appendLayer();
   addRuffle.onclick=()=>appendLayer('Ruffle');
+  const refreshStitchDetails=()=>{drawStitchDetails();refreshEditor();preview();updateGuide();};
+  addStitch.onclick=()=>{
+    const current=stitchSources();
+    if (current.length>=studioDesign.maxStitchDetails) return;
+    editor.checkpoint();
+    designDraft.stitchDetails=[...current,studioDesign.newStitchDetail()];
+    refreshStitchDetails();
+    const card=stitchFields.querySelector(`[data-stitch-source="${current.length}"]`);
+    card.open=true;
+    card.querySelector('[data-stitch-field=style]').focus();
+  };
+  stitchFields.addEventListener('click',event=>{
+    const remove=event.target.closest('[data-remove-stitch-detail]');
+    if (!remove) return;
+    const card=remove.closest('[data-stitch-source]');
+    editor.checkpoint();
+    designDraft.stitchDetails=stitchSources().filter((_,index)=>index!==Number(card.dataset.stitchSource));
+    refreshStitchDetails();
+    const remaining=stitchFields.querySelectorAll('[data-stitch-index]');
+    const follow=card.hasAttribute('data-stitch-index')?remaining[Math.min(Number(card.dataset.stitchIndex),remaining.length-1)]:
+      stitchFields.querySelector('[data-inactive-stitch-details]');
+    (follow?.querySelector('summary')||addStitch).focus();
+  });
   layerList.addEventListener('click',event=>{
     const button=event.target.closest('button');
     if (!button) return;
@@ -4524,6 +5437,44 @@ function designStudio() {
   };
   form.addEventListener('input',event=>{
     const field = event.target;
+    if (field.dataset.fastenerField) {
+      const key=field.dataset.fastenerField;
+      const previous=garmentFasteners.settings(designDraft);
+      if (!previous) return;
+      rememberInput(field);
+      const changed={...previous,[key]:field.type==='range'?field.valueAsNumber:field.value};
+      designDraft.fastener=garmentFasteners.settings({...designDraft,fastener:changed});
+      for (const input of settings.querySelectorAll('[data-fastener-field][type=range]')) {
+        writeSlider(input,designDraft.fastener[input.dataset.fastenerField]);
+      }
+      selectedComponent='designClosure';
+      refreshEditor();
+      preview();
+      updateGuide();
+      return;
+    }
+    if (field.name==='productionSize') return;
+    const stitchKey=field.dataset.stitchField;
+    if (stitchKey) {
+      rememberInput(field);
+      const card=field.closest('[data-stitch-index]');
+      const index=Number(card.dataset.stitchSource);
+      const current=designDraft.stitchDetails[index];
+      const value=field.type==='range'?field.valueAsNumber:field.value;
+      const entry=stitchKey==='style'?{...studioDesign.newStitchDetail(value,current.placement),depth:current.depth}:{...current,[stitchKey]:value};
+      const next=studioDesign.stitchDetail(entry,designDraft);
+      designDraft.stitchDetails=designDraft.stitchDetails.map((detail,i)=>i===index?next:detail);
+      if (field.type==='range') {
+        writeSlider(field,next[stitchKey]);
+        preview();
+        updateGuide();
+      } else {
+        activeInput=null;
+        refreshStitchDetails();
+        stitchFields.querySelector(`[data-stitch-source="${index}"] [data-stitch-field="${stitchKey}"]`)?.focus({preventScroll:true});
+      }
+      return;
+    }
     if (field.matches('[data-lace-enable],[data-lace-field]')) {
       rememberInput(field);
       const group=field.closest('[data-lace-placement]');
@@ -4666,8 +5617,12 @@ function designStudio() {
       designDraft[field.name]=value==null?undefined:fabricFit.clamp(value,min,max);
     }
     else {
-      if (field.name==='shoulderSide' || field.name==='straplessSupport') rememberInput(field);
+      if (['shoulderSide','straplessSupport','closure'].includes(field.name)) rememberInput(field);
       designDraft[field.name]=field.name==='ease'?(studioUnits.lengthValue(field)??0):field.type==='number'?Number(field.value):field.value;
+    }
+    if (field.name==='closure') {
+      designDraft.fastener=garmentFasteners.settings(designDraft);
+      drawFastenerFields(true);
     }
     if (field.name==='support' || field.name==='sleeve') editedSupport=true;
     if (field.name==='support' && field.value!=='Integrated shoulders' && form.elements.sleeve) {
@@ -4680,6 +5635,9 @@ function designStudio() {
     if (['support','sleeve','neckline'].includes(field.name)) {
       drawFitSliders();
       drawAsymmetry();
+      drawStitchDetails();
+    }
+    if (['support','sleeve','pocket'].includes(field.name)) {
       drawLace();
     }
     refreshEditor();
@@ -4843,13 +5801,14 @@ function designStudio() {
     const {name:_,reference,...draft} = designDraft;
     const design={...draft,fabricSettings:fabricSettings(),layers:studioDesign.layers(designDraft),
       seams:studioDesign.seams(designDraft),fitAdjustments:activeDesignFit()};
-    const item = {id:'design-'+createId(),...applyDesignFit(studioDesign.make(design,name,body()),body()),reference};
+    const item = {id:'design-'+createId(),...applyDesignFit(studioDesign.make(design,name,body()),body()),reference,
+      fitReference:snapshotModelMeasurements(body())};
     item.measurements=designMeasurementSheet(item);
     state.custom.push(item);
     showArchivedPatterns=false;
-    if (event.submitter?.value==='order') state.orders.unshift({
+    if (event.submitter?.value==='order') state.orders.unshift(withProductionSize({
       id:'WO-'+String(state.next++).padStart(3,'0'),title:name,kind:'Construction',pattern:item.id,due:'',notes:['Fitted to '+body().name+'.',reference?'Check the design details against the reference photo.':'',design.details].filter(Boolean).join('\n'),done:[]
-    });
+    },item,form.elements.namedItem('productionSize').value));
     if (event.submitter?.value==='order') showNewOrders();
     save(event.submitter?.value==='order'?'Garment and work order saved':'Garment saved to Pattern Library');
     designDraft = {...studioDesign.defaults(),name:'',reference:'',fitModelId:design.fitModelId};
@@ -5065,6 +6024,14 @@ document.addEventListener('click',event=>{
   const id = button.dataset.id;
   switch (button.dataset.action) {
     case 'close': modal.close(); break;
+    case 'close-garment-preview': previewDialog.close();break;
+    case 'preview-garment': {
+      const order=state.orders.find(item=>item.id===button.dataset.orderId);
+      const frame=button.dataset.previewFrame;
+      const pattern=order?orderPreviewPattern(order,frame):getPattern(id);
+      showGarmentPreview(pattern,{size:frame==='after'?order?.size:undefined,modelId:order?.plan?.modelId});
+      break;
+    }
     case 'new': newOrder(id,undefined,button.hasAttribute('data-use-fit-model')?fitModel:undefined); break;
     case 'pattern': patternDetails(getPattern(id)); break;
     case 'add-pattern': addPattern(); break;
@@ -5108,6 +6075,7 @@ document.addEventListener('click',event=>{
       }
 });
 window.addEventListener('hashchange',()=>{
+  if (previewDialog.open) previewDialog.close();
   if (modal.open) modal.close();
   render();
   window.scrollTo(0,0);

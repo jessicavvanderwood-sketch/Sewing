@@ -5,6 +5,7 @@ const clothContact = (() => {
   const clearance=.023;
   const cachedEdges=new WeakMap();
   const cachedPoses=new WeakMap();
+  const cachedSeat=new WeakMap();
   const mix=(a,b,t)=>a+(b-a)*t;
   const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 
@@ -56,18 +57,23 @@ const clothContact = (() => {
 
   // Take horizontal sections of the actual posed mesh. Exclude moving arms
   // from the bodice volume so an outstretched hand cannot swell the chest.
-  function fromAvatar(vertices,rest,topology) {
-    const cached=cachedPoses.get(vertices);
+  function fromAvatar(vertices,rest,topology,maxRestY=Infinity) {
+    let profiles=cachedPoses.get(vertices);
+    if (!profiles) {
+      profiles=new Map();
+      cachedPoses.set(vertices,profiles);
+    }
+    const cached=profiles.get(maxRestY);
     if (cached) return cached;
     const sections=new Map();
     for (const [a,b] of bodyEdges(topology)) {
       const p=vertices[a],q=vertices[b];
       const low=Math.min(p[1],q[1]),high=Math.max(p[1],q[1]);
-      if (high-low<1e-6 || Math.min(rest[a][3],rest[b][3])>.70) continue;
+      if (high-low<1e-6 || Math.min(rest[a][3],rest[b][3])>.70 || Math.min(rest[a][1],rest[b][1])>maxRestY) continue;
       const start=Math.ceil(low/spacing),end=Math.floor(high/spacing);
       for (let k=start;k<=end;k++) {
         const t=(k*spacing-p[1])/(q[1]-p[1]);
-        if (mix(rest[a][3],rest[b][3],t)>.70) continue;
+        if (mix(rest[a][3],rest[b][3],t)>.70 || mix(rest[a][1],rest[b][1],t)>maxRestY) continue;
         let points=sections.get(k);
         if (!points) sections.set(k,points=[]);
         points.push([mix(p[0],q[0],t),mix(p[2],q[2],t)]);
@@ -105,8 +111,108 @@ const clothContact = (() => {
       if (!Number.isFinite(limit) || aligned && distance>=limit) return point;
       return [cx+dx*limit,y,cz+dz*limit];
     };
-    cachedPoses.set(vertices,projectOutside);
+    profiles.set(maxRestY,projectOutside);
     return projectOutside;
+  }
+
+  function beneathSeat(vertices,rest,topology) {
+    const saved=cachedSeat.get(vertices);
+    if (saved) return saved;
+    const triangles=[];
+    for (let i=0;i<topology.length;i+=4) {
+      const [a,b,c,d]=topology.slice(i,i+4);
+      for (const indices of [[a,b,c],[a,c,d]]) {
+        const bind=indices.map(index=>rest[index]);
+        if (bind.every(([,y,,arm])=>arm>=.46 || y<.075 || y>.404)) continue;
+        const [p,q,r]=indices.map(index=>vertices[index]);
+        const ux=q[0]-p[0],uz=q[2]-p[2],vx=r[0]-p[0],vz=r[2]-p[2];
+        const det=ux*vz-uz*vx;
+        if (Math.abs(det)<1e-8) continue;
+        triangles.push({p,ux,uz,vx,vz,det,uy:q[1]-p[1],vy:r[1]-p[1],bind,
+          minX:Math.min(p[0],q[0],r[0]),maxX:Math.max(p[0],q[0],r[0]),
+          minZ:Math.min(p[2],q[2],r[2]),maxZ:Math.max(p[2],q[2],r[2])});
+      }
+    }
+    function outside([x,y,z],amount) {
+      let bottom=y;
+      for (const tri of triangles) {
+        if (x<tri.minX || x>tri.maxX || z<tri.minZ || z>tri.maxZ) continue;
+        const dx=x-tri.p[0],dz=z-tri.p[2];
+        const u=(dx*tri.vz-dz*tri.vx)/tri.det,v=(tri.ux*dz-tri.uz*dx)/tri.det,w=1-u-v;
+        if (u<0 || v<0 || w<0) continue;
+        const [a,b,c]=tri.bind;
+        const originalY=w*a[1]+u*b[1]+v*c[1],arm=w*a[3]+u*b[3]+v*c[3];
+        if (arm>=.46 || originalY<.075 || originalY>.404) continue;
+        bottom=Math.max(bottom,tri.p[1]+u*tri.uy+v*tri.vy+.018);
+      }
+      return [x,y+Math.min(.16,bottom-y)*amount,z];
+    }
+    cachedSeat.set(vertices,outside);
+    return outside;
+  }
+
+  function legSections(vertices,rest,topology,moveLeg) {
+    const rows={[-1]:new Map(),[1]:new Map()};
+    for (const [a,b] of bodyEdges(topology)) {
+      const p=rest[a],q=rest[b];
+      const low=Math.max(.17,Math.min(p[1],q[1])),high=Math.min(.70,Math.max(p[1],q[1]));
+      if (high-low<1e-6 || Math.min(p[3],q[3])>=.46) continue;
+      for (let k=Math.ceil(low/spacing);k<=Math.floor(high/spacing);k++) {
+        const t=(k*spacing-p[1])/(q[1]-p[1]);
+        if (mix(p[3],q[3],t)>=.46) continue;
+        const side=Math.sign(mix(p[0],q[0],t));
+        if (!side) continue;
+        const legs=rows[side];
+        if (!legs.has(k)) legs.set(k,[]);
+        legs.get(k).push(vertices[a].map((value,i)=>mix(value,vertices[b][i],t)));
+      }
+    }
+    const normalized=vector=>{
+      const length=Math.hypot(...vector)||1;
+      return vector.map(n=>n/length);
+    };
+    const dot=(a,b)=>a.reduce((sum,n,i)=>sum+n*b[i],0);
+    for (const side of [-1,1]) for (const [index,points] of rows[side]) {
+      const y=index*spacing;
+      const origin=moveLeg([side*.13,y,0],side);
+      const across=normalized(moveLeg([side*.13+.09,y,0],side).map((n,i)=>n-origin[i]));
+      const direction=moveLeg([side*.13,y,.09],side).map((n,i)=>n-origin[i]);
+      const along=dot(direction,across);
+      const front=normalized(direction.map((n,i)=>n-across[i]*along));
+      const local=point=>{
+        const fromOrigin=point.map((n,i)=>n-origin[i]);
+        return [dot(fromOrigin,across),dot(fromOrigin,front)];
+      };
+      const hull=hullOf(points.map(local));
+      rows[side].set(index,hull?{hull,local,across,front}:null);
+    }
+    function correction(profile,point,theta,margin) {
+      if (!profile) return [0,0,0];
+      const {hull,local,across,front}=profile;
+      const q=local(point).map((n,i)=>n-hull.center[i]);
+      const distance=Math.hypot(...q);
+      const preferred=[Math.cos(theta),Math.sin(theta)];
+      const direction=distance && dot(q,preferred)>.58*distance?q.map(n=>n/distance):preferred;
+      let radius=Infinity;
+      for (const [x,z,r] of hull.planes) {
+        const normal=x*direction[0]+z*direction[1];
+        if (normal>1e-6) radius=Math.min(radius,(r+margin)/normal);
+      }
+      if (!Number.isFinite(radius) || distance>=radius && dot(q,direction)>.95*distance) return [0,0,0];
+      const shift=direction.map((n,i)=>n*radius-q[i]);
+      const max=.075;
+      const scale=Math.min(1,max/Math.max(.001,Math.hypot(...shift)));
+      return across.map((n,i)=>(n*shift[0]+front[i]*shift[1])*scale);
+    }
+    return (point,y,theta,side,amount,setback=0)=>{
+      const row=y/spacing, lo=Math.floor(row),hi=lo+1;
+      const a=rows[side].get(lo),b=rows[side].get(hi);
+      if (!a && !b || amount<=0) return point;
+      const margin=.019+setback;
+      const start=correction(a||b,point,theta,margin);
+      const end=a&&b?correction(b,point,theta,margin):start;
+      return point.map((n,i)=>n+amount*mix(start[i],end[i],row-lo));
+    };
   }
 
   // A hanging panel bends over the seat and carries that shape below the
@@ -183,5 +289,5 @@ const clothContact = (() => {
     return work;
   }
 
-  return {fromAvatar,drape};
+  return {fromAvatar,beneathSeat,legSections,drape};
 })();

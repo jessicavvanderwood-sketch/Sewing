@@ -16,7 +16,7 @@ Then open http://localhost:8000. The project uses plain HTML, CSS and JavaScript
 
 - **Brand Kit** stores a name, tagline, logo, color palette and guidelines.
 - **Pattern Library** holds construction guides, custom designs, and garment revisions. Choose **Fit and revise** to adjust a saved garment on a model or **New custom piece** to start a design.
-- **Work Orders** copies the fabric, tools and construction checklist from a style. Check off steps to update progress.
+- **Work Orders** copies the fabric, tools and construction checklist from a style. Choose an optional production size and check off steps to update progress.
 - **Sewing Basics** shows Brother CP2160F setup, cutting-board layout, straight seams, and a fabric coaster project. Each illustrated lesson breaks the work into actions and checks. The video library shows seams, neckline finishes, and sleeve construction.
 
 Data is stored in the current browser for the current site origin. Different browsers and devices have separate data. The 3D model provides a visual approximation. Confirm ease, available seam allowances and the final fit on the physical garment.
@@ -34,17 +34,25 @@ Open [Jessica’s Sewing Dashboard](https://jessicavvanderwood-sketch.github.io/
 
 Tool photos show representative examples. The Brother machine photo links to the accompanying official resources in Sewing Basics. Use a sewing sample to check the preview’s estimated drape and fit.
 
+## Preview on different models and compare sizes
+
+Select a garment image in **Pattern Library** or **Work Orders** to open a view-only try-on. Choose a model, drag left or right to turn it and up or down to tilt it, or use the Front, Side and Back buttons. Use **Movement** to select a pose or play an animation. In the design or fit editor, use **Preview on models** to inspect the current design.
+
+Each garment has XXS, XS, S, M, L, XL and XXL. M uses the saved fit. The dashboard grades the other sizes from that fit and holds the garment size steady when you switch models. The grades are specific to this dashboard. Choose the same size when you create or remake a work order to record the corresponding grading instructions. For linked publisher patterns, follow the publisher’s draft and size chart.
+
 ## Design a garment or use a reference photo
 
 Open **Pattern Library → New custom piece** to combine a silhouette, length, neckline, sleeves, color, and fabric in the design editor. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
 
 Choose **Strapless** for a dress or top with an elastic top edge or a structured bodice. Corsets use structured support. Open **Strap curve and taper** or select a strap in the preview. The front and back groups set their own curve, width, depth along the bodice, and join angle. Halter straps have a rear collar that uses curve and width controls. Sleeve choices include Flutter, Bishop, and Tapered, alongside the width, length, cap, and cuff sliders.
 
-Open **Lace trim** to finish the upper edge, sleeve openings, or main hem. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem.
+Open **Trims & details** to add lace to the upper edge, sleeve openings, hems, pocket openings, trouser waistbands or seams. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem. Choose **Stitched details** for a gathered ruffle, knife, box or inverted pleats, or pintucks. Set the placement and depth, then the spacing or gathering ratio.
+
+Choose a button closure to edit the button count, diameter, spacing and first position. **Wrap ties** offers length, width and placement. **Drawstring waistband** is available for trousers and skirts and includes cord dimensions, casing depth and exit placement. Illustrated work orders show the selected measurements.
 
 Select **Fit sliders** to open the **Fit adjustments** panel. Both workflows use the same sliders, fabric weight, stretch and drape settings, poses, motion playback, and tightness map. Saved designs keep their fabric and fit settings for revisions and construction work orders.
 
-Use **Design**, **Fit**, **Seams**, **Layers**, or **Lace** to browse related controls beside the preview. Select a visible garment detail to highlight it, switch to its panel, and focus the matching control. **Edit on garment** can show extra seam guides or focus left and right fit on one side. **View only** lets you inspect the preview without selecting controls. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to fit, seam, and layer edits.
+Use **Design**, **Fit**, **Seams**, **Layers**, or **Trims & details** to browse related controls beside the preview. Select a visible garment detail to highlight it, switch to its panel, and focus the matching control. **Edit on garment** can show extra seam guides or focus left and right fit on one side. **View only** lets you inspect the preview without selecting controls. Drag the canvas to rotate and use the tilt and zoom controls to inspect a detail. Undo and redo apply to fit, seams, layers, trims, and closure edits.
 
 In **Seam placement**, move the front seam offset slider inward until the seams merge, or select **Merge front seams**. Select the merged seam to open its position slider. In **Seam and zipper settings**, enable a standard or invisible zipper and use the opening length slider to set its stop. The illustrated work order marks the seam location, the opening length, and where to sew below the zipper.
 
