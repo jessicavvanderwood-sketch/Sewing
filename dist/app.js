@@ -1,7 +1,7 @@
 'use strict';
 
 const patterns = [
-  {id:'dress',name:'The Studio Dress',type:'Dresses',cut:'Sleeveless A-line',level:'Intermediate',color:'#82354d',fabric:'2.5 m medium-weight cotton, linen or crepe',tools:'Machine, iron, shears, clips, zipper foot, matching thread, 55 cm invisible zipper',steps:[
+  {id:'dress',name:'The Studio Dress',type:'Dresses',cut:'Sleeveless A-line',level:'Intermediate',color:'#82354d',materialGuideCm:250,fabric:'2.5 m medium-weight cotton, linen or crepe',tools:'Machine, iron, shears, clips, zipper foot, matching thread, 55 cm invisible zipper',steps:[
     'Prewash and press the fabric. Compare bust, waist and hip measurements to your selected A-line pattern and make a test bodice.',
     'Lay out the selected pattern on grain. Cut front and back panels, facings, and interfacing. Transfer darts, notches and zipper marks.',
     'Sew and press the darts. Join the shoulder seams and staystitch the neckline and armholes along the seam allowance.',
@@ -9,7 +9,7 @@ const patterns = [
     'Baste and fit the side seams. Stitch and finish them, then install the invisible zipper and close the remaining center-back seam.',
     'Let the skirt hang before leveling the hem. Turn, press and stitch the hem, then verify the zipper and final fit.'
   ]},
-  {id:'top',name:'The Linen Shell',type:'Tops',cut:'Boxy sleeveless shell',level:'Beginner',color:'#ac735c',fabric:'1.3 m woven linen or cotton',tools:'Machine, iron, shears, pins, marking chalk, matching thread, bias tape',steps:[
+  {id:'top',name:'The Linen Shell',type:'Tops',cut:'Boxy sleeveless shell',level:'Beginner',color:'#ac735c',materialGuideCm:130,fabric:'1.3 m woven linen or cotton',tools:'Machine, iron, shears, pins, marking chalk, matching thread, bias tape',steps:[
     'Prewash and press the fabric. Compare bust and shoulder measurements with your shell pattern and confirm the head fits through the neckline.',
     'Cut front and back pieces on grain. Transfer the notches and mark the right side of each piece.',
     'Staystitch the neckline. Join, finish and press the shoulder seams.',
@@ -17,7 +17,7 @@ const patterns = [
     'Bind the neckline and armholes with bias tape. Press the binding and stitch it neatly in place.',
     'Level the hem, turn the raw edge twice, press and stitch. Check that the garment hangs evenly.'
   ]},
-  {id:'shirt',model:'top',sleeves:true,name:'The Everyday Shirt',type:'Tops',cut:'Relaxed woven shirt with sleeves',level:'Intermediate',color:'#737b72',fabric:'2 m light- to medium-weight woven cotton, plus lightweight interfacing',tools:'Sewing machine, iron, fabric shears, pins, marking chalk, matching thread, buttonhole foot and buttons',steps:[
+  {id:'shirt',model:'top',sleeves:true,name:'The Everyday Shirt',type:'Tops',cut:'Relaxed woven shirt with sleeves',level:'Intermediate',color:'#737b72',materialGuideCm:200,fabric:'2 m light- to medium-weight woven cotton, plus lightweight interfacing',tools:'Sewing machine, iron, fabric shears, pins, marking chalk, matching thread, buttonhole foot and buttons',steps:[
     'Prewash and press your fabric. Fit a test version of your shirt pattern through the chest, shoulders, and upper sleeves. Check that you can reach forward comfortably.',
     'Cut the fronts, back, sleeves, collar pieces and any plackets or cuffs on grain. Transfer the sleeve cap notches and apply interfacing as directed by the pattern.',
     'Prepare the front plackets and sew the shoulder seams. Staystitch the neckline, then assemble and attach the collar or collar stand.',
@@ -25,7 +25,7 @@ const patterns = [
     'Join or finish the side and underarm seams as your pattern directs. Set the sleeve length during a fitting and sew the sleeve hems or attach the cuffs.',
     'Level, press and stitch the shirt hem. Sew test buttonholes on scrap of the same thickness before marking and sewing the buttonholes and attaching buttons.'
   ]},
-  {id:'skirt',name:'The Everyday Skirt',type:'Skirts',cut:'A-line midi',level:'Beginner',color:'#755269',fabric:'1.8 m stable woven fabric',tools:'Machine, iron, shears, pins, zipper foot, interfacing, matching thread, zipper',steps:[
+  {id:'skirt',name:'The Everyday Skirt',type:'Skirts',cut:'A-line midi',level:'Beginner',color:'#755269',materialGuideCm:180,fabric:'1.8 m stable woven fabric',tools:'Machine, iron, shears, pins, zipper foot, interfacing, matching thread, zipper',steps:[
     'Prewash and press the fabric. Choose an A-line skirt pattern using waist and hip measurements, then check wearing ease.',
     'Cut the panels and waistband on grain. Mark darts, notches, zipper placement and the hem allowance.',
     'Sew the darts and press them toward the center. Baste the seams and fit through the waist and hips.',
@@ -33,7 +33,7 @@ const patterns = [
     'Interface the waistband. Attach it, finish its inside edge and add the closure specified in your pattern.',
     'Check the hem while worn. Mark a level hem, turn and press the allowance, then stitch and inspect.'
   ]},
-  {id:'trousers',name:'The Workroom Trouser',type:'Trousers',cut:'Straight leg',level:'Advanced',color:'#60464c',fabric:'2.2 m twill or suiting',tools:'Machine, iron, tailor’s ham, shears, zipper foot, interfacing, zipper, hook and bar',steps:[
+  {id:'trousers',name:'The Workroom Trouser',type:'Trousers',cut:'Straight leg',level:'Advanced',color:'#60464c',materialGuideCm:220,fabric:'2.2 m twill or suiting',tools:'Machine, iron, tailor’s ham, shears, zipper foot, interfacing, zipper, hook and bar',steps:[
     'Prewash and press the fabric. Make a toile from a straight-leg pattern and check the rise, waist, hips and movement.',
     'Cut the leg panels, pockets, fly pieces and waistband on grain. Mark matching points and reinforce pocket openings.',
     'Construct the pockets and sew the darts or pleats. Baste the side seams, inseams and rise for a fitting.',
@@ -971,20 +971,37 @@ const workPlanLengths={
   strapLength:'Finished strap length',strapWidth:'Finished strap width',casingWidth:'Finished elastic casing depth'
 };
 const cutModes={pattern:'As marked on pattern',fold:'Place on fold',pair:'Mirror a pair',single:'Cut a single layer'};
-function workLengthField(name,label,value,max=500) {
-  return `<label class="field">${label} (cm)<input type="number" data-length-input name="${name}" min="0.05" max="${max}" value="${escape(value??'')}"></label>`;
+function workFabricName(pattern) {
+  return pattern.fit?.fabric?.name||pattern.design?.fabric;
 }
-function cutPieceFields(piece={}) {
+function orderMaterialEstimate(order,pattern,body=garmentReference(pattern,order.plan?.modelId)) {
+  return materialEstimate.build({pattern,model:pattern.design?.model||basePattern(pattern).id,body,
+    changes:garmentPreviewChanges(pattern,order.size),allowances:order.allowances,
+    plan:workFigures.cuttingLayout(order.plan,pattern.design),kind:orderKind(order),material:workFabricName(pattern),size:order.size,
+    allowGuide:!pattern.fit&&!order.size&&!order.plan?.usableWidth&&!order.plan?.modelId});
+}
+function dimensionedMeasurements(order,measurements,body) {
+  return {...(measurements||{rows:[],adjustments:[],targets:[]}),
+    distances:workDimensions.resolve({plan:order.plan,measurements,body})};
+}
+function workLengthField(name,label,value,max=500,help) {
+  return `<label class="field">${escape(label)} (cm)<input type="number" data-length-input name="${escape(name)}" min="0.05" max="${max}" value="${escape(value??'')}">${help?`<small class="muted">${escape(help)}</small>`:''}</label>`;
+}
+function cutPieceFields(piece,materials) {
   return `<fieldset class="cut-piece"><legend>Pattern piece</legend><div class="fields tight">
     <label class="field">Piece name<input name="pieceName" maxlength="80" required value="${escape(piece.name||'')}" placeholder="e.g. Front bodice"></label>
+    <label class="field">Material<select name="pieceMaterial">${Object.entries(materials).map(([id,label])=>option(id,label,piece.material||'main')).join('')}</select></label>
     <label class="field">Number to cut<input type="number" name="quantity" min="1" max="30" step="1" value="${escape(piece.quantity??'')}"></label>
     <label class="field">Placement<select name="mode">${Object.entries(cutModes).map(([key,label])=>option(key,label,piece.mode)).join('')}</select></label>
     ${workLengthField('width','Paper piece width',piece.width)}${workLengthField('length','Paper piece length',piece.length)}
     ${workLengthField('grain','Grainline distance to selvage',piece.grain)}
     </div><button type="button" class="secondary" data-remove-cut-piece>Remove piece</button></fieldset>`;
 }
-function allowanceEditor(order,pattern,formId='allowance-form') {
+function allowanceEditor(order,pattern,formId='allowance-form',estimate) {
   const plan=order.plan||{};
+  const mainFabric=workFabricName(pattern);
+  const neededMaterials=new Set(estimate?.groups.map(group=>group.id));
+  const materials=materialEstimate.nameOptions(pattern,mainFabric);
   const individualPockets=Array.isArray(pattern.design?.pocketDetails);
   const choose=(name,label,choices)=>`<label class="field">${label}<select name="${name}">${Object.entries(choices).map(([key,value])=>option(key,value,plan[name])).join('')}</select></label>`;
   const dimension=key=>workLengthField(key,workPlanLengths[key],plan[key]);
@@ -1000,10 +1017,19 @@ function allowanceEditor(order,pattern,formId='allowance-form') {
           ${choose('layout','Fabric layout',{pattern:'Follow pattern layout',folded:'Fold selvage to selvage',single:'Cut in a single layer'})}
           ${dimension('usableWidth')}
         </div>
+        <div class="fields tight" data-material-widths>${Object.entries(materials).filter(([key])=>key!=='main').map(([key,label])=>
+          `<div data-material-roll="${escape(key)}" ${neededMaterials.has(key)?'data-material-estimated':''}>
+            ${workLengthField('materialWidth:'+key,`Usable width for ${label}`,plan.materialWidths?.[key])}</div>`).join('')}</div>
         <label class="sleeve-choice"><input type="checkbox" name="oneWay"${plan.oneWay?' checked':''}> Keep nap or print in one direction</label>
-        <p class="muted tight">Record the actual paper pieces, quantities and grainline distances to label the cutting figures.</p>
-        <div id="cut-piece-fields">${(plan.pieces||[]).map(cutPieceFields).join('')}</div>
+        <p class="muted tight">Enter every piece for each fabric. Use the outer cutting dimensions with allowances included. For a cut-on-fold piece, enter the width from the fold to the widest edge.</p>
+        <div id="cut-piece-fields">${(plan.pieces||[]).map(piece=>cutPieceFields(piece,materials)).join('')}</div>
+        <template data-cut-piece-template>${cutPieceFields({},materials)}</template>
         <button type="button" class="secondary tight" id="add-cut-piece">Add pattern piece</button>
+      </details>
+      <details class="design-options" data-landmark-editor><summary>Distances between reference marks</summary>
+        <p class="muted tight">Enter measurements from the indicated landmarks on your wearer, fitting sample or paper pattern. These replace model estimates in the drawings.</p>
+        ${Object.entries(workDimensions.fieldGroups).map(([group,keys])=>`<details class="design-options"><summary>${escape(group)}</summary>
+          <div class="fields tight">${keys.map(key=>workLengthField('distance:'+key,workDimensions.fields[key],plan.landmarkDistances?.[key],500,workDimensions.descriptions[key])).join('')}</div></details>`).join('')}
       </details>
       <details class="design-options"><summary>Seams and feature placement</summary>
         <div class="fields tight">
@@ -1019,17 +1045,26 @@ function allowanceEditor(order,pattern,formId='allowance-form') {
     </form></details>`;
 }
 
-function bindMeasurementEditor(container,onSave) {
+function bindMeasurementEditor(container,onSave,savedPlan={}) {
   const planForm=container.querySelector('[data-work-measurements]');
+  const cutList=planForm.querySelector('#cut-piece-fields');
+  const materialRolls=[...planForm.querySelectorAll('[data-material-roll]')];
+  function refreshRolls() {
+    const selected=new Set([...cutList.querySelectorAll('[name=pieceMaterial]')].map(input=>input.value));
+    for (const roll of materialRolls) roll.hidden=!roll.hasAttribute('data-material-estimated')&&!selected.has(roll.dataset.materialRoll)&&!roll.querySelector('input').value;
+  }
+  refreshRolls();
   planForm.querySelector('#add-cut-piece').onclick=()=>{
-    const list=planForm.querySelector('#cut-piece-fields');
-    list.insertAdjacentHTML('beforeend',cutPieceFields());
-    studioUnits.refresh(list.lastElementChild);
-    list.lastElementChild.querySelector('input').focus();
+    cutList.append(planForm.querySelector('[data-cut-piece-template]').content.cloneNode(true));
+    studioUnits.refresh(cutList.lastElementChild);
+    cutList.lastElementChild.querySelector('input').focus();
   };
   planForm.addEventListener('click',event=>{
-    if (event.target.matches('[data-remove-cut-piece]')) event.target.closest('.cut-piece').remove();
+    if (!event.target.matches('[data-remove-cut-piece]')) return;
+    event.target.closest('.cut-piece').remove();
+    refreshRolls();
   });
+  cutList.addEventListener('input',event=>{if (event.target.name==='pieceMaterial') refreshRolls();});
   function readMeasurements() {
     const values=new FormData(planForm);
     const lengths=keys=>Object.fromEntries(keys.flatMap(key=>{
@@ -1043,11 +1078,18 @@ function bindMeasurementEditor(container,onSave) {
       if (!name) return [];
       const quantity=Number(row.querySelector('[name=quantity]').value)||null;
       const mode=row.querySelector('[name=mode]').value;
+      const material=row.querySelector('[name=pieceMaterial]').value;
       const dimensions=Object.fromEntries(['width','length','grain'].map(key=>[key,studioUnits.lengthValue(row.querySelector(`[name="${key}"]`))]));
-      return [{name,quantity,mode,...dimensions}];
+      return [{name,quantity,mode,material,...dimensions}];
     });
-    const plan={...lengths(Object.keys(workPlanLengths)),modelId:values.get('modelId')||undefined,layout:values.get('layout'),seamFinish:values.get('seamFinish'),
+    const prefixed=(prefix,keys)=>Object.fromEntries(Object.entries(lengths(keys.map(key=>prefix+key))).map(([key,value])=>[key.slice(prefix.length),value]));
+    const recordedLengths=lengths(Object.keys(workPlanLengths));
+    const modelId=planForm.elements.namedItem('modelId')?(values.get('modelId')||undefined):savedPlan.modelId;
+    const plan={...savedPlan,...recordedLengths,modelId,layout:values.get('layout'),seamFinish:values.get('seamFinish'),
+      materialWidths:prefixed('materialWidth:',materialRolls.map(roll=>roll.dataset.materialRoll)),
+      landmarkDistances:prefixed('distance:',Object.keys(workDimensions.fields)),
       pocket:values.get('pocket'),oneWay:values.has('oneWay'),pocketReference:(values.get('pocketReference')||'').trim(),pieces};
+    for (const key of Object.keys(workPlanLengths)) if (!Object.hasOwn(recordedLengths,key)) delete plan[key];
     return {allowances,plan};
   }
   planForm.addEventListener('submit',event=>{
@@ -1057,29 +1099,38 @@ function bindMeasurementEditor(container,onSave) {
   return readMeasurements;
 }
 function orderFigureSections(order,pattern,measurements) {
-  return `${workFigures.referenceSheet(pattern.reference,pattern.design,order,measurements)}
+  return `${workFigures.dimensionSheet(measurements,pattern)}${workFigures.referenceSheet(pattern.reference,pattern.design,order,measurements)}
     ${workFigures.cuttingPlan(order,pattern)}${workFigures.seamPlan(order)}${workFigures.featurePlan(order,pattern.design)}`;
 }
 function orderDetails(order) {
   const original=getPattern(order.pattern);
   const pattern=withFitFigures({...original,...getOrderPattern(order)});
-  const referenceBody=order.plan?.modelId?getModel(order.plan.modelId):null;
-  const measurements=pattern.measurements || (referenceBody?fitMeasurementSheet(referenceBody,{hasSleeves:hasSleeves(original||pattern)},{},true,original||pattern,referenceBody):null);
+  const referenceBody=pattern.fit||pattern.fitReference||pattern.design?.fitModelId||order.plan?.modelId
+    ?garmentReference(pattern,order.plan?.modelId):null;
+  const measurementSheet=pattern.measurements||(referenceBody?fitMeasurementSheet(referenceBody,{hasSleeves:hasSleeves(pattern)},{},true,pattern,referenceBody):null);
+  const measurements=dimensionedMeasurements(order,measurementSheet,referenceBody);
+  const estimate=orderMaterialEstimate(order,pattern,referenceBody||undefined);
+  const recipe=workRecipe.prepare({pattern,order,measurements,estimate,kind:orderKind(order)});
   const notes=order.notes || original?.design?.details;
-  showDialog(order.title,`${orderPreview(order)}<p>${order.id} · ${escape(pattern.name)}</p>${notes ? `<p class="tight" style="white-space:pre-wrap">${escape(notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${referenceLinks(original)}${sewingVisuals.tools(pattern.tools)}${fitMeasurementTable(measurements)}${workFigures.bodySheet(measurements)}${allowanceEditor(order,pattern)}
+  showDialog(order.title,`${orderPreview(order)}<p>${order.id} · ${escape(pattern.name)}</p>${notes ? `<p class="tight" style="white-space:pre-wrap">${escape(notes)}</p>` : ''}<p class="tight"><strong>Fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${workMaterials.render(estimate)}${recipe}${referenceLinks(original)}${sewingVisuals.tools(pattern.tools)}${fitMeasurementTable(measurementSheet)}${allowanceEditor(order,pattern,'allowance-form',estimate)}
     ${orderFigureSections(order,pattern,measurements)}
     ${sewingVisuals.machineGuide()}${workFigures.machineActions()}<h3 class="tight">Step checklist</h3><p id="order-progress" aria-live="polite">${order.done.length} of ${pattern.steps.length} steps completed</p>${workFigures.stepList(pattern,order,measurements)}
     <button class="secondary" data-action="edit-order" data-id="${order.id}">Edit work order</button> <button class="secondary" data-action="archive-order" data-id="${order.id}">${isArchived('orders',order.id)?'Restore':'Archive'} work order</button>`);
   drawOrderPreviews(modal);
+  workMaterials.bind(modal);
   bindMeasurementEditor(modal,settings=>{
+    const openSections=new Set([...modal.querySelectorAll('.wo-allowances details[open] > summary')].map(summary=>summary.textContent));
     Object.assign(order,settings);
     save('Figure measurements saved');
     const scroll=modal.scrollTop;
     orderDetails(order);
     modal.querySelector('.wo-allowances').open=true;
+    for (const summary of modal.querySelectorAll('.wo-allowances details > summary')) {
+      if (openSections.has(summary.textContent)) summary.parentElement.open=true;
+    }
     for (const section of modal.querySelectorAll('.wo-cut-guide,.wo-seam-guide,.wo-feature-guide')) section.open=true;
     modal.scrollTop=scroll;
-  });
+  },order.plan);
   modal.querySelector('.check-list').addEventListener('change',event => {
     if (!event.target.matches('input')) return;
     order.done = [...modal.querySelectorAll('.check-list input:checked')].map(box=>Number(box.value));
@@ -6116,12 +6167,20 @@ function fitting() {
     const modelMeasurements=snapshotModelMeasurements(targetBody);
     const patternDesign=designForFit(targetPattern.design,targetChanges);
     const packetDesign=Array.isArray(compare.pocketDetails)?{...patternDesign,pocketDetails:compare.pocketDetails}:patternDesign;
-    const packet=withFitFigures({...targetPattern,fit:{changes:targetChanges},design:packetDesign,steps,visuals,measurements});
+    const packet=withFitFigures({...targetPattern,fit:{changes:targetChanges,fabric},design:packetDesign,steps,visuals,measurements});
     const draftOrder={kind:make?'Construction':'Tailoring',plan:{
       ...(studioDesign.supportsStrapShape(targetChanges.support)?{strapWidth:targetChanges.strapWidth,...studioDesign.strapShape(targetChanges)}:{}),
       straplessSupport:targetChanges.straplessSupport
     }};
-    const drawings=()=>orderFigureSections(draftOrder,packet,measurements)+workFigures.stepList(packet,draftOrder,measurements);
+    const drawings=()=>{
+      const detailSheet=dimensionedMeasurements(draftOrder,measurements,targetBody);
+      return orderFigureSections(draftOrder,packet,detailSheet)+workFigures.stepList(packet,draftOrder,detailSheet);
+    };
+    const materialsAndRecipe=(estimate=orderMaterialEstimate(draftOrder,packet,targetBody))=>{
+      const detailSheet=dimensionedMeasurements(draftOrder,measurements,targetBody);
+      return workMaterials.render(estimate,{planFormId:'preview-allowance-form'})+
+        workRecipe.prepare({pattern:packet,order:draftOrder,measurements:detailSheet,estimate,kind:draftOrder.kind});
+    };
     const features=['pocketDetails','slits','attachmentSeams','strapCorners','keyholes','asymmetry'];
     const rebuild=!make&&!savedTarget&&features.some(key=>Object.hasOwn(compare,key))
       ?constructionGuide(targetPattern,targetChanges,targetBody,fabric):null;
@@ -6130,18 +6189,32 @@ function fitting() {
     fittingDraft={garment:pattern,patternDesign,packetDesign,rebuild,rebuildMeasurements,...kit,summary,
       modelId:targetBody.id,modelMeasurements,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
-    fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}${workFigures.bodySheet(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p>${sewingVisuals.tools(tools)}${allowanceEditor(draftOrder,packet,'preview-allowance-form')}<p id="preview-fit-status" role="status"></p>
+    const startingEstimate=orderMaterialEstimate(draftOrder,packet,targetBody);
+    fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p><div id="fit-packet-materials">${materialsAndRecipe(startingEstimate)}</div>${sewingVisuals.tools(tools)}${allowanceEditor(draftOrder,packet,'preview-allowance-form',startingEstimate)}<p id="preview-fit-status" role="status"></p>
       <form id="save-fit-form">${savedTarget?'':`<label class="field">Garment name<input name="garmentName" required maxlength="100" value="${escape(make?pattern.name+' new':pattern.family?pattern.name:pattern.name+' fitted')}" ${!make&&pattern.family?'readonly':''}></label>`}${make?productionSizeField():''}<button>${savedTarget?'Save tailoring work order':make?'Save new garment and work order':'Save revision and create work order'}</button></form>
       <div id="fit-packet-drawings">${drawings()}</div>`;
     studioUnits.refresh(fitGuide);
+    workMaterials.bind(fitGuide);
+    const materialSection=fitGuide.querySelector('#fit-packet-materials');
+    const updateMaterials=()=>{
+      materialSection.innerHTML=materialsAndRecipe();
+      workMaterials.bind(fitGuide);
+      studioUnits.refresh(materialSection);
+    };
     const readPreviewMeasurements=bindMeasurementEditor(fitGuide,settings=>{
-      Object.assign(draftOrder,settings,{plan:{...draftOrder.plan,...settings.plan}});
+      Object.assign(draftOrder,settings);
       const figures=fitGuide.querySelector('#fit-packet-drawings');
       figures.innerHTML=drawings();
       studioUnits.refresh(figures);
+      updateMaterials();
       fitGuide.querySelector('#preview-fit-status').textContent='Updated the dimensions in the work-order preview.';
+    },draftOrder.plan);
+    const saveForm=fitGuide.querySelector('#save-fit-form');
+    saveForm.elements.namedItem('productionSize')?.addEventListener('change',event=>{
+      draftOrder.size=event.target.value;
+      updateMaterials();
     });
-    fitGuide.querySelector('#save-fit-form').addEventListener('submit',event=>{
+    saveForm.addEventListener('submit',event=>{
       event.preventDefault();
       const fields=new FormData(event.target);
       const name = savedTarget?.name || fields.get('garmentName').trim();
@@ -6154,7 +6227,7 @@ function fitting() {
         return;
       }
       const figureSettings=readPreviewMeasurements();
-      fittingDraft.figureSettings={...figureSettings,plan:{...draftOrder.plan,...figureSettings.plan}};
+      fittingDraft.figureSettings=figureSettings;
       saveFit(name,fields.get('productionSize'));
     });
     fitGuide.scrollIntoView({block:'nearest'});
@@ -7738,10 +7811,12 @@ function designStudio() {
     if (!guide.open) return;
     const design={...designDraft,layers:studioDesign.layers(designDraft),seams:studioDesign.configuredSeams(designDraft),fitAdjustments:activeDesignFit()};
     const item = applyDesignFit(studioDesign.make(design,designDraft.name,body()),body());
-    const measurements=designMeasurementSheet(item);
-    const figureValues={plan:{strapWidth:design.strapWidth}};
+    const figureValues={kind:'Construction',size:form.elements.namedItem('productionSize').value,plan:{strapWidth:design.strapWidth}};
+    const measurements=dimensionedMeasurements(figureValues,designMeasurementSheet(item),body());
+    const estimate=orderMaterialEstimate(figureValues,item,body());
+    const recipe=workRecipe.prepare({pattern:item,order:figureValues,measurements,estimate,kind:'Construction'});
     const work=guide.querySelector('#design-guide-content');
-    work.innerHTML = `<p class="tight"><strong>Fabric</strong> ${escape(item.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(item.tools)}</p>${sewingVisuals.tools(item.tools)}${workFigures.referenceSheet(designDraft.reference,item.design,figureValues,measurements)}${workFigures.stepList(item,figureValues,measurements)}`;
+    work.innerHTML = `<p class="tight"><strong>Fabric</strong> ${escape(item.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(item.tools)}</p>${workMaterials.render(estimate,{editable:false})}${recipe}${sewingVisuals.tools(item.tools)}${workFigures.dimensionSheet(measurements,item)}${workFigures.referenceSheet(designDraft.reference,item.design,figureValues,measurements)}${workFigures.stepList(item,figureValues,measurements)}`;
     studioUnits.refresh(work);
   }
   function designMeasurementSheet(item) {
@@ -8000,7 +8075,7 @@ function designStudio() {
       updateGuide();
       return;
     }
-    if (field.name==='productionSize') return;
+    if (field.name==='productionSize') {updateGuide();return;}
     const stitchKey=field.dataset.stitchField;
     if (stitchKey) {
       rememberInput(field);

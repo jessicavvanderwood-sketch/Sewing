@@ -21,6 +21,12 @@ Then open http://localhost:8000. The project uses plain HTML, CSS and JavaScript
 
 Data is stored in the current browser for the current site origin. Different browsers and devices have separate data. The 3D model provides a visual approximation. Confirm ease, available seam allowances and the final fit on the physical garment.
 
+## Use a construction work order
+
+**Fabric quantities** lists each material in yards and meters. Use **Edit fabric width and cutting list** to record the usable width and full cutting list for each fabric. With those values, the packet lists where to place each full-size paper piece, how many to cut and when to use a fold or mirror a pair. Estimates include a 10% reserve and round up to the next 10 cm. Original guide amounts and publisher instructions retain their own source labels.
+
+**Dimensions between reference marks** shows the distances that position the circumference lines and garment features. Enter the actual wearer, sample or paper measurements under **Pattern measurements, cutting and options** to replace the marked estimates. The illustrated checklist includes detailed actions for preparation, cutting, machine setup, construction, pressing and fit checks. Use the full-size paper pattern for the cutting shapes and record any dimensions or allowances flagged under **Before cutting and sewing**. Print the open work order from the browser for a paper copy.
+
 ## Install on a computer
 
 Open [Jessica’s Sewing Dashboard](https://jessicavvanderwood-sketch.github.io/Sewing/dist/). In Safari on macOS Sonoma or later, choose **File → Add to Dock**. In Chrome or Edge, use the app install option in the address bar or browser menu. The installed dashboard opens in its own window and can reopen offline after its first online visit. GitHub Pages automatically publishes updates from main. Studio data is stored in the browser or installed app profile you use.

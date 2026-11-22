@@ -22,8 +22,8 @@ const workFigures = (() => {
   const texture=(x,y)=>path(`M${x} ${y+12}l12 -12m-4 12l12 -12m-4 12l12 -12`,'wf-guide');
   const format=value=>Number.isFinite(value)?Number(value.toFixed(3))+' cm':'';
   const num=(step,regex)=>step.match(regex)?.[1];
-  function panel(title,drawing,description,classes='wf-panel step-figure') {
-    return `<figure class="${classes}"><svg viewBox="0 0 330 164" role="img" aria-label="${escape(title)}" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
+  function panel(title,drawing,description,classes='wf-panel step-figure',viewBox='0 0 330 164') {
+    return `<figure class="${classes}"><svg viewBox="${viewBox}" role="img" aria-label="${escape(title)}" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
   }
   function strip(title,panels) {
     return `<section class="wf-figures"><h4>${title}</h4><div class="wf-grid">${panels.join('')}</div></section>`;
@@ -158,46 +158,169 @@ const workFigures = (() => {
     return '';
   }
   const valueFor=(sheet,key)=>{
-    const value=sheet?.rows.find(([label])=>label===key)?.at(-1);
+    const value=sheet?.rows?.find(([label])=>label===key)?.at(-1);
     return value==='—'?'':value||'';
   };
+  const distanceFor=(sheet,key)=>{
+    const row=sheet?.distances?.rows?.[key];
+    return row?.source==='estimated'||row?.source==='estimate'?'':format(row?.cm);
+  };
+  const distance=(sheet,key)=>distanceFor(sheet,key)||'Measure';
+  const referencePanel=(title,drawing,description)=>panel(title,drawing,description,'wf-panel step-figure wf-reference-distance','0 0 350 190');
   const torsoShape='M69 32L86 26Q94 43 104 43Q114 43 122 26L139 32L149 56L133 86Q144 112 148 143H60Q63 112 75 86L59 56Z';
   const legShape='M57 20H108Q104 54 92 78Q101 99 86 138L88 152H63L67 137Q62 111 69 81Q52 51 57 20Z';
   const tape=(x1,x2,y,text)=>path(`M${x1} ${y}Q${(x1+x2)/2} ${y+10} ${x2} ${y}`,'wf-dimension')+
     guide(x2,y,x2+14,y)+dimText(x2+19,y+4,text);
-  function torsoDrawing(sheet,{extra=false}={}) {
-    const rows=[
-      ['Upper chest circumference','Upper chest',48],['Chest / bust','Bust / chest',63],['Underbust / rib cage','Underbust',78],
-      ['Waist','Waist',95],['High hip circumference','High hip',112],['Hip / seat','Hip / seat',130]
-    ];
-    const marks=rows.flatMap(([key,label,y],i)=>{
-      const value=valueFor(sheet,key);
-      return (value && extra || i%2===1)?[tape(68,143,y,label+(value?' '+value:''))]:[];
-    }).join('');
-    const shoulder=valueFor(sheet,'Shoulder span');
-    const finished=sheet?.targets?.[0];
-    return path(torsoShape,'wf-cloth')+marks+(shoulder?guide(69,30,69,19)+guide(139,30,139,19)+span(69,139,19,shoulder)+label(154,23,'Shoulder span'):'')+
-      (finished?dimText(62,156,finished.join(' ')):'');
+  const referenceTorso=[
+    ['Shoulder span','Shoulder',33,115,204],['Upper chest circumference','Upper chest',54,107,212],
+    ['Chest / bust','Bust / chest',75,119,200],['Underbust / rib cage','Underbust',96,125,194],
+    ['Waist','Waist',117,132,187],['High hip circumference','High hip',138,121,198],['Hip / seat','Hip / seat',159,114,205]
+  ];
+  const torsoIntervals=['shoulderToUpperChest','upperChestToBust','bustToUnderbust','underbustToWaist','waistToHighHip','highHipToHip'];
+  function referenceMark(x1,x2,y,name,value) {
+    return guide(81,y,221,y)+path(`M${x1} ${y}H${x2}`,'wf-dimension')+
+      (value===null?label(7,y+4,name):dimText(7,y+4,`${name} · ${value||'Measure'}`));
   }
-  function bodySheet(sheet) {
-    if (!sheet?.rows.length) return '';
-    const leg=[['Thigh circumference',34],['Mid-thigh circumference',57],['Knee circumference',78],['Calf circumference',108],['Ankle circumference',138]]
-      .filter(([key])=>valueFor(sheet,key)).map(([key,y])=>tape(57,103,y,key+' '+valueFor(sheet,key))).join('');
-    const arm=[['Upper arm circumference','Upper arm',44],['Forearm circumference','Forearm',91],['Wrist circumference','Wrist',122]]
-      .filter(([key])=>valueFor(sheet,key)).map(([key,name,y])=>tape(92,132,y,name+' '+valueFor(sheet,key))).join('');
-    const armLength=valueFor(sheet,'Shoulder to wrist');
+  function dimensionTicks(sheet,x,ranges) {
+    return ranges.map(([from,to,key])=>tick(x,from,to,distance(sheet,key))).join('');
+  }
+  function torsoDrawing(sheet,back=false,footer='') {
+    const neckline=back?'Q159 26 180 25':'Q159 52 180 25';
+    const upper=`M117 32L139 25${neckline}L202 32L214 54Q205 62 201 76L194 96L187 117Q200 145 209 171H110Q119 145 132 117L125 96L118 76Q114 62 105 54Z`;
+    const marks=referenceTorso.map(([key,name,y,x1,x2])=>referenceMark(x1,x2,y,name==='Bust / chest'&&back?'Chest level':name,
+      key==='Shoulder span'?null:valueFor(sheet,key))).join('');
+    const adjacent=torsoIntervals.map((key,index)=>[referenceTorso[index][2],referenceTorso[index+1][2],key]);
+    const longer=back?[[33,75,'backShoulderToChest'],[75,117,'bustToWaist'],[117,159,'waistToHip']]
+      :[[33,75,'frontShoulderToBust'],[75,117,'bustToWaist'],[117,159,'waistToHip']];
+    return path(upper,'wf-cloth')+guide(159,46,159,170)+marks+
+      guide(115,32,115,26)+guide(204,32,204,26)+span(115,204,26,valueFor(sheet,'Shoulder span')||'Measure')+
+      label(230,17,'Between','middle')+label(290,17,'Overall','middle')+
+      dimensionTicks(sheet,222,adjacent)+dimensionTicks(sheet,285,longer)+
+      (back?tick(170,33,117,distance(sheet,'backShoulderToWaist'),-1):'')+
+      (footer?dimText(9,182,footer):'');
+  }
+  function sleeveReferencePanel(sheet) {
+    const shoulder=33,arm=62,elbow=101,forearm=128,wrist=157;
+    const shape=path('M113 73Q118 49 133 40Q159 20 180 39Q200 47 202 72L187 114L178 165H133L134 117Z','wf-cloth');
+    const marks=referenceMark(136,177,shoulder,'Shoulder seam',null)+
+      referenceMark(117,199,arm,'Upper arm',valueFor(sheet,'Upper arm circumference'))+
+      referenceMark(130,191,elbow,'Elbow',null)+
+      referenceMark(133,184,forearm,'Forearm',valueFor(sheet,'Forearm circumference'))+
+      referenceMark(134,180,wrist,'Wrist',valueFor(sheet,'Wrist circumference'));
+    return referencePanel('Arm and sleeve reference lengths',shape+guide(154,35,154,167)+marks+
+      dimensionTicks(sheet,222,[[shoulder,elbow,'shoulderToElbow'],[elbow,wrist,'elbowToWrist']])+
+      dimensionTicks(sheet,285,[[shoulder,wrist,'shoulderToWrist']])+
+      tick(171,shoulder,165,distance(sheet,'sleeveToCuff'),-1)+
+      label(230,17,'Between','middle')+label(288,17,'Body total','middle')+
+      label(160,181,'Finished cuff','middle'),
+      'Measure along a slightly bent arm for body lengths. Mark the actual finished cuff on the fitted sleeve. Short sleeves can end above the elbow.');
+  }
+
+  function lowerReferencePanel(sheet,model,title,description) {
+    const trousers=model==='trousers';
+    const waist=33,high=58,hip=82,knee=118,hem=159;
+    const outline=trousers?'M120 33H199Q205 60 211 80L213 160H170L161 94L151 160H105L107 80Q113 59 120 33Z'
+      :'M121 33H198Q205 67 213 102L229 164H89L104 102Q114 67 121 33Z';
+    const marks=referenceMark(120,199,waist,'Natural waist',valueFor(sheet,'Waist'))+
+      referenceMark(113,206,high,'High hip',valueFor(sheet,'High hip circumference'))+
+      referenceMark(108,211,hip,'Hip / seat',valueFor(sheet,'Hip / seat'))+
+      (trousers?referenceMark(107,213,knee,'Knee',valueFor(sheet,'Knee circumference')):'')+
+      referenceMark(trousers?105:91,trousers?213:227,hem,'Finished hem',null);
+    return referencePanel(title||(trousers?'Trouser reference lengths':'Skirt and hem reference lengths'),path(outline,'wf-cloth')+
+      guide(159,35,159,trousers?92:162)+marks+
+      dimensionTicks(sheet,229,[[waist,high,'waistToHighHip'],[high,hip,'highHipToHip'],[hip,hem,'hipToHem']])+
+      dimensionTicks(sheet,293,[[waist,hem,'waistToHem']])+
+      (trousers?tick(193,waist,knee,distance(sheet,'waistToKnee'),-1):tick(193,waist,hip,distance(sheet,'waistToHip'),-1))+
+      label(235,17,'Between','middle')+label(294,17,'Overall','middle'),
+      description||'Mark the natural waist on the wearer and the finished hem on the fitted garment. Take both hem measurements at the same side. For uneven hems, take the distance separately at each fitting mark.');
+  }
+
+  function trouserBodyPanel(sheet) {
+    const waist=33,hip=55,crotch=76,knee=104,calf=130,floor=167;
+    const outline='M121 32H192Q198 50 194 74L187 103Q198 124 181 153L182 166H149L154 153Q150 130 155 110L147 80Q131 70 124 53Z';
+    const levels=[[waist,121,192,'Natural waist'],[hip,125,194,'Hip level'],[crotch,144,194,'Crotch level'],[knee,152,187,'Knee center'],
+      [calf,153,190,'Calf level'],[floor,147,190,'Floor']];
+    const marks=levels.map(([y,x1,x2,name])=>referenceMark(x1,x2,y,name,null)).join('');
+    return referencePanel('Trouser fitting · Body heights',path(outline,'wf-cloth')+marks+
+      dimensionTicks(sheet,222,[[waist,crotch,'waistToCrotch'],[crotch,knee,'crotchToKnee'],[knee,calf,'kneeToCalf'],[calf,floor,'calfToFloor']])+
+      dimensionTicks(sheet,285,[[crotch,floor,'crotchToFloor']])+
+      tick(195,hip,knee,distance(sheet,'hipToKnee'),-1)+
+      label(230,17,'Between','middle')+label(290,17,'Body total','middle'),
+      'Mark the perpendicular floor heights standing, with the tape held vertical. These body heights establish the crotch, knee, and calf levels. Measure the finished inseam and curved rise separately on the trousers.');
+  }
+
+  function trouserSeamPanel(sheet,back=false) {
+    const rise=back?'M161 30Q148 52 161 72Q176 78 158 88':'M161 30Q156 53 164 69Q170 78 158 88';
+    const side=back?'Back':'Front';
+    return referencePanel(`${side} trouser rise and inseam`,
+      path('M111 30H213L220 78L217 156H171L158 88L144 156H101L105 74Z','wf-cloth')+
+      path(rise+'M158 88L144 156','wf-stitch')+
+      path('M156 30h10M152 89h12M139 156h10','wf-dimension')+
+      leader(back?154:161,52,228,44)+label(234,32,`${side} rise`)+dimText(234,51,distance(sheet,back?'backRise':'finishedRise'))+
+      leader(150,115,222,110)+label(229,106,'Inseam')+dimText(229,123,distance(sheet,'garmentInseam'))+
+      guide(103,110,148,110)+guide(102,156,81,156)+guide(102,110,81,110)+tick(81,110,156,distance(sheet,'kneeToHem'),-1)+
+      label(17,106,'Knee line')+label(112,21,'Upper waist edge')+leader(158,89,199,88)+label(203,91,'Crotch join')+
+      label(160,174,'Finished leg edges','middle'),
+      `Measure the ${side.toLowerCase()} rise along its curve from the upper waist edge to the crotch join. Follow the inseam from that join to the fitted hem. Check the knee-to-hem distance on the same leg.`);
+  }
+
+  function featureDistancePanels(sheet) {
+    const plan=sheet?.distances?.rows;
+    const known=key=>distanceFor(sheet,key)!=='';
+    const output=[];
+    if (known('pocketAcross')||known('pocketDown')) output.push(referencePanel('Pocket position from the reference line',
+      path('M83 42H244V158H83Z','wf-cloth')+guide(101,42,101,158)+guide(83,59,268,59)+
+      path('M154 94H217V137Q183 149 154 137Z','wf-fold')+guide(154,95,154,154)+
+      guide(217,94,267,94)+tick(267,59,94,distance(sheet,'pocketDown'))+
+      span(101,154,156,distance(sheet,'pocketAcross'))+label(107,52,'Reference line')+label(82,178,'Center front')+label(160,84,'Pocket top'),
+      'Use the pocket reference line named in the work order. Measure down to the pocket top and across from center front to its inner edge.'));
+    if (known('zipperOpening')) output.push(referencePanel('Upper to lower zipper opening marks',
+      path('M57 40H134V156H57ZM148 40H228V156H148Z','wf-cloth')+
+      path('M133 56V133M147 56V133M126 56h15m-15 77h15M140 56h15m-15 77h15','wf-dimension')+
+      guide(150,56,256,56)+guide(150,133,256,133)+tick(255,56,133,distance(sheet,'zipperOpening'))+
+      label(76,29,'Upper mark')+label(76,174,'Lower mark'),plan.zipperOpening.method));
+    if (known('strapLength')) output.push(referencePanel('Front to back strap attachments',
+      path('M56 85Q142 72 220 87V113Q145 99 56 113Z','wf-cloth')+
+      path('M66 80V119M211 84V119','wf-stitch')+guide(66,118,66,143)+guide(211,118,211,143)+
+      span(66,211,146,distance(sheet,'strapLength'))+label(66,64,'Front join')+label(209,65,'Back join','middle'),plan.strapLength.method));
+    if (known('casingWidth')) output.push(referencePanel('Casing fold to stitch line',
+      path('M49 54H224V139H49Z','wf-cloth')+path('M49 54H224V98H49Z','wf-fold')+
+      path('M49 98H224','wf-stitch')+guide(222,54,253,54)+guide(222,98,253,98)+tick(252,54,98,distance(sheet,'casingWidth'))+
+      label(70,48,'Finished fold')+label(69,115,'Casing stitching'),plan.casingWidth.method));
+    return output;
+  }
+
+  const drawingModel=pattern=>[pattern.design?.model,pattern.model,pattern.id].find(key=>Object.hasOwn(studioDesign.silhouettes,key));
+
+  function dimensionSheet(sheet,pattern={}) {
+    if (!sheet?.rows?.length&&!sheet?.distances) return '';
+    const design=pattern.design;
+    const model=drawingModel(pattern);
+    const lower=['dress','skirt','trousers'].includes(model)||!model&&Boolean(valueFor(sheet,'Thigh circumference')||valueFor(sheet,'Knee circumference'));
+    const upper=!['skirt','trousers'].includes(model);
+    const sleeves=upper&&(design?studioDesign.isSleeved(design):pattern.fit?.changes?.hasSleeves??pattern.sleeves??(!model&&Boolean(valueFor(sheet,'Shoulder to wrist')||valueFor(sheet,'Upper arm circumference'))));
     const panels=[];
-    panels.push(panel('Torso measurements',torsoDrawing(sheet,{extra:true}),
-      'Keep the tape level around the body at each line. Compare these body measurements with the pattern size and the intended wearing ease.'));
-    if (leg) panels.push(panel('Leg measurements',
-      path(legShape,'wf-cloth')+leg,
-      'Wrap the tape around one leg at each level. Use the pattern to check the finished leg width and room to move.'));
-    if (arm || armLength) panels.push(panel('Arm measurements',
-      path('M87 33Q111 10 132 32L137 65Q138 85 134 105L130 125L113 127Q103 110 101 93L86 62Z','wf-cloth')+arm+
-      (armLength?path('M70 26H100M70 126H112','wf-extension')+tick(70,26,126,armLength,-1):''),
-      'Check length with the elbow slightly bent. The arm measurements inform the fitting sample. Match the sleeve seam to the pattern armhole.'));
-    return panels.length?strip('Where the model measurements go',panels):'';
+    if (upper) {
+      const target=sheet.targets?.[0]?.join(' ')||'';
+      panels.push(referencePanel('Front torso measurements',torsoDrawing(sheet,false,target),
+        'Wrap the tape level at each horizontal mark. The brackets show the vertical gaps between levels. Measure on the fitted sample wherever a distance is missing.'));
+      panels.push(referencePanel('Back torso measurements',torsoDrawing(sheet,true),
+        'Carry the same waist, chest, and hip levels round to the back. Take the back shoulder-to-waist measurement from where the neck meets the shoulder.'));
+    }
+    if (sleeves) panels.push(sleeveReferencePanel(sheet));
+    if (lower) panels.push(lowerReferencePanel(sheet,model||'trousers'));
+    if (model==='trousers') panels.push(trouserBodyPanel(sheet),trouserSeamPanel(sheet),trouserSeamPanel(sheet,true));
+    if (model==='trousers'||!model) {
+      const leg=[['Thigh circumference',34],['Mid-thigh circumference',57],['Knee circumference',78],['Calf circumference',108],['Ankle circumference',138]]
+        .filter(([key])=>valueFor(sheet,key)).map(([key,y])=>tape(57,103,y,key+' '+valueFor(sheet,key))).join('');
+      if (leg) panels.push(panel('Leg circumferences',path(legShape,'wf-cloth')+leg,
+        'Wrap the tape around one leg at each marked level. Compare the body measurements with the finished trouser widths and the wearing ease.'));
+    }
+    panels.push(...featureDistancePanels(sheet));
+    return `<section class="wf-figures wf-measurement-figures wo-storyboard"><h4>Reference measurements and distances</h4><p class="muted">Schematics show where to measure. Use the recorded dimensions and mark missing distances on the fitted sample.</p><div class="wf-grid">${panels.join('')}</div></section>`;
   }
+
+  const bodySheet=sheet=>dimensionSheet(sheet);
   function forStep(step,id,order,pattern) {
     const allowance=order.allowances||{};
     if (isBackNeckStep(step,id,pattern.design) && !combinedNeckStep(step,id)) return backNeckPanels(step,id,order,pattern.design)[0];
@@ -1633,7 +1756,7 @@ const workFigures = (() => {
 
   function slitPanels(step,order,design) {
     const number=Number(num(step,/^Slit (\d+)/));
-    const slit=studioDesign.slits?.(design)[number-1];
+    const slit=studioDesign.activeSlitEntries(design).find(entry=>entry.index===number-1)?.slit;
     if (!slit) return [];
     const section=slit.section==='body'?'the garment hem':`the wearer’s ${slit.section==='leftLeg'?'left':'right'} leg hem`;
     const location=studioDesign.singleSeamLocation(slit.angle);
@@ -1694,7 +1817,7 @@ const workFigures = (() => {
 
   function sleeveVentPanels(step,order,design) {
     const number=Number(num(step,/^Slit (\d+)/));
-    const vent=studioDesign.slits(design)[number-1];
+    const vent=studioDesign.activeSlitEntries(design).find(entry=>entry.index===number-1)?.slit;
     if (!vent) return [];
     const side=vent.section==='leftSleeve'?'left':'right';
     const faced=vent.finish!=='Bound placket';
@@ -2068,19 +2191,20 @@ const workFigures = (() => {
     const plan=order.plan||{};
     const annotated=format(seam)||'Pattern allowance';
     const local=scenes[figure];
-    if (figure==='shoulder') return panel(title,torsoDrawing(measurements)+
-      dimText(161,42,'Shoulder allowance '+annotated),description);
+    if (figure==='shoulder') return referencePanel(title,torsoDrawing(measurements,false,'Shoulder allowance · '+annotated),description);
     if (figure==='armhole') return panel(title,path('M32 41H114Q110 78 146 103L140 135H32Z','wf-cloth')+
       path('M105 45Q104 83 135 105','wf-stitch')+guide(135,105,175,105)+guide(144,94,175,94)+
-      tick(173,94,105,annotated)+label(183,130,'Mark the underarm'),description);
+      tick(173,94,105,annotated)+guide(111,41,255,41)+guide(146,105,255,105)+tick(253,41,105,'Measure')+
+      label(116,35,'Shoulder mark')+label(183,130,'Mark the underarm'),description);
     if (figure==='sleeve' || figure==='sleeveCap') return actionPanel(order,'matchSleeve',title,description,id,measurements);
     if (figure==='band' && plan.casingWidth) return panel(title,path('M32 37H204V125H32Z','wf-cloth')+
       path('M32 37H204V77H32Z','wf-fold')+path('M32 77H204','wf-stitch')+path('M204 37H218M204 77H218','wf-extension')+
       tick(218,37,77,format(plan.casingWidth))+label(50,107,'Match center and side seams'),description);
-    if (figure==='measure') return panel(title,torsoDrawing(measurements),description);
-    if (figure==='fit' || figure==='fitMove') {
-      const waist=valueFor(measurements,'Waist');
-      return panel(title,figure==='fitMove'?local[1]+(waist?dimText(201,120,'Model waist '+waist):''):torsoDrawing(measurements),description);
+    if (['measure','fit','fitMove'].includes(figure)) {
+      if (['trousers','skirt'].includes(order.figureModel)) return lowerReferencePanel(measurements,order.figureModel,title,description);
+      const moving=figure==='fitMove';
+      const motion=moving?path('M147 63Q133 60 130 49m-3 5l3 -5 5 3M170 63Q184 60 188 49m-5 3l5 -3 3 5','wf-arrow'):'';
+      return referencePanel(title,torsoDrawing(measurements,false,moving?'Compare the marked levels while moving':'')+motion,description);
     }
     if (figure==='cut') return cutEdgePanel(allowance);
     if (figure==='grain') return layoutPanel(plan);
@@ -2207,13 +2331,14 @@ const workFigures = (() => {
     scenes ??= createScenes();
     const checklist=Array.isArray(order.done);
     const ids=pattern.visuals || sewingVisuals.patterns[pattern.id];
-    const figureOrder={...order,plan:cuttingLayout(order.plan,pattern.design)};
+    const figureOrder={...order,plan:cuttingLayout(order.plan,pattern.design),figureModel:drawingModel(pattern)};
     return `<ol class="${checklist?'check-list':'steps illustrated-steps'} wo-packet-steps">${pattern.steps.map((step,index)=>{
       const id=ids?.[index] || sewingVisuals.identify(step);
       const figure=sewingVisuals.figureParts(id);
       const overview=forStep(step,id,figureOrder,{...pattern,measurements}) || (['fairyHem','hemContour'].includes(id)?'':actionPanel(figureOrder,id,figure?.[0]||'Pattern detail',step,id,measurements) || sewingVisuals.diagram(id));
       const text=checklist?`<label><input type="checkbox" value="${index}" ${order.done.includes(index)?'checked':''}><span><strong>${index+1}.</strong> ${escape(step)}</span></label>`:`<p>${escape(step)}</p>`;
-      return `<li>${text}${overview}${illustratedActions(step,id,index,figureOrder,measurements,pattern.design)}</li>`;
+      const recipe=typeof workRecipe!=='undefined'?workRecipe.step?.({pattern,order:figureOrder,step,id,measurements})??'':'';
+      return `<li>${text}${overview}${recipe}${illustratedActions(step,id,index,figureOrder,measurements,pattern.design)}</li>`;
     }).join('')}</ol>`;
   }
   function referenceSheet(reference,design,order={},measurements) {
@@ -2334,5 +2459,5 @@ const workFigures = (() => {
     </li>`).join('')}</ol>`;
   }
 
-  return {bodySheet,cuttingPlan,seamPlan,featurePlan,stepList,referenceSheet,machineActions,lessonSteps};
+  return {bodySheet,dimensionSheet,cuttingLayout,cuttingPlan,seamPlan,featurePlan,stepList,referenceSheet,machineActions,lessonSteps};
 })();
