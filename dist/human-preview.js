@@ -306,11 +306,14 @@ const humanPreview = (() => {
     };
     for (const [x,y,z,arm] of vertices) {
       if (arm>.62 && x>0) add('arm',x,y,z);
+      // Fingertips can reach the thigh on a taller or long-armed form.
+      // Keep arm vertices out of the torso and lower-body measurements.
+      if (arm>=.46) continue;
       if (y>=.23) {
         if (x>0) add('leg',x,y,z);
         add('bothLegs',x,y,z);
       }
-      if (arm<.46 && y>=-.91 && y<=.31) add('torso',x,y,z);
+      if (y>=-.91 && y<=.31) add('torso',x,y,z);
     }
     const rings=Object.fromEntries(Object.entries(buckets).map(([part,bins])=>{
       const rows=[...bins].sort((a,b)=>a[0]-b[0]).filter(([,points])=>points.length>=6).map(([level,points])=>{
