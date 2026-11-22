@@ -32,6 +32,11 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-options{margin-bottom:16px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fcf7f4}
 .design-options>summary,#design-guide>summary{cursor:pointer;font-weight:700;color:var(--red)}
 .design-options p{font-size:14px}
+.slider-group{margin:8px 0;background:var(--white)}
+.slider-group-content{padding-top:12px}
+.slider-group-content>.field:last-child{margin-bottom:0}
+#design-asymmetry[hidden],[data-fairy-sliders][hidden]{display:none}
+.layer-card>summary{color:var(--ink)}
 .design-rotate{width:100%;margin:0}.design-rotate input[type=range]{min-height:26px}
 .design-reference{margin:8px 0;max-width:180px}.design-reference img{display:block;max-width:100%;max-height:170px;border-radius:6px;object-fit:contain}.design-reference figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 
@@ -49,7 +54,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 
 .fit-canvas{position:relative}
 .viewer canvas[data-component-hover]:not(:active){cursor:pointer}
-.field:has(input:is([data-component-slider],[data-fit-slider]):focus){background:var(--rose);border-radius:7px;outline:4px solid var(--rose)}
+.field:has(input:is([data-component-slider],[data-fit-slider],[data-highlight-component],[data-asymmetry-field]):focus){background:var(--rose);border-radius:7px;outline:4px solid var(--rose)}
 
 .wo-path{border:1px solid var(--line);border-radius:8px;padding:12px;margin:14px 0 0;min-width:0}.wo-path legend{font-weight:700;padding:0 6px}.wo-path p{font-size:14px}
 .wo-measurements{margin:14px 0}.wo-measurements .table{margin-top:8px;border:1px solid var(--line);border-radius:7px}.wo-measurements p{font-size:14px;margin-top:6px}
