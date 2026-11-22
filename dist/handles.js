@@ -57,5 +57,176 @@ const fitHandles = (() => {
     return {x:100*px/canvas.width,y:100*py/canvas.height};
   }
 
-  return {specs,available,place};
+  function editor({canvas,overlay,undoButton,redoButton,snapshot,restore,apply}) {
+    const handles=new Map();
+    const past=[];
+    const future=[];
+    let anchors={};
+    let drag;
+
+    function updateHistoryButtons() {
+      undoButton.disabled=!past.length;
+      redoButton.disabled=!future.length;
+    }
+
+    function remember(before) {
+      past.push(before);
+      future.length=0;
+      updateHistoryButtons();
+    }
+
+    function checkpoint() {
+      if (drag) finishDrag();
+      remember(snapshot());
+    }
+
+    function showValue(button,control) {
+      const suffix=control.unit==='%'?'%':' cm';
+      button.dataset.metricHandle=`${control.label} · ${control.value}${suffix}`;
+      const label=studioUnits.text(button.dataset.metricHandle);
+      button.title=label;
+      button.setAttribute('aria-label',label);
+    }
+
+    function position(nextAnchors) {
+      anchors=nextAnchors;
+      for (const [key,{button}] of handles) {
+        const anchor=anchors[key];
+        button.hidden=!anchor;
+        if (!anchor) continue;
+        button.style.left=`${Math.min(95,Math.max(5,anchor.x))}%`;
+        button.style.top=`${Math.min(96,Math.max(4,anchor.y))}%`;
+      }
+    }
+
+    function controls(list) {
+      const active=new Set(list.map(control=>control.key));
+      for (const [key,{button}] of handles) {
+        if (active.has(key)) continue;
+        if (drag?.key===key) finishDrag();
+        button.remove();
+        handles.delete(key);
+      }
+      let nextButton=overlay.firstElementChild;
+      for (const control of list) {
+        let handle=handles.get(control.key);
+        if (!handle) {
+          const button=document.createElement('button');
+          button.type='button';
+          button.className='fit-handle';
+          button.dataset.key=control.key;
+          const icon=document.createElement('span');
+          icon.setAttribute('aria-hidden','true');
+          button.append(icon);
+          handle={button,icon};
+          handles.set(control.key,handle);
+        }
+        const {button,icon}=handle;
+        if (button!==nextButton) overlay.insertBefore(button,nextButton);
+        nextButton=button.nextElementSibling;
+        if (button.dataset.axis!==control.axis) {
+          button.dataset.axis=control.axis;
+          icon.textContent=control.axis==='x'?'↔':'↕';
+        }
+        handle.control={...control};
+        showValue(button,control);
+      }
+      overlay.hidden=!list.length;
+      position(anchors);
+    }
+
+    function rounded(control,value) {
+      const snapped=control.min+Math.round((value-control.min)/control.step)*control.step;
+      return Math.min(control.max,Math.max(control.min,Number(snapped.toFixed(8))));
+    }
+
+    function change(handle,value) {
+      if (value===handle.control.value) return;
+      handle.control.value=value;
+      showValue(handle.button,handle.control);
+      apply(handle.control.key,value);
+    }
+
+    function finishDrag(cancel=false) {
+      if (!drag) return;
+      const {button,id,before,initial,value}=drag;
+      drag=undefined;
+      button.classList.remove('is-dragging');
+      if (button.hasPointerCapture(id)) button.releasePointerCapture(id);
+      if (initial===value) return;
+      if (cancel) restore(before);
+      else remember(before);
+    }
+
+    function moveDrag(event) {
+      if (drag?.id!==event.pointerId) return;
+      const {control,dimension,start,initial}=drag;
+      const current=control.axis==='x'?event.clientX:event.clientY;
+      const sensitivity=control.sensitivity??(control.axis==='x'?120:100);
+      drag.value=current===start?initial:
+        rounded(control,initial+(current-start)/dimension*sensitivity*(control.direction??1));
+      change(handles.get(control.key),drag.value);
+    }
+
+    overlay.addEventListener('pointerdown',event=>{
+      const button=event.target.closest('button[data-key]');
+      const control=handles.get(button?.dataset.key)?.control;
+      if (!control || event.button!==0 || drag) return;
+      const rect=canvas.getBoundingClientRect();
+      const horizontal=control.axis==='x';
+      drag={button,control,key:control.key,id:event.pointerId,start:horizontal?event.clientX:event.clientY,
+        dimension:Math.max(1,horizontal?rect.width:rect.height),before:snapshot(),initial:control.value,value:control.value};
+      button.setPointerCapture(event.pointerId);
+      button.classList.add('is-dragging');
+    });
+    overlay.addEventListener('pointermove',moveDrag);
+    overlay.addEventListener('pointerup',event=>{
+      if (drag?.id!==event.pointerId) return;
+      moveDrag(event);
+      finishDrag();
+    });
+    function cancelDrag(event) {
+      if (drag?.id===event.pointerId) finishDrag(true);
+    }
+    overlay.addEventListener('pointercancel',cancelDrag);
+    overlay.addEventListener('lostpointercapture',cancelDrag);
+
+    overlay.addEventListener('keydown',event=>{
+      const button=event.target.closest('button[data-key]');
+      const handle=handles.get(button?.dataset.key);
+      if (!handle || drag) return;
+      const {control}=handle;
+      const [less,more]=control.axis==='x'?['ArrowLeft','ArrowRight']:['ArrowUp','ArrowDown'];
+      if (event.key!==less && event.key!==more) return;
+      event.preventDefault();
+      const direction=(event.key===less?-1:1)*(control.direction??1);
+      const value=rounded(control,control.value+direction*control.step*(event.shiftKey?4:1));
+      if (value===control.value) return;
+      checkpoint();
+      change(handle,value);
+    });
+
+    function travel(from,to) {
+      if (drag) finishDrag();
+      if (!from.length) return;
+      to.push(snapshot());
+      restore(from.pop());
+      updateHistoryButtons();
+    }
+
+    undoButton.addEventListener('click',()=>travel(past,future));
+    redoButton.addEventListener('click',()=>travel(future,past));
+    updateHistoryButtons();
+
+    function reset() {
+      if (drag) finishDrag();
+      past.length=0;
+      future.length=0;
+      updateHistoryButtons();
+    }
+
+    return {controls,position,checkpoint,reset};
+  }
+
+  return {specs,available,place,editor};
 })();

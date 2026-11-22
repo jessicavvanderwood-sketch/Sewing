@@ -20,14 +20,19 @@ const studioDesign = (() => {
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
   const hemStyles = ['Level','Fairy / handkerchief'];
   const tones = ['Solid','Contrast lower panel'];
-  const layerKinds = ['Overskirt','Underskirt','Tier'];
+  const layerKinds = ['Overskirt','Underskirt','Tier','Ruffle'];
   const maxLayers = 5;
-  const layerLimits = {hemOffset:[-65,65],sweep:[0,240],opacity:[20,100],attachment:[10,85]};
+  const layerLimits = {hemOffset:[-65,65],sweep:[0,240],opacity:[20,100],attachment:[10,85],depth:[3,50]};
   const layerDefaults = {
     Overskirt:{hemOffset:6,sweep:32,opacity:65},
     Underskirt:{hemOffset:-6,sweep:0,opacity:100},
-    Tier:{hemOffset:0,sweep:36,opacity:100,attachment:60}
+    Tier:{hemOffset:0,sweep:36,opacity:100,attachment:60},
+    Ruffle:{depth:14,sweep:70,opacity:100,attachment:60}
   };
+  const seamLimits = {waistSeam:[-12,16],panelSeam:[-12,12]};
+  const seamsByType = {dress:['waistSeam','panelSeam'],skirt:['panelSeam'],top:['panelSeam']};
+  const seamKeys = model=>Object.hasOwn(seamsByType,model)?seamsByType[model]:[];
+  const bounded = (value,[min,max])=>Math.min(max,Math.max(min,value));
 
   const baseModel = model=>model==='corset'?'top':model;
   const isBodice = model => baseModel(model)==='top'||model==='dress';
@@ -63,12 +68,19 @@ const studioDesign = (() => {
       if (typeof layer.color==='string' && /^#[0-9a-f]{6}$/i.test(layer.color)) clean.color=layer.color.toLowerCase();
       for (const [key,[min,max]] of Object.entries(layerLimits)) {
         if (Object.hasOwn(clean,key) && Number.isFinite(layer[key])) {
-          const value=Math.min(max,Math.max(min,layer[key]));
+          const value=bounded(layer[key],[min,max]);
           clean[key]=key==='opacity'||key==='attachment'?Math.round(value):value;
         }
       }
       return clean;
     });
+  }
+
+  function seams(design) {
+    return Object.fromEntries(seamKeys(design?.model).flatMap(key=>{
+      const value=design.seams?.[key];
+      return Number.isFinite(value)?[[key,bounded(value,seamLimits[key])]]:[];
+    }));
   }
 
   function defaults(model='dress') {
@@ -92,29 +104,49 @@ const studioDesign = (() => {
     return {lower,volume,leg:pantShape[design.cut] || pantShape.Straight,rise:({'Low rise':-4,'High rise':5})[design.rise]||0};
   }
 
+  function seamInstructions(design) {
+    const {waistSeam,panelSeam}=seams(design);
+    const steps=[];
+    if (waistSeam!==undefined) {
+      const distance=Number(Math.abs(waistSeam).toFixed(3));
+      const placement=distance?`${distance} cm ${waistSeam<0?'above':'below'} the pattern waistline`:'at the original pattern waistline';
+      steps.push({visual:'designWaistSeam',text:`Mark the dress waist seam ${placement}. Use the pattern waist as your reference on the fitted sample. Mark the shift at center front, both sides and center back, then join the points smoothly. Trace the new seam onto the bodice and skirt. Match center and side notches, compare the front seam lengths and back seam lengths separately, then add the required allowance to both joining edges. Baste the bodice to the skirt at those seam lines and check balance before stitching.`});
+    }
+    if (panelSeam!==undefined) {
+      const distance=Number(Math.abs(panelSeam).toFixed(3));
+      const placement=distance?`${distance} cm ${panelSeam<0?'toward center front or center back':'toward each side seam'}`:'at the starting panel marks';
+      steps.push({visual:'designPanelSeam',text:`Place the panel seams ${placement}${distance?' from their starting pattern marks':''}. On the fitted sample, use the existing seams or mark starter lines between the center and sides. Measure the shift across the surface at several matching levels and mirror it on the opposite side. Trace the new line onto both joining panels, preserving any dart shaping in the fitted block. Walk the seam lines from matching notch to matching notch, smooth their ends, then add the seam allowance to both edges. Baste the panels and check symmetry and fit before stitching.`});
+    }
+    return steps;
+  }
+
   function layerInstructions(design) {
     const steps={draft:[],cut:[],assemble:[],hem:[]};
     layers(design).forEach((layer,index)=>{
       const number=index+1;
       const name=`Layer ${number} · ${layer.kind}`;
       const add=(phase,visual,text)=>steps[phase].push({visual,text:`${name}. ${text}`});
-      const tier=layer.kind==='Tier';
+      const ruffle=layer.kind==='Ruffle';
+      const band=layer.kind==='Tier'||ruffle;
       const inside=layer.kind==='Underskirt';
-      const where=tier?'the marked tier line':inside?'inside the waist seam':'at the outer waist seam';
-      const offset=Number(Math.abs(layer.hemOffset).toFixed(3));
-      const hem=offset?`${offset} cm ${layer.hemOffset<0?'above':'below'} the main finished hem`:'level with the main finished hem';
+      const where=band?`at the marked ${ruffle?'ruffle':'tier'} attachment line`:inside?'inside the waist seam':'at the outer waist seam';
+      const offset=Number(Math.abs(layer.hemOffset??0).toFixed(3));
+      const drop=ruffle?Number(layer.depth.toFixed(3)):0;
+      const hem=ruffle?`${drop} cm below its attachment line`:offset
+        ?`${offset} cm ${layer.hemOffset<0?'above':'below'} the main finished hem`:'level with the main finished hem';
       const sweep=Number(layer.sweep.toFixed(3));
-      const reference=tier
+      const reference=band
         ?`On the fitted main skirt, mark the attachment ${layer.attachment}% of the way from the waist to the main finished hem at center front. Transfer the level line around the skirt.`
-        :`Copy the waist attachment seam from the fitted main garment. Mark whether the attachment goes ${where}.`;
+        :`Copy the waist attachment seam from the fitted main garment and mark where it sits ${where}.`;
+      const circumference=ruffle?'the fitted main skirt around the level of the ruffle’s own bottom edge':'the main skirt’s finished hem seam line';
       const opening=design.closure==='Elastic waistband'
         ?'Keep the casing and threading opening clear. Test that every layer at the waist passes over the hips.'
         :`Keep the ${design.closure?.toLowerCase()||'garment closure'} free to open all the way. Transfer the opening to a layer that crosses it.`;
-      add('draft','layerDraft',`${reference} Draft on paper with the hem ${hem} at matching points around the skirt. Check that it falls below the attachment and clears the floor as intended. Measure the main skirt’s finished hem seam line without allowances. Set the layer’s finished hem circumference to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}. Walk the new adjoining seam lines before adding allowances.`);
-      add('cut','layerCut',`Prepare and press ${layer.fabric}. Label the new pattern pieces with the layer number, material, grainline and quantities. Mark the finished hem and the cutting line with the allowance for the selected finish. Align both ends of the grainline to the same selvage, cut on the outside line and transfer attachment, center and closure marks.`);
-      add('assemble','layerFit',`Baste the layer panels together, leaving any opening from the pattern. Mark centers and side positions on the layer and ${where}. Match those points first. If the layer’s upper stitch line is longer, use two rows of basting in the allowance to gather it evenly between marks. Check the fit before sewing it in place.`);
+      add('draft','layerDraft',`${reference} Draft on paper with the hem ${hem} at matching points around the skirt. Check floor clearance on the fitted sample. Measure ${circumference} without allowances. Set the layer’s finished hem circumference to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}. Walk the new adjoining seam lines before adding allowances.`);
+      add('cut','layerCut',`Prepare and press ${layer.fabric}. Label the new pattern pieces with the layer number, material, grainline and quantities.${ruffle?` Mark ${drop} cm between the attachment stitching line and finished lower edge before adding the upper seam and lower hem allowances.`:' Mark the finished hem and the cutting line with the allowance for the selected finish.'} Align both ends of the grainline to the same selvage, cut on the outside line and transfer attachment, center and closure marks.`);
+      add('assemble','layerFit',`Baste the layer panels together, leaving any opening from the pattern. Mark centers and side positions on the layer and at its attachment. Match those points first. If the layer’s upper stitch line is longer, use two rows of basting in the allowance to gather it evenly between marks. Check the fit before sewing it in place.`);
       add('assemble','layerAttach',`Baste ${where} and try on the garment. ${opening} Sit, stand, and walk to check the layers hang freely. Once the fitting passes, stitch along the marked connection, secure the ends at the opening and finish the joined raw edges to suit the fabric.`);
-      add('hem','layerHem',`Let this layer hang and settle before marking its own finished hem ${hem}. Check it with the garment worn and shoes on. Keep the other layers out of the way while you trim and finish this edge. ${hasFairyHem(design)?'Measure against the matching short or long point on the main hem. ':''}Test your finish on an offcut of ${layer.fabric} first.`);
+      add('hem','layerHem',`Let this layer hang and settle before marking its own finished hem ${hem}. Check it with the garment worn and shoes on. Keep the other layers out of the way while you trim and finish this edge. ${!ruffle && hasFairyHem(design)?'Measure against the matching short or long point on the main hem. ':''}Test your finish on an offcut of ${layer.fabric} first.`);
     });
     return steps;
   }
@@ -131,6 +163,7 @@ const studioDesign = (() => {
     const additional = sewingModels.summary(model);
     add('measure',`Use the ${model.name} model measurements. Chest / bust ${model.bust} cm, waist ${model.waist} cm, hip / seat ${model.hip} cm and shoulder span ${model.shoulder} cm.${additional?' Additional measurements: '+additional+'.':''} Choose a compatible ${spec.label.toLowerCase()} block in the matching size. With ${design.ease} cm of target ease, aim for ${target} cm around the finished ${fitArea}. Check minimum ease, movement and balance on a test garment. Trace and mark grainlines, matching points and seam allowances.`);
     add('designCut',`Draw the ${style} silhouette and mark the ${design.length.toLowerCase()} finish while fitting the test garment. Make width changes on seam lines, then blend the curves, walk the adjoining seams to check they match, and restore seam and hem allowances. Keep the grainline straight and transfer matching marks to the new outline.`);
+    list.push(...seamInstructions(design));
     if (design.model==='corset') {
       add('designCut',`Use a ${style} pattern sized to the wearer. Fit the panel seams in a stable toile over the intended underlayers. Mark panel numbers, grainlines and the narrowest waist on each side. Check breathing, sitting and closure reach before cutting.`);
       add('seam','Mark the boning channels and busk or lacing reinforcement from the pattern. Label left and right panels, join the numbered panels in order, and test the marked channel width against the actual boning before closing the lining.');
@@ -200,6 +233,9 @@ const studioDesign = (() => {
     const spec = silhouettes[design.model];
     const garmentLayers=layers(design);
     design={...design};
+    const seamSettings=seams(design);
+    if (Object.keys(seamSettings).length) design.seams=seamSettings;
+    else delete design.seams;
     if (hasSkirt(design.model)) design.layers=garmentLayers;
     else delete design.layers;
     const list = instructions(design,model);
@@ -221,6 +257,6 @@ const studioDesign = (() => {
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,tones,backs,rises,
-    layerKinds,layerLimits,maxLayers,layers,newLayer,
+    layerKinds,layerLimits,maxLayers,layers,newLayer,seamKeys,seamLimits,seams,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};
 })();

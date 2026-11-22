@@ -207,6 +207,7 @@ const workFigures = (() => {
     if (id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
       return straplessPanels(order,pattern.measurements)[0];
     }
+    if (seamDesignPhases.includes(id)) return designSeamPanels(id,order,pattern.design)[0];
     if (layerPhases.includes(id)) return layerPanels(step,id,order,pattern.design)[0];
     if (id==='darts') return seamFold(allowance,true);
     if (['seam','layer','sew'].includes(id) || id==='shoulder' && /^Sew and press the shoulder seams\b/i.test(step)) {
@@ -370,46 +371,110 @@ const workFigures = (() => {
     ];
   }
 
+  const seamDesignPhases=['designWaistSeam','designPanelSeam'];
+  function designSeamPanels(id,order,design) {
+    const waist=id==='designWaistSeam';
+    const shift=studioDesign.seams(design)[waist?'waistSeam':'panelSeam'];
+    if (!Number.isFinite(shift)) return [];
+    const amount=format(Math.abs(shift));
+    const direction=waist?(shift<0?'higher':'lower'):(shift<0?'toward center':'toward sides');
+    const seam=format(order.allowances?.seam)||'Pattern allowance';
+    const distance=shift?Math.sign(shift)*Math.max(7,Math.abs(shift)*1.16):0;
+    function outline(x,back) {
+      const top=design.model==='skirt'
+        ?`M${x-30} 36H${x+30}`
+        :`M${x-43} 52L${x-36} 30L${x-16} 23Q${x} ${back?31:43} ${x+16} 23L${x+36} 30L${x+43} 52L${x+33} 61`;
+      return path(top+`Q${x+22} 77 ${x+34} 99L${x+50} 139H${x-50}L${x-34} 99Q${x-22} 77 ${x-33} 61Z`,'wf-cloth');
+    }
+    const views=outline(86,false)+outline(243,true)+label(86,15,'Front','middle')+label(243,15,'Back','middle');
+    const originalWaist=85, movedWaist=originalWaist+distance;
+    let placement;
+    if (waist) {
+      const width=25+Math.round(Math.max(0,movedWaist-81)*.44);
+      placement=views+guide(44,originalWaist,285,originalWaist)+
+        path(`M${86-width} ${movedWaist}H${86+width}M${243-width} ${movedWaist}H${243+width}`,'wf-stitch')+
+        path(`M85 ${movedWaist-4}v8M243 ${movedWaist-4}v8`,'wf-dimension')+
+        (shift?leader(121,originalWaist,164,originalWaist)+leader(119,movedWaist,164,movedWaist)+
+          tick(164,Math.min(originalWaist,movedWaist),Math.max(originalWaist,movedWaist),amount):'')+
+        label(166,156,shift?'Dashed gray = original waistline':'Keep the original waist level','middle');
+    } else {
+      const panels=x=>[1,-1].map(side=>{
+        const start=x+side*23, moved=start+distance*side;
+        return guide(start,40,start,134)+path(`M${moved} 41Q${moved-side*3} 79 ${moved+side*3} 133`,'wf-stitch');
+      }).join('');
+      const mark=109+distance;
+      placement=views+panels(86)+panels(243)+guide(86,39,86,134)+guide(243,39,243,134)+
+        (shift?leader(109,112,109,127)+leader(mark,109,mark,127)+span(Math.min(109,mark),Math.max(109,mark),127,amount):'')+
+        label(165,156,shift?'Light dashed lines = starting seam positions':'Keep the starting seam positions','middle');
+    }
+    const compare=waist
+      ?path('M40 37H270L254 76H51ZM51 91H254L272 137H40Z','wf-cloth')+
+        path('M55 68H250M55 99H252','wf-stitch')+path('M78 63v10m78 -10v10m82 -10v10M78 94v10m78 -10v10m82 -10v10','wf-dimension')+
+        label(158,55,'Bodice piece','middle')+label(158,125,'Skirt piece','middle')+tick(270,68,76,seam,-1)
+      :path('M37 36H108Q142 82 128 139H32ZM185 36H269L283 139H204Q215 83 185 36Z','wf-cloth')+
+        path('M99 42Q133 84 118 132M195 42Q223 87 213 132','wf-stitch')+
+        path('M116 75l8 -3M120 106l9 2M206 75l8 -3M209 106l9 2','wf-dimension')+
+        span(118,129,145,seam)+label(67,59,'Center panel','middle')+label(249,59,'Side panel','middle');
+    return [
+      panel(waist?'Locate the new bodice-to-skirt seam':'Locate the moved panel seams',placement,
+        `${shift?'On the fitted sample mark the seam '+amount+' '+direction+' from its starting marks.':'Mark the seam at its starting position.'} ${waist?'Match the new height where each side seam meets the front and back.':'Measure across the cloth at the same levels on the left and right. Keep the center and side seams as references.'}`),
+      panel('Check both new stitch lines against each other',compare,
+        `Transfer corresponding notches first. Measure along one stitching line from notch to notch, then measure the same run on its matching piece. True the curves and check the adjoining edges. Add ${seam==='Pattern allowance'?'the allowance from the pattern':seam} on both sides of each join.`),
+      panel('Baste with matching notches together',
+        path('M38 31H188V133H38Z','wf-right')+path('M48 36H188V126H48Z','wf-cloth')+
+        path('M151 42V122','wf-stitch')+path('M138 60h50m-50 37h50','wf-dimension')+
+        span(151,188,144,seam)+leader(150,61,212,52)+label(215,54,'Match notches')+
+        leader(189,110,209,109)+label(215,112,'Both raw edges'),
+        'Place the matching pieces right sides together, clip or pin the notches, and hand- or machine-baste the seam. Try on the garment before stitching. Recheck both seam ends after any fit changes.')
+    ];
+  }
+
   const layerPhases=['layerDraft','layerCut','layerFit','layerAttach','layerHem'];
   function layerPanels(step,id,order,design) {
     const number=Number(num(step,/^Layer (\d+)/));
     const layer=studioDesign.layers(design)[number-1];
     if (!layer) return [];
     const title=`Layer ${number} · ${layer.kind}`;
-    const tier=layer.kind==='Tier';
+    const ruffle=layer.kind==='Ruffle';
+    const band=layer.kind==='Tier'||ruffle;
     const inside=layer.kind==='Underskirt';
     const waist=33, mainHem=122;
-    const attach=tier?Math.round(waist+(mainHem-waist)*layer.attachment/100):waist;
+    const attach=band?Math.round(waist+(mainHem-waist)*layer.attachment/100):waist;
     const offset=layer.hemOffset?Math.sign(layer.hemOffset)*18:0;
-    const newHem=Math.max(attach+11,mainHem+offset);
+    const newHem=ruffle?Math.min(144,attach+Math.max(13,layer.depth*1.25)):Math.max(attach+11,mainHem+offset);
     const allowance=order.allowances||{};
     const seam=format(allowance.seam)||'Pattern allowance';
     const main=path(`M105 ${waist}H173Q197 80 226 ${mainHem}H54Q91 67 105 ${waist}Z`,'wf-cloth');
     const layerTop=Math.round(105-51*(attach-waist)/(mainHem-waist));
-    const layerEdge=path(`M${layerTop} ${attach}H${278-layerTop}L232 ${newHem}H47Z`,'wf-right');
+    const edge=ruffle?`q-15 7 -31 0t-31 0t-31 0t-31 0t-31 0t-30 0`:'H47';
+    const layerEdge=path(`M${layerTop} ${attach}H${278-layerTop}L232 ${newHem}${edge}Z`,'wf-right');
     const outline=(inside?layerEdge+main:main+layerEdge)+path(`M${layerTop} ${attach}H${278-layerTop}`,'wf-stitch');
     const hemSize=layer.hemOffset?format(Math.abs(layer.hemOffset))+(offset<0?' shorter':' longer'):'Same length';
-    const hemMarks=guide(42,mainHem,282,mainHem)+guide(47,newHem,282,newHem)+
-      (offset?tick(279,Math.min(mainHem,newHem),Math.max(mainHem,newHem),hemSize,-1):dimText(281,114,hemSize,'end'));
-    const anchor=(tier?tick(30,waist,attach,`${layer.attachment}%`)+guide(30,waist,105,waist)+guide(30,attach,layerTop,attach)
+    const hemMarks=ruffle
+      ?leader(278-layerTop,attach,267,attach)+leader(232,newHem,267,newHem)+tick(265,attach,newHem,format(layer.depth))
+      :guide(42,mainHem,282,mainHem)+guide(47,newHem,282,newHem)+
+        (offset?tick(279,Math.min(mainHem,newHem),Math.max(mainHem,newHem),hemSize,-1):dimText(281,114,hemSize,'end'));
+    const anchor=(band?tick(30,waist,attach,`${layer.attachment}%`)+guide(30,waist,105,waist)+guide(30,attach,layerTop,attach)
       :label(103,22,inside?'Inside waist':'Outer waist'));
-    const hemFigure=outline+hemMarks+anchor+label(56,156,'Compare matching hem points');
+    const hemFigure=outline+hemMarks+anchor+label(56,156,ruffle?'Measure the drop from the attachment seam':'Compare matching hem points');
+    const hemAllowance=design.finish==='Double-fold hem' && Number.isFinite(allowance.first) && Number.isFinite(allowance.second)
+      ?format(allowance.first+allowance.second):design.finish!=='Double-fold hem' && format(allowance.seam)||'Pattern hem allowance';
     if (id==='layerDraft') return [
       panel(`${title} · Mark the attachment and hem`,hemFigure,
-        `Use the fitted main skirt as a reference. ${tier?'Measure the center-front waist-to-hem length, multiply by '+layer.attachment+'%, then mark a level attachment line around the skirt.':'Copy the waist seam and matching marks.'} Check that the new hem is below its attachment and has the intended floor clearance. Sketches are schematic.`),
+        `Use the fitted main skirt as a reference. ${band?'Measure the center-front waist-to-hem length, multiply by '+layer.attachment+'%, then mark a level attachment line around the skirt.':'Copy the waist seam and matching marks.'} ${ruffle?'Mark the finished drop straight down from that seam. ':''}Check the intended floor clearance before cutting. Sketches are schematic.`),
       panel('Add the sweep across the pattern panels',
         path('M52 45H128L143 122H38ZM169 45H245L259 122H155Z','wf-cloth')+
         path('M51 94L45 115H137L132 94M168 94L161 115H253L249 94','wf-stitch')+
-        span(42,255,135,layer.sweep?`+${format(layer.sweep)} around the layer`:'Match main hem circumference')+
+        span(42,255,135,layer.sweep?`+${format(layer.sweep)} around the layer`:ruffle?'Match the base at this level':'Match main hem circumference')+
         label(90,75,'Panel 1','middle')+label(206,75,'Panel 2','middle'),
-        `Add the indicated sweep across all the panels at their finished seam lines. Use the panel count in your paper pattern. Keep the upper seam long enough to join the waist or attachment line as drafted.`)
+        `Add the indicated sweep across all the panels at their finished seam lines. ${ruffle?'Measure the base skirt around the level where the ruffle ends. ':''}Use the panel count in your paper pattern. Keep the upper seam long enough to join the waist or attachment line as drafted.`)
     ];
     if (id==='layerCut') return [
       panel(`${title} · Trace the finished and cut edges`,
         path('M49 36H146L181 140H30Z','wf-cloth')+path('M39 116H174','wf-stitch')+
-        path('M174 116H208M181 140H208','wf-extension')+tick(206,116,140,
-          design.finish==='Double-fold hem' && Number.isFinite(allowance.first) && Number.isFinite(allowance.second)
-            ?format(allowance.first+allowance.second):design.finish!=='Double-fold hem' && format(allowance.seam)||'Pattern hem allowance')+
+        path('M174 116H208M181 140H208','wf-extension')+tick(206,116,140,hemAllowance)+
+        (ruffle?path('M48 54H151','wf-stitch')+leader(151,54,206,54)+tick(206,54,116,format(layer.depth))+
+          label(113,27,'Attachment stitch line','middle'):'')+
         path('M101 107V50m-5 6l5 -6 5 6','wf-arrow')+label(114,74,'Grainline')+label(53,110,'Finished hem line')+
         label(41,156,'Cut along outer edge'),
         `Write the layer number and ${layer.fabric} on the paper. Mark both ends of the grainline, attachment points and any opening. Trace the finish allowance outward from the marked hem.`),
@@ -437,7 +502,7 @@ const workFigures = (() => {
       const opening=format(elastic?order.plan?.casingWidth:order.plan?.zipperOpening);
       return [
         panel(`${title} · Stitch at the attachment`,hemFigure,
-          `Baste ${tier?'the tier to the marked level on the main skirt':inside?'the layer to the inside waist':'the layer to the outer waist'}. Check standing, sitting, and walking before stitching. Use the attachment method and allowance from your tested pattern.`),
+          `Baste ${band?'the '+(ruffle?'ruffle':'tier')+' to the marked level on the main skirt':inside?'the layer to the inside waist':'the layer to the outer waist'}. Check standing, sitting, and walking before stitching. Use the attachment method and allowance from your tested pattern.`),
         panel('Keep the garment opening clear',
           path('M32 40H211V139H32Z','wf-cloth')+path('M32 83H107M130 83H211','wf-stitch')+
           path('M110 52V124M126 52V124','wf-dimension')+label(64,71,'Layer seam')+
@@ -451,7 +516,7 @@ const workFigures = (() => {
         :'Confirm the band placement on the layer. Join the band and finish the inside edge using the tested pattern.';
     return [
       panel(`${title} · Check its own hem`,hemFigure,
-        'Hang the garment until the layers settle. Mark the finished edge on the wearer at matching front, side and back points. Measure a fairy hem from its corresponding high or low point.'),
+        `Hang the garment until the layers settle. Mark the finished edge on the wearer at matching front, side and back points.${ruffle?' Measure the ruffle down from its attachment seam.':studioDesign.hasFairyHem(design)?' Measure the fairy hem from its corresponding high or low point.':''}`),
       panel('Pin the other layers out of the way',
         path('M34 34H199V139H34Z','wf-cloth')+path('M51 48H192V116H51Z','wf-fold')+
         path('M38 118H194','wf-stitch')+path('M201 118H229M199 139H229','wf-extension')+
@@ -764,6 +829,10 @@ const workFigures = (() => {
   };
   function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
+    if (seamDesignPhases.includes(id)) {
+      const figures=designSeamPanels(id,order,design).slice(1);
+      return figures.length?`<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · ${figures.length} actions</summary><div class="wf-grid">${figures.join('')}</div></details>`:'';
+    }
     if (layerPhases.includes(id)) {
       const panels=layerPanels(step,id,order,design).slice(1);
       return panels.length?`<details class="wo-how wo-storyboard"><summary>Follow this step in pictures · ${panels.length} ${panels.length===1?'action':'actions'}</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';

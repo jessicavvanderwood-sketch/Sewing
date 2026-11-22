@@ -119,3 +119,16 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .basic-video-player iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:6px;margin-top:12px;background:#302629}
 .basic-video-source{display:inline-block;font-size:14px;margin-top:8px}
 #sewing-videos{scroll-margin-top:14px}
+
+.design-editor-toolbar{padding:12px 14px;border-bottom:1px solid var(--line)}
+.design-editor-toolbar .field,.design-editor-footer .field{margin:0}
+.design-editor-toolbar .actions{margin-top:10px}
+.design-canvas canvas{cursor:grab;touch-action:none}
+.design-canvas canvas:active{cursor:grabbing}
+#design-handles{position:absolute;inset:0;pointer-events:none}
+.design-editor-footer{display:grid;gap:8px;align-items:start}
+.design-editor-footer .fields{width:100%}
+.design-editor-footer input[type=range]{min-height:26px}
+.design-editor-footer button{justify-self:start}
+#design-handle-value{font-size:14px;font-weight:700;color:var(--red)}
+#design-target-field[hidden],.design-editor-toolbar button[hidden],#design-seams[hidden],#design-layers[hidden]{display:none}
