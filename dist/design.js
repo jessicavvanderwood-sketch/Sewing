@@ -30,9 +30,18 @@ const studioDesign = (() => {
     Ruffle:{depth:14,sweep:70,opacity:100,attachment:60}
   };
   const seamLimits = {waistSeam:[-12,16],panelSeam:[-12,12]};
+  const centerFrontSeam='centerFront';
+  const panelAngleLimits=[-180,180];
+  const panelZipperLimits=[8,70];
+  const panelZipperDefault=22;
+  const panelZipperKinds=['Invisible zipper','Standard zipper'];
+  const panelZipperEligible=angle=>Number.isFinite(angle) && Math.abs(angle)<=180;
   const seamsByType = {dress:['waistSeam','panelSeam'],skirt:['panelSeam'],top:['panelSeam']};
   const seamKeys = model=>Object.hasOwn(seamsByType,model)?seamsByType[model]:[];
   const bounded = (value,[min,max])=>Math.min(max,Math.max(min,value));
+  const panelStart=(model,y)=>.42+(model==='skirt'?0:Math.max(0,1-Math.abs(y+.71)/.36)*.2);
+  const panelMinimum=.095;
+  const usableHalfWidth=cm=>Math.max(.035/(2.368/168),cm);
 
   const baseModel = model=>model==='corset'?'top':model;
   const isBodice = model => baseModel(model)==='top'||model==='dress';
@@ -77,11 +86,57 @@ const studioDesign = (() => {
   }
 
   function seams(design) {
-    return Object.fromEntries(seamKeys(design?.model).flatMap(key=>{
+    const placement=Object.fromEntries(seamKeys(design?.model).flatMap(key=>{
       const value=design.seams?.[key];
+      if (key==='panelSeam' && value===centerFrontSeam) return [[key,value]];
       return Number.isFinite(value)?[[key,bounded(value,seamLimits[key])]]:[];
     }));
+    if (placement.panelSeam===centerFrontSeam) {
+      placement.panelAngle=singleSeamAngle(design);
+      if (Number.isFinite(design.seams.panelZipper)) {
+        placement.panelZipper=bounded(design.seams.panelZipper,panelZipperLimits);
+        placement.panelZipperKind=panelZipperStyle(design);
+      }
+    }
+    return placement;
   }
+
+  function panelSeamSnapOffset(model,y,halfWidthCm) {
+    const offset=(panelMinimum-panelStart(model,y))*usableHalfWidth(halfWidthCm);
+    return bounded(Math.floor(offset*2)/2,seamLimits.panelSeam);
+  }
+
+  function panelSeamPaths(model,placement,rows,angle=0) {
+    if (placement===centerFrontSeam) return [rows.map(()=>Math.PI/2-angle*Math.PI/180)];
+    const positions=rows.map(([y,halfWidthCm])=>
+      bounded(panelStart(model,y)+(placement||0)/usableHalfWidth(halfWidthCm),[panelMinimum,.94]));
+    return [-1,1].map(side=>positions.map(position=>Math.acos(side*position)));
+  }
+
+  function singleSeamAngle(design) {
+    const value=design?.seams?.panelAngle;
+    return Number.isFinite(value)?bounded(value,panelAngleLimits):0;
+  }
+
+  function singleSeamLocation(angle) {
+    const degrees=Math.abs(angle);
+    if (!degrees) return 'center front';
+    if (degrees===180) return 'center back';
+    const side=angle>0?'left':'right';
+    return 'wearer’s '+side+' '+(degrees===90?'side':degrees<90?'front':'back');
+  }
+
+  function singleSeamGuide(design) {
+    if (Number.isFinite(seams(design).panelZipper)) return false;
+    const angle=Math.abs(singleSeamAngle(design));
+    const closure=design?.closure;
+    if (angle===0) return ['Front buttons','Wrap ties','Separating zipper'].includes(closure);
+    if (angle===180) return ['Invisible zipper','Back button and loop','Back lacing'].includes(closure);
+    return angle===90 && closure==='Side zipper';
+  }
+
+  const panelZipperStyle=design=>panelZipperKinds.includes(design?.seams?.panelZipperKind)?design.seams.panelZipperKind:panelZipperKinds[0];
+  const effectiveClosure=design=>Number.isFinite(seams(design).panelZipper)?panelZipperStyle(design):design?.closure;
 
   function defaults(model='dress') {
     const spec = silhouettes[model];
@@ -105,23 +160,37 @@ const studioDesign = (() => {
   }
 
   function seamInstructions(design) {
-    const {waistSeam,panelSeam}=seams(design);
+    const {waistSeam,panelSeam,panelAngle,panelZipper}=seams(design);
     const steps=[];
     if (waistSeam!==undefined) {
       const distance=Number(Math.abs(waistSeam).toFixed(3));
       const placement=distance?`${distance} cm ${waistSeam<0?'above':'below'} the pattern waistline`:'at the original pattern waistline';
       steps.push({visual:'designWaistSeam',text:`Mark the dress waist seam ${placement}. Use the pattern waist as your reference on the fitted sample. Mark the shift at center front, both sides and center back, then join the points smoothly. Trace the new seam onto the bodice and skirt. Match center and side notches, compare the front seam lengths and back seam lengths separately, then add the required allowance to both joining edges. Baste the bodice to the skirt at those seam lines and check balance before stitching.`});
     }
-    if (panelSeam!==undefined) {
+    if (panelSeam===centerFrontSeam) {
+      const location=singleSeamLocation(panelAngle);
+      const front=panelAngle===0;
+      const guide=singleSeamGuide(design);
+      const visual=front?(guide?'designCenterFrontGuide':'designCenterFrontSeam'):(guide?'designSinglePanelGuide':'designSinglePanelSeam');
+      const mark=`Mark one line at ${location} (${panelAngle}°) on the fitted sample and transfer it to the pattern.`;
+      const opening=Number.isFinite(panelZipper)
+        ?` Reserve the first ${panelZipper} cm along the seam from the finished upper edge for the zipper opening. Baste only below that mark during fitting.`
+        :' Mark any closure opening and keep it free.';
+      const text=guide
+        ?`${mark} Use this line to align the selected closure. Follow the pattern's separate opening or overlap marks, match notches, and baste to check alignment. Stitch only the portions the closure construction calls for.`
+        :`${mark} Trace the two joining edges separately so each has its own seam allowance. Match notches and check that the seam lines are the same length. Keep the grainlines and shaping from the fitted pattern.${opening} Keep the right sides together while basting, then check the fit before stitching and pressing.`;
+      steps.push({visual,text});
+    } else if (panelSeam!==undefined) {
       const distance=Number(Math.abs(panelSeam).toFixed(3));
-      const placement=distance?`${distance} cm ${panelSeam<0?'toward center front or center back':'toward each side seam'}`:'at the starting panel marks';
-      steps.push({visual:'designPanelSeam',text:`Place the panel seams ${placement}${distance?' from their starting pattern marks':''}. On the fitted sample, use the existing seams or mark starter lines between the center and sides. Measure the shift across the surface at several matching levels and mirror it on the opposite side. Trace the new line onto both joining panels, preserving any dart shaping in the fitted block. Walk the seam lines from matching notch to matching notch, smooth their ends, then add the seam allowance to both edges. Baste the panels and check symmetry and fit before stitching.`});
+      const placement=distance?`${distance} cm ${panelSeam<0?'toward center front':'toward each side seam'}`:'at the starting panel marks';
+      steps.push({visual:'designPanelSeam',text:`Place the front panel seams ${placement}${distance?' from their starting pattern marks':''}. On the fitted sample, use the existing seams or mark starter lines between the center and sides. Measure the shift across the front at several matching levels and mirror it on the other half of the front. Trace the new line onto both joining panels, preserving any dart shaping in the fitted block. Walk the seam lines from matching notch to matching notch, smooth their ends, then add the seam allowance to both edges. Baste the panels and check symmetry and fit before stitching.`});
     }
     return steps;
   }
 
   function layerInstructions(design) {
     const steps={draft:[],cut:[],assemble:[],hem:[]};
+    const closure=effectiveClosure(design);
     layers(design).forEach((layer,index)=>{
       const number=index+1;
       const name=`Layer ${number} · ${layer.kind}`;
@@ -139,9 +208,9 @@ const studioDesign = (() => {
         ?`On the fitted main skirt, mark the attachment ${layer.attachment}% of the way from the waist to the main finished hem at center front. Transfer the level line around the skirt.`
         :`Copy the waist attachment seam from the fitted main garment and mark where it sits ${where}.`;
       const circumference=ruffle?'the fitted main skirt around the level of the ruffle’s own bottom edge':'the main skirt’s finished hem seam line';
-      const opening=design.closure==='Elastic waistband'
+      const opening=closure==='Elastic waistband'
         ?'Keep the casing and threading opening clear. Test that every layer at the waist passes over the hips.'
-        :`Keep the ${design.closure?.toLowerCase()||'garment closure'} free to open all the way. Transfer the opening to a layer that crosses it.`;
+        :`Keep the ${closure?.toLowerCase()||'garment closure'} free to open all the way. Transfer the opening to a layer that crosses it.`;
       add('draft','layerDraft',`${reference} Draft on paper with the hem ${hem} at matching points around the skirt. Check floor clearance on the fitted sample. Measure ${circumference} without allowances. Set the layer’s finished hem circumference to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}. Walk the new adjoining seam lines before adding allowances.`);
       add('cut','layerCut',`Prepare and press ${layer.fabric}. Label the new pattern pieces with the layer number, material, grainline and quantities.${ruffle?` Mark ${drop} cm between the attachment stitching line and finished lower edge before adding the upper seam and lower hem allowances.`:' Mark the finished hem and the cutting line with the allowance for the selected finish.'} Align both ends of the grainline to the same selvage, cut on the outside line and transfer attachment, center and closure marks.`);
       add('assemble','layerFit',`Baste the layer panels together, leaving any opening from the pattern. Mark centers and side positions on the layer and at its attachment. Match those points first. If the layer’s upper stitch line is longer, use two rows of basting in the allowance to gather it evenly between marks. Check the fit before sewing it in place.`);
@@ -212,8 +281,13 @@ const studioDesign = (() => {
       'Front buttons':['button','Interface and finish the front opening with plackets or facings. Test buttonholes on layered scrap, mark even spacing and stitch them. Attach the buttons opposite the holes.'],
       'Elastic waistband':['band','Choose a pull-on opening that passes over the hips. Sew a waistband casing, insert the elastic and fit it, then join its ends securely and close the casing.']
     };
-    add(...(closureSteps[design.closure] || closureSteps[closureChoices(design.model)[0]]));
-    if (!isBodice(design.model) && design.closure!=='Elastic waistband') add('band','Finish the top edge with the chosen waistband or waist facing. Test the closure and check that the waist stays level when sitting.');
+    const {panelZipper,panelAngle}=seams(design);
+    const closure=effectiveClosure(design);
+    if (Number.isFinite(panelZipper)) {
+      const foot=closure==='Invisible zipper'?'Use a compatible invisible zipper foot as directed by the pattern.':'Use zipper foot I on the Brother CP2160F and check needle clearance by turning the handwheel before sewing.';
+      add('designSinglePanelZipper',`Install the ${closure.toLowerCase()} at ${singleSeamLocation(panelAngle)}. Mark ${panelZipper} cm along the seam from the finished upper edge and leave that opening free. Stabilize the opening if the fabric stretches. Baste each zipper tape to its marked edge and close the zipper to check that the upper edges and any crossing seams line up. ${foot} Sew the tapes in place, close the seam below the bottom stop, and test that the zipper opens fully.`);
+    } else add(...(closureSteps[closure] || closureSteps[closureChoices(design.model)[0]]));
+    if (!isBodice(design.model) && closure!=='Elastic waistband') add('band','Finish the top edge with the chosen waistband or waist facing. Test the closure and check that the waist stays level when sitting.');
     list.push(...layerSteps.assemble);
     const hem = {
       'Double-fold hem':'Turn the raw edge twice, press and stitch. Check that the hem lies smoothly without ripples.',
@@ -239,14 +313,15 @@ const studioDesign = (() => {
     if (hasSkirt(design.model)) design.layers=garmentLayers;
     else delete design.layers;
     const list = instructions(design,model);
+    const closure=effectiveClosure(design);
     const tools = ['Sewing machine','iron','fabric shears','measuring tape','ruler','pins or clips','tailor’s chalk','matching thread','pattern paper'];
-    if (/zipper|zip fly/i.test(design.closure)) tools.push('zipper foot',design.closure==='Invisible zipper'?'invisible zipper':'pattern-specified zipper');
-    if (design.closure===closures[1]) tools.push('button','loop cord');
-    if (design.closure===closures[2]||design.closure==='Button fly') tools.push('buttonhole foot','buttons','interfacing');
-    if (design.closure===closures[3]) tools.push('elastic','safety pin or bodkin');
+    if (/zipper|zip fly/i.test(closure)) tools.push('zipper foot',closure==='Invisible zipper'?'invisible zipper':'pattern-specified zipper');
+    if (closure===closures[1]) tools.push('button','loop cord');
+    if (closure===closures[2]||closure==='Button fly') tools.push('buttonhole foot','buttons','interfacing');
+    if (closure===closures[3]) tools.push('elastic','safety pin or bodkin');
     if (design.model==='corset') tools.push('sturdy foundation fabric','boning','channel tape');
-    if (design.closure==='Back lacing') tools.push('eyelets and setting tool','lacing cord');
-    if (design.closure==='Front busk') tools.push('busk');
+    if (closure==='Back lacing') tools.push('eyelets and setting tool','lacing cord');
+    if (closure==='Front busk') tools.push('busk');
     if (garmentLayers.length) tools.push('hand-basting needle','removable fabric marker');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
@@ -258,5 +333,7 @@ const studioDesign = (() => {
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,tones,backs,rises,
     layerKinds,layerLimits,maxLayers,layers,newLayer,seamKeys,seamLimits,seams,
+    centerFrontSeam,panelAngleLimits,panelSeamPaths,panelSeamSnapOffset,singleSeamAngle,singleSeamLocation,singleSeamGuide,
+    panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};
 })();

@@ -851,6 +851,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const design = pattern?.design;
   const garmentLayers=skirtFit?studioDesign.layers(design):[];
   const garmentSeams=studioDesign.seams?.(design) || {};
+  const designClosure=Number.isFinite(garmentSeams.panelZipper)?null:design?.closure;
   const designShape = design ? studioDesign.measurements(design) : null;
   const necklineStyle = changes.neckline || design?.neckline;
   const support=changes.support || (design?studioDesign.selectedSupport(design):'Integrated shoulders');
@@ -899,7 +900,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
     const segments = part==='shell' ? 64 : hex===skin && !detail ? 54 : 38;
     const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16));
-    function restPoint(ring,theta,ringIndex) {
+    function restPoint(ring,theta,ringIndex,shoulderMotion=shoulderRaising) {
       const [y,w,d,center=0,centerZ=0] = ring;
       const x = Math.cos(theta);
       const z = Math.sin(theta);
@@ -910,11 +911,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       let edge=z>=0?frontDepth*neckProfile(necklineStyle,absX/neckWidth):backDepth*neckProfile(backStyle,absX/backWidth);
       if (z<0 && backStyle==='Racerback') edge=.035+.17*Math.sin(absX*Math.PI)**2;
       if (neck && !changes.hasSleeves && support==='Integrated shoulders') {
-        edge+=.135*absX**8+.11*shoulderRaising*absX**5;
+        edge+=.135*absX**8+.11*shoulderMotion*absX**5;
       }
       if (support!=='Integrated shoulders') {
         const lowered=support==='Strapless'?.18:z>=0?.111:.156;
-        edge=edge*.55+lowered+(.04+.11*shoulderRaising)*absX**4;
+        edge=edge*.55+lowered+(.04+.11*shoulderMotion)*absX**4;
         if (support==='One-shoulder') edge-=.066*x;
       }
       if (structured && design.cut==='Underbust') edge=.36+(z<0?backDepth*.37:0);
@@ -922,7 +923,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const shoulderCap=avatar && changes.hasSleeves && neck?.065*absX**2*Math.max(0,1-(y-rings[0][0])/.12):0;
       const neckline=neck ? Math.max(0,1-(y-rings[0][0])/transition)*edge-shoulderCap : 0;
       const ribbed=design?.ribbing && (part==='sleeve'||part==='shell') && y>rings.at(-1)[0]-.06;
-      const gathered=design?.closure==='Elastic waistband' && part==='shell' && y<rings[0][0]+.07;
+      const gathered=designClosure==='Elastic waistband' && part==='shell' && y<rings[0][0]+.07;
       const looseSkirt=part==='shell' && (model==='dress'||model==='skirt') ? Math.max(0,(y-.06)/.78) : 0;
       const fold = (detail ? looseSkirt*.013*Math.cos(theta*(fairyHem?8:7)+y*1.9) : 0)+(ribbed?.002*Math.cos(theta*37):0)
         +(gathered?.0035*Math.cos(theta*16):0);
@@ -964,7 +965,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const column=Math.floor(position);
       return geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
     }
-    if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,opening:neckWidth,sampleRing,projectPoint:(row,theta,index)=>{
+    if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,opening:neckWidth,sampleRing,
+      standingPoint:(theta,index)=>restPoint(rings[index],theta,index,0),projectPoint:(row,theta,index)=>{
       const point=sampleRing(theta,index);
       if (row!==rings[index]) {
         const current=movePoint(restPoint(row,theta,index),theta,index);
@@ -1002,7 +1004,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const grain=part && detail?(weave==='twill'?Math.sin(theta*11+band*40)*.015:
           weave==='knit'?Math.cos(theta*13)*Math.sin(band*36)*.012:
           weave==='satin'?Math.max(0,Math.cos(theta-1.95))**12*.13:Math.sin(theta*9+band*48)*.009):0;
-        const waistband=design?.closure==='Elastic waistband' && part==='shell' && band<rings[0][0]+.061;
+        const waistband=designClosure==='Elastic waistband' && part==='shell' && band<rings[0][0]+.061;
         const palette=contrastPanel||ribbed?contrast:waistband?channels.map(c=>c*.93):swatch || channels;
         const fiber=(level>0?fabricFit.tint(palette,level):palette).map(c=>fabricFit.clamp(Math.round(c*(light+grain)),0,255));
         const panelSeam=structured && neck && [0,3,6,segments/2,segments/2+3,segments/2+6].includes(i);
@@ -1386,7 +1388,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const unit=2.368/168;
     const onSurface=([x,y,z],theta)=>project([x+.0036*Math.cos(theta),y,z+.0036*Math.sin(theta)]);
     const waistSaved=Number.isFinite(garmentSeams.waistSeam);
-    const panelSaved=Number.isFinite(garmentSeams.panelSeam);
+    const panelSaved=Object.hasOwn(garmentSeams,'panelSeam');
     if (eligible.includes('waistSeam') && (waistSaved || showGuides)) {
       const y=proportions.yAt(-.25)+(garmentSeams.waistSeam||0)*unit;
       const points=columnsOfShell().map(({theta,levels})=>onSurface(pointAtHeight(levels,y),theta));
@@ -1396,21 +1398,56 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     if (eligible.includes('panelSeam') && (panelSaved || showGuides)) {
       const target=model==='skirt'?fabricFit.mix(surface.rings[0][0],surface.rings.at(-1)[0],.32):model==='top'?-.39:-.34;
       const selected=surface.rings.reduce((best,row,i)=>Math.abs(row[0]-target)<Math.abs(surface.rings[best][0]-target)?i:best,0);
-      const shift=(garmentSeams.panelSeam||0)*unit;
-      for (const side of [-1,1]) {
-        const points=surface.rings.map(([y],i)=>{
-          const right=surface.rest[i][0][0], left=surface.rest[i][surface.rest[i].length/2][0];
-          const halfWidth=(right-left)/2;
-          const shoulder=model==='skirt'?0:Math.max(0,1-Math.abs(y+.71)/.36)*.2;
-          const position=fabricFit.clamp(.42+shoulder+shift/Math.max(.035,halfWidth),.095,.94);
-          const theta=Math.acos(side*position);
-          const point=onSurface(surface.sampleRing(theta,i),theta);
-          if (showGuides && side===1 && i===selected && Math.sin(theta+angle)>.18) {
-            editorAnchors.panelSeam=anchor(point);
-          }
-          return point;
+      const single=garmentSeams.panelSeam===studioDesign.centerFrontSeam;
+      const rows=surface.rings.map(([y],i)=>{
+        const row=surface.rest[i];
+        return [y,(row[0][0]-row[row.length/2][0])/(2*unit)];
+      });
+      const paths=studioDesign.panelSeamPaths(model,garmentSeams.panelSeam,rows,garmentSeams.panelAngle);
+      const visible=theta=>Math.sin(theta+angle)>.14;
+      for (const [index,path] of paths.entries()) {
+        const points=path.map((theta,i)=>onSurface(surface.sampleRing(theta,i),theta));
+        if (showGuides && index===paths.length-1 && visible(path[selected])) {
+          if (single) editorAnchors.panelAngle=anchor(points[selected]);
+          else editorAnchors.panelSeam={...anchor(points[selected]),snapOffset:studioDesign.panelSeamSnapOffset(model,...rows[selected])};
+        }
+        if (!single || Math.sin(path[selected]+angle)>0) markings.push({points,style:style(panelSaved)});
+      }
+      if (single && (analysis?.editor || Number.isFinite(garmentSeams.panelZipper))) {
+        const theta=paths[0][0];
+        const rest=surface.rings.map((_,index)=>{
+          const [x,y,z]=surface.standingPoint(theta,index);
+          return [x,proportions.yAt(y),z];
         });
-        markings.push({points,style:style(panelSaved)});
+        const distances=[0];
+        for (let i=1;i<rest.length;i++) {
+          const length=Math.hypot(...rest[i].map((n,k)=>n-rest[i-1][k]))/unit;
+          distances.push(distances[i-1]+length);
+        }
+        const maxLength=Math.min(studioDesign.panelZipperLimits[1],Math.max(0,Math.floor((distances.at(-1)-1)*2)/2));
+        if (analysis?.editor) editorAnchors.panelZipperMaxLength=maxLength;
+        if (Number.isFinite(garmentSeams.panelZipper) && Math.sin(theta+angle)>0) {
+          const length=Math.min(garmentSeams.panelZipper,maxLength);
+          const invisible=garmentSeams.panelZipperKind==='Invisible zipper';
+          const railWidth=invisible?.012:.028;
+          function zipPoint(around,distance) {
+            const end=Math.max(1,distances.findIndex(value=>value>=distance));
+            const t=(distance-distances[end-1])/Math.max(.00001,distances[end]-distances[end-1]);
+            const a=surface.sampleRing(around,end-1), b=surface.sampleRing(around,end);
+            return onSurface(a.map((n,k)=>fabricFit.mix(n,b[k],t)),around);
+          }
+          for (const offset of [-railWidth,railWidth]) {
+            const around=theta+offset;
+            const points=distances.filter(distance=>distance<length).map(distance=>zipPoint(around,distance));
+            points.push(zipPoint(around,length));
+            const style=invisible?'rgba('+tone+',.72)':'rgba(212,175,110,.94)';
+            markings.push({points,style});
+          }
+          const pull=[[-.027,1.1],[.027,1.1],[.049,2.6],[-.049,2.6]]
+            .map(([around,distance])=>zipPoint(theta+around,Math.min(distance,length)));
+          markings.push({points:pull,closed:true,style:'rgba(244,216,152,.99)'});
+          if (showGuides && visible(theta)) editorAnchors.panelZipper={...anchor(zipPoint(theta,length)),maxLength};
+        }
       }
     }
   }
@@ -1606,7 +1643,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       if (visible(front) && design.raglan) for (const sign of [-1,1]) {
         addMark([[.025,front+sign*.41],[.105,front+sign*.63],[.20,front+sign*.87],[.28,front+sign*1.09]],'rgba(31,25,39,.51)');
       }
-      const closure=design.closure;
+      const closure=designClosure;
       const center=closure==='Invisible zipper'||closure==='Back lacing'||closure==='Back button and loop'?back:closure==='Side zipper'?.14:front;
       if (visible(center)) {
         if (['Front buttons','Button fly','Front busk','Back button and loop'].includes(closure)) {
@@ -1830,9 +1867,12 @@ function addModel(existing) {
     </div>`,true)}
     ${regions.map(section=>group(section)).join('')}
     <details class="design-options" data-model-camera><summary>Shape your form with a camera</summary>
-      <p class="tight">Stand head to toe against a plain, contrasting background. Wear fitted clothes and keep your arms down and a little away from your torso. Capture one front view and one side view. Use the same camera position for both.</p>
-      <p class="tight">Your measurements set the sizing. Only the outline is kept. Camera frames stay on this device and aren’t saved.</p>
-      <video class="model-camera" muted autoplay playsinline hidden aria-label="Live camera preview"></video>
+      <p class="tight">Stand with your head and feet in view and your arms relaxed. Capture one front view and one side view from the same camera position. If someone else is in view, tap yourself in the preview to move the guide.</p>
+      <p class="tight">Your measurements set the size. The camera refines the shape using the outline. The app processes frames on this device and saves only the outline measurements.</p>
+      <div class="model-camera-frame" data-camera-frame hidden>
+        <video class="model-camera" muted autoplay playsinline aria-label="Live camera preview"></video>
+        <div class="model-camera-guide" data-camera-guide hidden aria-hidden="true"></div>
+      </div>
       <p class="tight" role="status">${existing?.scan?'This model has a saved outline.':''}</p>
       <div class="actions tight"><button type="button" data-camera-start>Turn camera on</button><button type="button" class="secondary" data-camera-front>Capture front</button><button type="button" class="secondary" data-camera-side>Capture side</button><button type="button" class="secondary" data-camera-stop>Turn off</button><button type="button" class="secondary" data-camera-clear>Clear outline</button></div>
       <label class="field tight">Form skin tone<input type="color" name="skin" value="${color(existing?.skin || '#d7b69d')}"></label>
@@ -2258,8 +2298,12 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
   if (Number.isFinite(changes.strapWidth)) adjustments.push(['Finished shoulder width',cm(changes.strapWidth)]);
   if (changes.strapPlacement) adjustments.push(['Shoulder placement',adjustmentText(changes.strapPlacement)]);
   if (changes.sleeveStyle && (make?targetChanges.hasSleeves:true)) adjustments.push(['Sleeve style',changes.sleeveStyle]);
-  if (make) for (const [key,value] of Object.entries(studioDesign.seams(pattern.design))) {
-    adjustments.push([key==='waistSeam'?'Waist join seam offset':'Front panel seam offset',adjustmentText(value)]);
+  if (make) {
+    const {waistSeam,panelSeam,panelAngle,panelZipper}=studioDesign.seams(pattern.design);
+    if (Number.isFinite(waistSeam)) adjustments.push(['Waist join seam offset',adjustmentText(waistSeam)]);
+    if (Number.isFinite(panelSeam)) adjustments.push(['Front panel seam offset',adjustmentText(panelSeam)]);
+    if (panelSeam===studioDesign.centerFrontSeam) adjustments.push(['Single vertical seam',studioDesign.singleSeamLocation(panelAngle)]);
+    if (Number.isFinite(panelZipper)) adjustments.push(['Zipper opening from the top of the seam',cm(panelZipper)]);
   }
   const targets=[];
   if (make && Number.isFinite(pattern.design?.ease)) {
@@ -2684,6 +2728,8 @@ function designStudio() {
           <label class="field" id="design-target-field"><span>Controls</span><select id="design-edit-target"></select></label>
         </div>
         <div class="actions tight"><button type="button" class="secondary" id="design-open-fit" aria-controls="design-fit-panel">Fit sliders</button><button type="button" class="secondary" id="design-undo" disabled>Undo</button><button type="button" class="secondary" id="design-redo" disabled>Redo</button>
+          <button type="button" class="secondary" id="design-merge-seams" hidden>Merge front seams</button>
+          <button type="button" class="secondary" id="design-seam-settings" aria-controls="design-seams" hidden>Seam and zipper settings</button>
           <button type="button" class="secondary" id="design-quick-layer" hidden>＋ Add layer</button><button type="button" class="secondary" id="add-design-ruffle" hidden>＋ Add ruffle</button></div>
       </div>
       <div class="fit-canvas design-canvas"><canvas id="design-model" role="img" tabindex="0" aria-label="Three-dimensional design preview"></canvas><div id="design-handles" aria-label="Garment editing handles"></div></div>
@@ -2743,6 +2789,8 @@ function designStudio() {
   const targetField = document.querySelector('#design-target-field');
   const quickLayer = document.querySelector('#design-quick-layer');
   const addRuffle = document.querySelector('#add-design-ruffle');
+  const mergeButton = document.querySelector('#design-merge-seams');
+  const seamSettingsButton = document.querySelector('#design-seam-settings');
   const editorHelp = document.querySelector('#design-editor-help');
   const overlay = document.querySelector('#design-handles');
   const handleReadout = document.querySelector('#design-handle-value');
@@ -2800,6 +2848,8 @@ function designStudio() {
   let fitTarget='body';
   let layerTarget=0;
   let editorControls=[];
+  let panelSnapOffset;
+  let panelZipperMaxLength;
   let editFrame=0;
   let guideTimer;
   const currentLayer=()=>studioDesign.layers(designDraft)[layerTarget];
@@ -2817,9 +2867,22 @@ function designStudio() {
   overlay.addEventListener('focusin',showActiveHandle);
   overlay.addEventListener('focusout',()=>queueMicrotask(showActiveHandle));
 
+  const singleSeam=seams=>seams.panelSeam===studioDesign.centerFrontSeam;
+  const wrapAngle=value=>((value+180)%360+360)%360-180;
+  function describeSeamAngle(value) {
+    const location=studioDesign.singleSeamLocation(value);
+    const title=location[0].toUpperCase()+location.slice(1);
+    return value%90===0?title:`${title} · ${Math.abs(value)}° from center front`;
+  }
+  function zipperLimit() {
+    return panelZipperMaxLength ?? studioDesign.panelZipperLimits[1];
+  }
+
   function refreshEditor() {
     const groups=fitHandles.available(fitKeys());
     const seamKeys=studioDesign.seamKeys(designDraft.model);
+    const seams=studioDesign.seams(designDraft);
+    const single=singleSeam(seams);
     const layerAllowed=['dress','skirt'].includes(designDraft.model);
     mode.querySelector('[value=seams]').disabled=!seamKeys.length;
     mode.querySelector('[value=layers]').disabled=!layerAllowed;
@@ -2828,6 +2891,9 @@ function designStudio() {
     layerTarget=Math.max(0,Math.min(layerTarget,layers.length-1));
     quickLayer.hidden=addRuffle.hidden=mode.value!=='layers';
     quickLayer.disabled=addRuffle.disabled=layers.length>=studioDesign.maxLayers;
+    mergeButton.hidden=mode.value!=='seams'||!seamKeys.includes('panelSeam');
+    mergeButton.textContent=single?'Split into front seams':'Merge front seams';
+    seamSettingsButton.hidden=mergeButton.hidden||!single;
     targetField.hidden=true;
     editorControls=[];
     if (mode.value==='fit') {
@@ -2842,11 +2908,19 @@ function designStudio() {
         return {...spec,key,value:fit[key]||0,min:-limit,max:limit,step:.5,sensitivity:spec.axis==='x'?105:70};
       });
     } else if (mode.value==='seams') {
-      const seams=studioDesign.seams(designDraft);
       editorControls=seamKeys.map(key=>{
+        if (key==='panelSeam' && single) {
+          const [min,max]=studioDesign.panelAngleLimits;
+          return {key:'panelAngle',label:'Single vertical seam',axis:'x',value:seams.panelAngle??0,
+            min,max,step:1,sensitivity:360,wrap:true,format:describeSeamAngle};
+        }
         const [min,max]=studioDesign.seamLimits[key];
         return {key,label:seamNames[key],axis:key==='waistSeam'?'y':'x',value:seams[key]??0,min,max,step:.5,sensitivity:78};
       });
+      if (single && Number.isFinite(seams.panelZipper)) {
+        const min=studioDesign.panelZipperLimits[0],max=Math.max(min,zipperLimit());
+        editorControls.push({key:'panelZipper',label:'Zipper stop',axis:'y',value:seams.panelZipper,min,max,step:.5,sensitivity:100});
+      }
     } else if (mode.value==='layers') {
       target.innerHTML=layers.map((layer,i)=>option(String(i),`${i+1}. ${layer.kind}`,String(layerTarget))).join('');
       targetField.hidden=!layers.length;
@@ -2861,7 +2935,11 @@ function designStudio() {
     }
     targetField.querySelector('span').textContent=mode.value==='layers'?'Active layer':'Controls';
     editorHelp.textContent=mode.value==='view'?'Drag the canvas to rotate.':mode.value==='layers'&&!layers.length
-      ?'Add a layer or ruffle to start.':'Drag a handle or use its arrow keys. Drag the canvas to rotate.';
+      ?'Add a layer or ruffle to start.':mode.value==='seams'&&single
+        ?'Drag the seam sideways to move it around the garment.'+(Number.isFinite(seams.panelZipper)?' Drag the zipper stop up or down to set its length.':' Open Seam and zipper settings to add a zipper.')
+        :mode.value==='seams'&&seamKeys.includes('panelSeam')
+          ?'Drag the front seams inward until they snap together, or use Merge front seams.'
+          :'Drag a handle or use its arrow keys. Drag the canvas to rotate.';
     editor.controls(editorControls);
   }
 
@@ -2871,14 +2949,107 @@ function designStudio() {
     seamPanel.hidden=!keys.length;
     seamFields.innerHTML=keys.map(key=>{
       const enabled=Object.hasOwn(seams,key);
+      if (key==='panelSeam' && singleSeam(seams)) {
+        const [min,max]=studioDesign.panelAngleLimits;
+        const [minLength]=studioDesign.panelZipperLimits;
+        const zipper=Number.isFinite(seams.panelZipper);
+        const tooShort=zipperLimit()<minLength;
+        return `<fieldset class="wo-path"><legend>Single vertical seam</legend>
+          <button class="secondary" type="button" data-seam-merge>Split into front seams</button>
+          <label class="field">Seam position <output data-seam-position>${escape(describeSeamAngle(seams.panelAngle??0))}</output>
+            <input type="range" data-seam-angle min="${min}" max="${max}" step="1" value="${seams.panelAngle??0}"></label>
+          <div class="actions tight" aria-label="Seam positions">${[[-90,'Right side'],[0,'Center front'],[90,'Left side'],[180,'Center back']].map(([value,label])=>`<button class="secondary" type="button" data-seam-side="${value}">${label}</button>`).join('')}</div>
+          <label class="sleeve-choice"><input type="checkbox" data-seam-zipper${zipper?' checked':''}${tooShort?' disabled':''}> Use this seam for the zipper</label>
+          <label class="field" data-seam-zipper-style${zipper?'':' hidden'}>Zipper style<select data-seam-zipper-kind${zipper?'':' disabled'}>${studioDesign.panelZipperKinds.map(kind=>option(kind,kind,studioDesign.panelZipperStyle(designDraft))).join('')}</select></label>
+          <label class="field">Opening length from top of seam (cm)<input type="number" data-length-input data-seam-zipper-length min="${minLength}" max="${Math.max(minLength,zipperLimit())}" step="0.5" value="${seams.panelZipper??Math.min(studioDesign.panelZipperDefault,zipperLimit())}"${zipper?' required':' disabled'}></label>
+          <p class="muted tight" data-seam-zipper-note>${tooShort?'This seam is too short for the zipper.':'The opening starts at the upper edge. Its length sets the zipper stop.'}</p></fieldset>`;
+      }
       const [min,max]=studioDesign.seamLimits[key];
       const direction=key==='waistSeam'?'Positive moves the seam down from the pattern waist.':'Positive moves the mirrored seams toward the sides.';
       return `<fieldset class="wo-path"><legend>${seamNames[key]}</legend>
         <label class="sleeve-choice"><input type="checkbox" data-seam-enable="${key}"${enabled?' checked':''}> Include on garment</label>
         <label class="field">Offset from starting seam (cm)<input type="number" data-length-input data-seam-value="${key}" min="${min}" max="${max}" step="0.5" value="${seams[key]??0}" required${enabled?'':' disabled'}></label>
-        <p class="muted tight">${direction}</p></fieldset>`;
+        <p class="muted tight">${direction}</p>${key==='panelSeam'?'<button class="secondary" type="button" data-seam-merge>Merge front seams</button>':''}</fieldset>`;
     }).join('');
     studioUnits.refresh(seamFields);
+    syncSeamClosure();
+  }
+
+  function syncSeamClosure() {
+    const select=form.elements.namedItem('closure');
+    if (!select) return;
+    const active=Number.isFinite(studioDesign.seams(designDraft).panelZipper);
+    select.disabled=active;
+    select.closest('label').hidden=active;
+    const note=settings.querySelector('[data-seam-closure-note]');
+    if (note) {
+      note.hidden=!active;
+      if (active) note.textContent=`Closure uses the ${studioDesign.effectiveClosure(designDraft).toLowerCase()} in Seam placement.`;
+    }
+    const style=seamFields.querySelector('[data-seam-zipper-style]');
+    if (style) {
+      style.hidden=!active;
+      style.querySelector('select').disabled=!active;
+    }
+  }
+
+  function setSingleSeamAngle(value,follow=false) {
+    designDraft.seams={...studioDesign.seams(designDraft),panelAngle:value};
+    const relative=wrapAngle(value-Number(angle.value));
+    if (follow) angle.value=value;
+    else if (Math.abs(relative)>52) angle.value=wrapAngle(value-Math.sign(relative)*52);
+    seamFields.querySelector('[data-seam-angle]').value=value;
+    seamFields.querySelector('[data-seam-position]').textContent=describeSeamAngle(value);
+  }
+
+  function setZipperLength(value) {
+    designDraft.seams={...studioDesign.seams(designDraft),panelZipper:Math.max(studioDesign.panelZipperLimits[0],Math.min(value,zipperLimit()))};
+  }
+
+  function syncZipperLimit(maximum) {
+    if (!Number.isFinite(maximum)||panelZipperMaxLength===maximum) return false;
+    panelZipperMaxLength=maximum;
+    const input=seamFields.querySelector('[data-seam-zipper-length]');
+    if (!input) return false;
+    const toggle=seamFields.querySelector('[data-seam-zipper]');
+    const min=studioDesign.panelZipperLimits[0];
+    const usable=maximum>=min;
+    const cap=Math.max(min,maximum);
+    input.dataset.metricMax=cap;
+    input.max=studioUnits.text(`${cap} cm`).split(' ')[0];
+    toggle.disabled=!usable;
+    seamFields.querySelector('[data-seam-zipper-note]').textContent=usable
+      ?'The opening starts at the upper edge. Its length sets the zipper stop.':'This seam is too short for the zipper.';
+    const seams=studioDesign.seams(designDraft);
+    if (!Number.isFinite(seams.panelZipper)) {
+      studioUnits.writeLength(input,usable?Math.min(studioDesign.panelZipperDefault,maximum):null);
+    } else if (!usable || seams.panelZipper>maximum) {
+      if (usable) setZipperLength(maximum);
+      else {
+        delete seams.panelZipper;
+        designDraft.seams=seams;
+        toggle.checked=false;
+        input.disabled=true;
+        input.required=false;
+      }
+      studioUnits.writeLength(input,usable?maximum:null);
+      syncSeamClosure();
+      refreshEditor();
+      return true;
+    }
+    refreshEditor();
+    return false;
+  }
+
+  function togglePanelSeams() {
+    const seams=studioDesign.seams(designDraft);
+    const split=singleSeam(seams);
+    const panelSeam=split?0:studioDesign.centerFrontSeam;
+    designDraft.seams=studioDesign.seams({...designDraft,seams:{waistSeam:seams.waistSeam,panelSeam}});
+    panelZipperMaxLength=undefined;
+    angle.value=0;
+    drawSeams();
+    refreshEditor();
   }
 
   function applyEditor(key,value) {
@@ -2891,6 +3062,14 @@ function designStudio() {
       const input=layerList.querySelector(`[data-layer-index="${layerTarget}"] [data-layer-field="${field}"]`);
       if (input.hasAttribute('data-length-input')) studioUnits.writeLength(input,value);
       else input.value=value;
+    } else if (key==='panelAngle') {
+      setSingleSeamAngle(value);
+    } else if (key==='panelZipper') {
+      setZipperLength(value);
+      studioUnits.writeLength(seamFields.querySelector('[data-seam-zipper-length]'),designDraft.seams.panelZipper);
+    } else if (key==='panelSeam' && value<=(panelSnapOffset??studioDesign.seamLimits.panelSeam[0])) {
+      togglePanelSeams();
+      queueMicrotask(()=>overlay.querySelector('[data-key=panelAngle]')?.focus({preventScroll:true}));
     } else if (Object.hasOwn(seamNames,key)) {
       designDraft.seams={...studioDesign.seams(designDraft),[key]:value};
       const option=seamFields.querySelector(`[data-seam-enable="${key}"]`);
@@ -2915,6 +3094,8 @@ function designStudio() {
   function restoreEditor(snapshot) {
     designDraft.fitAdjustments=snapshot.fit;
     designDraft.seams=snapshot.seams;
+    panelZipperMaxLength=undefined;
+    if (mode.value==='seams') angle.value=snapshot.seams.panelAngle??0;
     designDraft.layers=snapshot.layers;
     layerTarget=snapshot.layerTarget;
     drawFitSliders();
@@ -2997,6 +3178,7 @@ function designStudio() {
       ${['dress','skirt'].includes(model)?`<div class="fields">${select('hemStyle','Hem shape',studioDesign.hemStyles)}<div data-hem-drop${studioDesign.hasFairyHem(designDraft)?'':' hidden'}>
         <label class="field">High-to-low hem drop (cm)<input type="number" data-length-input name="hemDrop" min="2" max="35" step="0.5" value="${studioDesign.hemDrop(designDraft)}" required${studioDesign.hasFairyHem(designDraft)?'':' disabled'}></label></div></div>`:''}
       <div class="fields">${select('closure','Closure',studioDesign.closureChoices(model))}${model==='trousers'?select('rise','Waist rise',studioDesign.rises):''}</div>
+      <p class="muted tight" data-seam-closure-note hidden>The zipper in Seam placement is the closure for this design.</p>
       <label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label>
       ${fitFabricFields(designDraft.fabric,designDraft.fabricSettings)}
       <details class="design-options"${open?' open':''}><summary>Finishes, pockets and fit</summary>
@@ -3046,6 +3228,12 @@ function designStudio() {
       {pose:fitAnalysis.pose(),show:fitAnalysis.show(),material:material(),fabricName:designDraft.fabric,redraw:preview,
         handleKeys:mode.value==='fit'?editorControls.map(control=>control.key):[],
         editor:{layerIndex:mode.value==='layers'?layerTarget:null,showSeams:mode.value==='seams',zoom:Number(zoom.value)/100}});
+    panelSnapOffset=anchors.panelSeam?.snapOffset;
+    if (syncZipperLimit(anchors.panelZipperMaxLength)) {
+      updateGuide();
+      preview();
+      return;
+    }
     editor.position(anchors);
     showActiveHandle();
     layerMapNote.hidden=!fitAnalysis.show()||!studioDesign.layers(designDraft).length;
@@ -3074,6 +3262,7 @@ function designStudio() {
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
     designDraft = {...studioDesign.defaults(model),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details,layers:designDraft.layers,seams:designDraft.seams};
+    panelZipperMaxLength=undefined;
     editor.reset();
     settingsForModel();
   }
@@ -3127,7 +3316,7 @@ function designStudio() {
   });
   function activateEditor(value) {
     mode.value=value;
-    if (value!=='view') angle.value=value==='fit'&&fitTarget==='back'?180:0;
+    if (value!=='view') angle.value=value==='fit'&&fitTarget==='back'?180:value==='seams'?(studioDesign.seams(designDraft).panelAngle??0):0;
     refreshEditor();
     preview();
   }
@@ -3141,6 +3330,36 @@ function designStudio() {
     preview();
   });
   guide.addEventListener('toggle',updateGuide);
+  seamSettingsButton.onclick=()=>{
+    seamPanel.open=true;
+    seamPanel.querySelector('summary').focus({preventScroll:true});
+    seamPanel.scrollIntoView({block:'start'});
+  };
+  function changePanelMode() {
+    editor.checkpoint();
+    togglePanelSeams();
+    preview();
+    updateGuide();
+  }
+  mergeButton.onclick=changePanelMode;
+  seamFields.addEventListener('click',event=>{
+    const button=event.target.closest('button');
+    if (!button) return;
+    if (button.hasAttribute('data-seam-merge')) {
+      changePanelMode();
+      seamFields.querySelector('[data-seam-merge]').focus({preventScroll:true});
+    } else if (button.hasAttribute('data-seam-side')) {
+      editor.checkpoint();
+      setSingleSeamAngle(Number(button.dataset.seamSide),true);
+      refreshEditor();
+      preview();
+      updateGuide();
+    }
+  });
+  let seamInput;
+  seamFields.addEventListener('change',event=>{
+    if (event.target===seamInput) seamInput=undefined;
+  });
   const refreshLayers=()=>{drawLayers();refreshEditor();preview();updateGuide();};
   function appendLayer(kind) {
     const current=studioDesign.layers(designDraft);
@@ -3190,6 +3409,37 @@ function designStudio() {
   };
   form.addEventListener('input',event=>{
     const field = event.target;
+    if (field.matches('[data-seam-angle],[data-seam-zipper],[data-seam-zipper-length],[data-seam-zipper-kind]')) {
+      if (field!==seamInput) editor.checkpoint();
+      seamInput=field;
+      if (field.hasAttribute('data-seam-angle')) setSingleSeamAngle(field.valueAsNumber);
+      if (field.hasAttribute('data-seam-zipper')) {
+        const seams=studioDesign.seams(designDraft);
+        if (field.checked) setZipperLength(studioDesign.panelZipperDefault);
+        else {
+          delete seams.panelZipper;
+          designDraft.seams=seams;
+        }
+        const input=seamFields.querySelector('[data-seam-zipper-length]');
+        input.disabled=!field.checked;
+        input.required=field.checked;
+        if (field.checked) studioUnits.writeLength(input,designDraft.seams.panelZipper);
+        syncSeamClosure();
+      }
+      if (field.hasAttribute('data-seam-zipper-length')) {
+        const value=studioUnits.lengthValue(field);
+        if (!field.validity.valid || value==null) return;
+        setZipperLength(value);
+      }
+      if (field.hasAttribute('data-seam-zipper-kind')) {
+        designDraft.seams={...studioDesign.seams(designDraft),panelZipperKind:field.value};
+        syncSeamClosure();
+      }
+      refreshEditor();
+      preview();
+      updateGuide();
+      return;
+    }
     const seamKey=field.dataset.seamEnable || field.dataset.seamValue;
     if (seamKey) {
       const seams=studioDesign.seams(designDraft);

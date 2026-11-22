@@ -35,8 +35,10 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-rotate{width:100%;margin:0}.design-rotate input[type=range]{min-height:26px}
 .design-reference{margin:8px 0;max-width:180px}.design-reference img{display:block;max-width:100%;max-height:170px;border-radius:6px;object-fit:contain}.design-reference figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 
-.model-camera{display:block;margin:12px 0;width:100%;max-height:280px;background:#3a202a;border-radius:8px;object-fit:contain}
-.model-camera[hidden]{display:none}.model-scan-preview{display:block;width:min(100%,560px);height:auto;margin:10px 0 0;background:#f0e3d9;border-radius:8px}
+.model-camera-frame{position:relative;margin:12px 0;border-radius:8px;overflow:hidden;background:#3a202a}
+.model-camera{display:block;width:100%;max-height:min(52vh,380px);object-fit:contain;cursor:crosshair}
+.model-camera-guide{position:absolute;border:2px dashed #fff8f2bf;border-radius:12px;box-shadow:0 0 0 1px #42263766;pointer-events:none}
+.model-camera-frame[hidden],.model-camera-guide[hidden]{display:none}.model-scan-preview{display:block;width:min(100%,560px);height:auto;margin:10px 0 0;background:#f0e3d9;border-radius:8px}
 
 .brand-preview img{display:block;width:min(100%,430px);max-width:none;max-height:145px;margin:0 auto 14px;padding:0 12px}
 .fit-preview-controls{padding:12px 16px 15px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
@@ -123,6 +125,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-editor-toolbar{padding:12px 14px;border-bottom:1px solid var(--line)}
 .design-editor-toolbar .field,.design-editor-footer .field{margin:0}
 .design-editor-toolbar .actions{margin-top:10px}
+#design-handles [data-key=panelZipper]{margin-left:33px}
 .design-canvas canvas{cursor:grab;touch-action:none}
 .design-canvas canvas:active{cursor:grabbing}
 #design-handles{position:absolute;inset:0;pointer-events:none}
@@ -132,6 +135,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-editor-footer button{justify-self:start}
 #design-handle-value{font-size:14px;font-weight:700;color:var(--red)}
 #design-target-field[hidden],.design-editor-toolbar button[hidden],#design-seams[hidden],#design-layers[hidden]{display:none}
+#design-settings .field[hidden],#design-seam-fields .field[hidden]{display:none}
 
 @media (min-width:391px) {
   .features {grid-template-columns:repeat(2,minmax(0,1fr));}

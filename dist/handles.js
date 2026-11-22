@@ -82,7 +82,8 @@ const fitHandles = (() => {
 
     function showValue(button,control) {
       const suffix=control.unit==='%'?'%':' cm';
-      button.dataset.metricHandle=`${control.label} · ${control.value}${suffix}`;
+      const value=control.format ? control.format(control.value) : control.value+suffix;
+      button.dataset.metricHandle=`${control.label} · ${value}`;
       const label=studioUnits.text(button.dataset.metricHandle);
       button.title=label;
       button.setAttribute('aria-label',label);
@@ -137,7 +138,12 @@ const fitHandles = (() => {
 
     function rounded(control,value) {
       const snapped=control.min+Math.round((value-control.min)/control.step)*control.step;
-      return Math.min(control.max,Math.max(control.min,Number(snapped.toFixed(8))));
+      const roundedValue=Number(snapped.toFixed(8));
+      if (control.wrap && (roundedValue<control.min || roundedValue>control.max)) {
+        const span=control.max-control.min;
+        return ((roundedValue-control.min)%span+span)%span+control.min;
+      }
+      return Math.min(control.max,Math.max(control.min,roundedValue));
     }
 
     function change(handle,value) {

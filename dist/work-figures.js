@@ -371,8 +371,80 @@ const workFigures = (() => {
     ];
   }
 
-  const seamDesignPhases=['designWaistSeam','designPanelSeam'];
+  const singleSeamPhases=['designCenterFrontSeam','designCenterFrontGuide','designSinglePanelSeam','designSinglePanelGuide','designSinglePanelZipper'];
+  const seamDesignPhases=['designWaistSeam','designPanelSeam',...singleSeamPhases];
+  function singlePanelSeamFigures(id,order,design) {
+    const {panelAngle:angle=0,panelZipper}=studioDesign.seams(design);
+    const position=studioDesign.singleSeamLocation(angle);
+    const reference=id.endsWith('Guide');
+    const zipper=id==='designSinglePanelZipper';
+    const radians=angle*Math.PI/180;
+    const point=(rx,ry)=>[165+Math.sin(radians)*rx,80+Math.cos(radians)*ry];
+    const [x,y]=point(72,44);
+    const [ax,ay]=point(46,28);
+    const amount=`${Number(Math.abs(angle).toFixed(2))}°`;
+    const towards=angle>0?'wearer’s left':'wearer’s right';
+    const direction=Math.abs(angle)===180?'around to center back':`toward the ${towards}`;
+    const circle=`<circle class="wf-dimension" cx="${x}" cy="${y}" r="4" fill="#fbf5ef"/>`;
+    const topView=path('M93 80a72 44 0 1 0 144 0a72 44 0 1 0 -144 0Z','wf-cloth')+
+      guide(93,80,237,80)+guide(165,36,165,124)+path(`M165 80L${x} ${y}`,'wf-stitch')+circle+
+      (angle?path(`M165 108A46 28 0 0 ${angle>0?0:1} ${ax} ${ay}`,'wf-dimension'):'')+
+      dimText(165,77,amount,'middle')+label(165,24,'Center back','middle')+label(165,145,'Center front','middle')+
+      label(88,83,'Wearer’s right','end')+label(242,83,'Wearer’s left');
+    const location=panel(zipper?'Locate the zipper seam':reference?'Mark the closure reference':'Mark the single seam on the fitted garment',topView,
+      `View from above. ${angle?`Start at center front and locate the line ${amount} ${direction}, at the ${position}.`:'Mark the line at center front.'} Use the 3D view or a fitting sample to carry the line between its traced endpoints.`);
+    if (zipper) {
+      const length=format(panelZipper)||format(order.plan?.zipperOpening)||'Pattern opening';
+      const hidden=studioDesign.panelZipperStyle(design)==='Invisible zipper';
+      const opening=path('M34 24H115V143H34ZM129 24H211V143H129Z','wf-cloth')+
+        path('M108 37H135M108 105H135','wf-dimension')+guide(122,38,122,105)+path('M122 106V139','wf-stitch')+
+        path('M135 37H236M135 105H236','wf-extension')+tick(234,37,105,length)+
+        label(115,19,'Upper end of seam','middle')+leader(134,105,171,120)+label(176,125,'Opening ends here')+
+        label(120,159,'Keep the seam below the zipper','middle');
+      const check=path('M30 30H112V139H30ZM129 30H217V139H129Z','wf-right')+
+        path('M105 37H136V111H105Z','wf-fold')+path('M117 42V103M124 42V103','wf-edge')+
+        path('M117 47h7m-7 7h7m-7 7h7m-7 7h7m-7 7h7m-7 7h7m-7 7h7m-7 7h7','wf-dimension')+
+        guide(41,68,197,68)+path('M120 108V136','wf-stitch')+
+        leader(143,68,230,59)+label(235,63,'Marks line up')+
+        leader(120,124,226,126)+label(230,130,'Stitch below');
+      return [location,
+        panel('Measure down the opening from the top',opening,
+          `Set the upper stop using the finished edge and any facing or waistband allowance from the pattern. Measure ${length==='Pattern opening'?'the pattern opening length':length} down along the seam line. Mark that lower stop on both pieces. The seam continues below it. Check that the fitted seam has enough length before cutting.`),
+        panel('Set up the Brother CP2160F',zipperDrawing('foot',{}),
+          hidden?'Use a compatible invisible-zipper foot and follow its needle position instructions. Test the same fabric layers. Turn the handwheel toward you to check that the needle clears the foot and stitches beside the coil.':
+            'Switch off the machine to attach zipper foot I. Select centered straight stitch 01. Clip the foot onto the pin that places the needle beside the zipper. Turn the handwheel toward you to check clearance before sewing. For a standard zipper, Brother directs sewing each tape from bottom to top.'),
+        panel('Align the tapes and finish the seam below',check,
+          'Baste each tape at its matching upper and lower marks. Close the zipper and check that any cross-seams line up. Sew the tapes as the zipper and pattern direct. Finish the seam below the lower stop and test the zipper again before securing the upper finish.')
+      ];
+    }
+    if (reference) {
+      const opening=format(order.plan?.zipperOpening);
+      const marked=path('M33 39H143V137H33ZM143 39H252V137H143Z','wf-cloth')+
+        guide(143,38,143,138)+path('M125 58H160V118H125Z','wf-fold')+path('M143 60V116','wf-dimension')+
+        leader(150,59,191,48)+label(197,51,'Closure marks')+label(50,126,'Pattern edge')+
+        (opening?tick(261,58,118,opening):label(254,128,'Leave free'));
+      return [location,panel('Keep the closure opening free',marked,
+        'Transfer this reference line and the opening marks from the tested pattern. Use the selected closure construction in the work order. Check alignment and wearing ease without closing the opening with a seam.')];
+    }
+    const allowance=format(order.allowances?.seam)||'Pattern allowance';
+    const plannedOpening=format(panelZipper);
+    const trace=path('M28 44L78 35Q102 49 136 47V131H27ZM191 47Q225 49 249 35L298 44V131H191Z','wf-cloth')+
+      path('M126 48V129M201 48V129','wf-stitch')+path('M126 72h11m-11 31h11M190 72h11m-11 31h11','wf-dimension')+
+      span(126,136,145,allowance)+span(191,201,145,'')+label(75,67,'Piece 1','middle')+label(248,67,'Piece 2','middle')+
+      label(165,29,'One joining line','middle');
+    const baste=path('M39 36H201V134H39Z','wf-right')+path('M49 31H201V126H49Z','wf-cloth')+
+      path(`M166 ${plannedOpening?88:39}V121`,'wf-stitch')+path('M153 61H201m-48 36h48','wf-dimension')+span(166,201,145,allowance)+
+      (plannedOpening?guide(166,39,166,88)+tick(93,39,88,plannedOpening,-1)+label(52,105,'Leave upper edge open'):'')+
+      leader(164,61,217,50)+label(219,52,'Match notches')+leader(202,109,219,109)+label(224,112,'Both raw edges');
+    return [location,
+      panel('Trace each side of the same joining line',trace,
+        `Match the ends and notches along both stitching lines. Add ${allowance==='Pattern allowance'?'the pattern allowance':allowance} outside each line. ${Math.abs(angle)===0||Math.abs(angle)===180?'Use mirrored pieces when the fitted pattern is symmetrical.':'Trace the two sides individually at this placement.'}`),
+      panel(plannedOpening?'Baste below the zipper mark':'Baste the one joining seam',baste,
+        `Place the two pieces right sides together. Match the marked ends and notches. ${plannedOpening?`Leave the upper ${plannedOpening} free and start basting at the zipper’s lower stop.`:'Baste the one stitching line and keep any planned opening free.'} Check the fit before sewing.`)
+    ];
+  }
   function designSeamPanels(id,order,design) {
+    if (singleSeamPhases.includes(id)) return singlePanelSeamFigures(id,order,design);
     const waist=id==='designWaistSeam';
     const shift=studioDesign.seams(design)[waist?'waistSeam':'panelSeam'];
     if (!Number.isFinite(shift)) return [];
@@ -402,9 +474,9 @@ const workFigures = (() => {
         const start=x+side*23, moved=start+distance*side;
         return guide(start,40,start,134)+path(`M${moved} 41Q${moved-side*3} 79 ${moved+side*3} 133`,'wf-stitch');
       }).join('');
-      const mark=109+distance;
-      placement=views+panels(86)+panels(243)+guide(86,39,86,134)+guide(243,39,243,134)+
-        (shift?leader(109,112,109,127)+leader(mark,109,mark,127)+span(Math.min(109,mark),Math.max(109,mark),127,amount):'')+
+      const x=160, start=x+23, mark=start+distance;
+      placement=outline(x,false)+panels(x)+guide(x,39,x,134)+label(x,15,'Front','middle')+
+        (shift?leader(start,112,start,127)+leader(mark,109,mark,127)+span(Math.min(start,mark),Math.max(start,mark),127,amount):'')+
         label(165,156,shift?'Light dashed lines = starting seam positions':'Keep the starting seam positions','middle');
     }
     const compare=waist
@@ -417,7 +489,7 @@ const workFigures = (() => {
         span(118,129,145,seam)+label(67,59,'Center panel','middle')+label(249,59,'Side panel','middle');
     return [
       panel(waist?'Locate the new bodice-to-skirt seam':'Locate the moved panel seams',placement,
-        `${shift?'On the fitted sample mark the seam '+amount+' '+direction+' from its starting marks.':'Mark the seam at its starting position.'} ${waist?'Match the new height where each side seam meets the front and back.':'Measure across the cloth at the same levels on the left and right. Keep the center and side seams as references.'}`),
+        `${shift?'On the fitted sample mark the seam '+amount+' '+direction+' from its starting marks.':'Mark the seam at its starting position.'} ${waist?'Match the new height where each side seam meets the front and back.':'Measure across the front at the same levels on the left and right. Keep center front and the side seams as references.'}`),
       panel('Check both new stitch lines against each other',compare,
         `Transfer corresponding notches first. Measure along one stitching line from notch to notch, then measure the same run on its matching piece. True the curves and check the adjoining edges. Add ${seam==='Pattern allowance'?'the allowance from the pattern':seam} on both sides of each join.`),
       panel('Baste with matching notches together',
@@ -831,7 +903,9 @@ const workFigures = (() => {
     scenes ??= createScenes();
     if (seamDesignPhases.includes(id)) {
       const figures=designSeamPanels(id,order,design).slice(1);
-      return figures.length?`<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · ${figures.length} actions</summary><div class="wf-grid">${figures.join('')}</div></details>`:'';
+      const source=id==='designSinglePanelZipper' && studioDesign.panelZipperStyle(design)==='Standard zipper'
+        ?'<p><a href="https://help.brother-usa.com/app/answers/detail/a_id/59099/~/how-to-insert-a-zipper-using-the-zipper-foot" target="_blank" rel="noopener">Brother CP2160F zipper foot instructions</a></p>':'';
+      return figures.length?`<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · ${figures.length} ${figures.length===1?'action':'actions'}</summary><div class="wf-grid">${figures.join('')}</div>${source}</details>`:'';
     }
     if (layerPhases.includes(id)) {
       const panels=layerPanels(step,id,order,design).slice(1);

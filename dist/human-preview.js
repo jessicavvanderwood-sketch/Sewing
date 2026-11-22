@@ -199,6 +199,24 @@ const humanPreview = (() => {
     return [clamp((left+right)/2,.62,1.58),depth];
   }
 
+  const scanHeights=[.112,.145,.182,.218,.267,.345,.415,.485,.53];
+  function personAspect(capture,height,contour) {
+    const from=scanHeights[0],to=scanHeights.at(-1);
+    const position=clamp(height,from,to);
+    const i=Math.max(1,scanHeights.findIndex(level=>level>=position));
+    const t=(position-scanHeights[i-1])/(scanHeights[i]-scanHeights[i-1]);
+    const front=mix(capture.front[i-1],capture.front[i],t);
+    const side=mix(capture.side[i-1],capture.side[i],t);
+    const width=contour.xMax-contour.xMin;
+    const correction=Math.log((front/side)/(width/contour.depth));
+    // Split the correction between width and depth, then let the tape
+    // measurement size both axes. Keep a noisy outline from flattening
+    // the template, and fade out at any landmark beyond the sampled rows.
+    const confidence=1-ease(Math.abs(height-position)/.075);
+    const bound=.48;
+    return Math.exp(.5*bound*Math.tanh(correction/bound)*confidence);
+  }
+
   function bustScales(profile,scales) {
     const {bust,underbust,upperChest}=profile.levels;
     const full=scales.find(([y])=>y===bust);
@@ -411,16 +429,21 @@ const humanPreview = (() => {
     const at=profile.levels;
     const cm=props.height/profile.height;
     const heightAt=statureCurve(profile,props);
-    const outline=body.scan?modelCamera.rings([
+    const scan=body.scan;
+    const usableScan=[scan?.front,scan?.side].every(view=>Array.isArray(view) && view.length===scanHeights.length &&
+      view.every(value=>Number.isFinite(value) && value>0 && value<1));
+    const personScan=usableScan && scan.personViews?.front===true && scan.personViews?.side===true;
+    const outline=usableScan && !personScan?modelCamera.rings([
       [-.90,1,1],[-.79,1,1],[-.75,1,1],[-.63,1,1],[-.45,1,1],[-.25,1,1],[-.04,1,1],[.16,1,1],[.30,1,1]
-    ],body.scan):null;
+    ],scan):null;
     const contourScales=[...legSections,...torsoSections].flatMap(key=>{
       const contour=profile.sections[key];
       const waistDepth=key==='waist'?body.waistDepth:undefined;
       const hasDepth=waistDepth || key==='hip' && body.hipDepth;
-      if (!contour || (!body[key] && !hasDepth && (!outline || legSections.includes(key)))) return [];
+      const scanned=usableScan && torsoSections.includes(key);
+      if (!contour || (!body[key] && !hasDepth && !scanned)) return [];
       const [w,d]=outline ? fabricFit.envelope(outline,props.baseAt(heightAt(at[key]))) : [1,1];
-      const aspect=w && d ? Math.sqrt(w/d) : 1;
+      const aspect=personScan && scanned?personAspect(scan,1-heightAt(at[key])/props.height,contour):w && d ? Math.sqrt(w/d) : 1;
       return [[at[key],...sectionScales(contour,body[key],waistDepth,aspect,cm)]];
     });
     const scales=female?bustScales(profile,contourScales):contourScales;
