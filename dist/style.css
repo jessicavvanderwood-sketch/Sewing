@@ -80,6 +80,9 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .wo-storyboard .wf-grid{margin-top:10px}.wf-written{padding:10px}.wf-panel svg.wf-standard{overflow:hidden}
 
 .model-measurement .field{margin-bottom:3px}.measurement-tip{display:block;color:var(--muted);font-size:12px;line-height:1.4}.model-measurements .fields{row-gap:12px}
+#model-form input[aria-invalid=true]{border-color:var(--red)}
+#model-form input[data-estimated-length]::placeholder{color:var(--muted);opacity:1}
+#model-proportion-note{border-inline-start:2px solid var(--red);padding-inline-start:10px}
 [data-bra-size][hidden],.design-photo-options[hidden],.design-photo-options [hidden]{display:none}
 .design-photo-options{padding:12px}.design-photo-options video{display:block;width:min(100%,380px);max-height:300px;margin:8px auto;border-radius:8px;background:#342a2a;object-fit:contain}
 #design-manual-mode[aria-pressed=true],#design-photo-mode[aria-pressed=true]{border-color:var(--red);background:#f4e5e9}
@@ -92,6 +95,8 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .wo-packet-steps>li>.wf-panel{max-width:520px}
 .wo-packet-steps>li>label,.wo-packet-steps>li>p{margin-bottom:10px}
 .wf-extension{fill:none;stroke:#8c6471;stroke-width:1}
+.wf-edge{stroke:#70564f}
+.wo-storyboard .wf-grid,.lessons .wf-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
 .wf-panel svg .wf-dim-label{fill:#572139;font-weight:700;paint-order:stroke fill;stroke:#fbf5ef;stroke-width:3px;stroke-linejoin:round}
 .wf-reference{display:grid;grid-template-columns:minmax(0,2fr) minmax(150px,1.4fr);gap:14px;align-items:start;margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbf5ef}
 .wf-reference-image{position:relative;align-self:start;max-width:360px;width:100%;overflow:hidden;border-radius:6px}
@@ -107,3 +112,10 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 @media(max-width:600px){.wf-reference{grid-template-columns:1fr}.wf-reference-image{justify-self:center}}
 
 [data-strap-sizing][hidden],[data-strapless-note][hidden],[data-sleeve-toggle][hidden],[data-sleeve-style][hidden]{display:none}
+
+.basic-videos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-top:12px;align-items:start}
+.basic-video{padding:12px 14px}.basic-video summary{cursor:pointer;color:var(--red)}
+.basic-video summary small{display:block;margin:3px 0 0 17px;color:var(--muted)}
+.basic-video-player iframe{display:block;width:100%;aspect-ratio:16/9;border:0;border-radius:6px;margin-top:12px;background:#302629}
+.basic-video-source{display:inline-block;font-size:14px;margin-top:8px}
+#sewing-videos{scroll-margin-top:14px}

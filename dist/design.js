@@ -20,6 +20,14 @@ const studioDesign = (() => {
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
   const hemStyles = ['Level','Fairy / handkerchief'];
   const tones = ['Solid','Contrast lower panel'];
+  const layerKinds = ['Overskirt','Underskirt','Tier'];
+  const maxLayers = 5;
+  const layerLimits = {hemOffset:[-65,65],sweep:[0,240],opacity:[20,100],attachment:[10,85]};
+  const layerDefaults = {
+    Overskirt:{hemOffset:6,sweep:32,opacity:65},
+    Underskirt:{hemOffset:-6,sweep:0,opacity:100},
+    Tier:{hemOffset:0,sweep:36,opacity:100,attachment:60}
+  };
 
   const baseModel = model=>model==='corset'?'top':model;
   const isBodice = model => baseModel(model)==='top'||model==='dress';
@@ -38,8 +46,30 @@ const studioDesign = (() => {
   const pocketChoices = model => model==='corset' ? pockets.slice(0,1) : model==='top' ? pockets.slice(0,2) : pockets;
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
   const isSleeved = design => isBodice(design.model) && design.model!=='corset' && selectedSupport(design)===supports[0] && design.sleeve!==sleeves[0];
-  const hasFairyHem = design => ['dress','skirt'].includes(design.model) && design.hemStyle===hemStyles[1];
+  const hasSkirt = model=>model==='dress'||model==='skirt';
+  const hasFairyHem = design => hasSkirt(design.model) && design.hemStyle===hemStyles[1];
   const hemDrop = design => Number.isFinite(design.hemDrop) ? Math.max(2,Math.min(35,design.hemDrop)) : 10;
+
+  function newLayer(kind='Overskirt') {
+    const selected=layerKinds.includes(kind)?kind:layerKinds[0];
+    return {kind:selected,fabric:fabrics[0],color:'#783e60',...layerDefaults[selected]};
+  }
+
+  function layers(design) {
+    if (!hasSkirt(design?.model) || !Array.isArray(design.layers)) return [];
+    return design.layers.filter(layer=>layerKinds.includes(layer?.kind)).slice(0,maxLayers).map(layer=>{
+      const clean=newLayer(layer.kind);
+      if (typeof layer.fabric==='string' && layer.fabric.trim()) clean.fabric=layer.fabric.trim();
+      if (typeof layer.color==='string' && /^#[0-9a-f]{6}$/i.test(layer.color)) clean.color=layer.color.toLowerCase();
+      for (const [key,[min,max]] of Object.entries(layerLimits)) {
+        if (Object.hasOwn(clean,key) && Number.isFinite(layer[key])) {
+          const value=Math.min(max,Math.max(min,layer[key]));
+          clean[key]=key==='opacity'||key==='attachment'?Math.round(value):value;
+        }
+      }
+      return clean;
+    });
+  }
 
   function defaults(model='dress') {
     const spec = silhouettes[model];
@@ -48,7 +78,7 @@ const studioDesign = (() => {
       fabric:model==='trousers'||corset?fabrics[2]:fabrics[0],closure:closureChoices(model)[0],
       support:corset?'Strapless':supports[0],back:backs[0],rise:rises[1],
       pocket:pockets[0],finish:corset?'Faced hem':finishes[0],hemStyle:hemStyles[0],hemDrop:10,
-      tone:tones[0],primary:'#783e60',accent:'#d3a98d',ease:4};
+      tone:tones[0],primary:'#783e60',accent:'#d3a98d',ease:4,...(hasSkirt(model)?{layers:[]}: {})};
   }
 
   const pantShape = {
@@ -62,11 +92,39 @@ const studioDesign = (() => {
     return {lower,volume,leg:pantShape[design.cut] || pantShape.Straight,rise:({'Low rise':-4,'High rise':5})[design.rise]||0};
   }
 
+  function layerInstructions(design) {
+    const steps={draft:[],cut:[],assemble:[],hem:[]};
+    layers(design).forEach((layer,index)=>{
+      const number=index+1;
+      const name=`Layer ${number} · ${layer.kind}`;
+      const add=(phase,visual,text)=>steps[phase].push({visual,text:`${name}. ${text}`});
+      const tier=layer.kind==='Tier';
+      const inside=layer.kind==='Underskirt';
+      const where=tier?'the marked tier line':inside?'inside the waist seam':'at the outer waist seam';
+      const offset=Number(Math.abs(layer.hemOffset).toFixed(3));
+      const hem=offset?`${offset} cm ${layer.hemOffset<0?'above':'below'} the main finished hem`:'level with the main finished hem';
+      const sweep=Number(layer.sweep.toFixed(3));
+      const reference=tier
+        ?`On the fitted main skirt, mark the attachment ${layer.attachment}% of the way from the waist to the main finished hem at center front. Transfer the level line around the skirt.`
+        :`Copy the waist attachment seam from the fitted main garment. Mark whether the attachment goes ${where}.`;
+      const opening=design.closure==='Elastic waistband'
+        ?'Keep the casing and threading opening clear. Test that every layer at the waist passes over the hips.'
+        :`Keep the ${design.closure?.toLowerCase()||'garment closure'} free to open all the way. Transfer the opening to a layer that crosses it.`;
+      add('draft','layerDraft',`${reference} Draft on paper with the hem ${hem} at matching points around the skirt. Check that it falls below the attachment and clears the floor as intended. Measure the main skirt’s finished hem seam line without allowances. Set the layer’s finished hem circumference to ${sweep?`that measurement plus ${sweep} cm, shared across the panels`:'that same measurement'}. Walk the new adjoining seam lines before adding allowances.`);
+      add('cut','layerCut',`Prepare and press ${layer.fabric}. Label the new pattern pieces with the layer number, material, grainline and quantities. Mark the finished hem and the cutting line with the allowance for the selected finish. Align both ends of the grainline to the same selvage, cut on the outside line and transfer attachment, center and closure marks.`);
+      add('assemble','layerFit',`Baste the layer panels together, leaving any opening from the pattern. Mark centers and side positions on the layer and ${where}. Match those points first. If the layer’s upper stitch line is longer, use two rows of basting in the allowance to gather it evenly between marks. Check the fit before sewing it in place.`);
+      add('assemble','layerAttach',`Baste ${where} and try on the garment. ${opening} Sit, stand, and walk to check the layers hang freely. Once the fitting passes, stitch along the marked connection, secure the ends at the opening and finish the joined raw edges to suit the fabric.`);
+      add('hem','layerHem',`Let this layer hang and settle before marking its own finished hem ${hem}. Check it with the garment worn and shoes on. Keep the other layers out of the way while you trim and finish this edge. ${hasFairyHem(design)?'Measure against the matching short or long point on the main hem. ':''}Test your finish on an offcut of ${layer.fabric} first.`);
+    });
+    return steps;
+  }
+
   function instructions(design,model) {
     const spec = silhouettes[design.model];
     const style = design.cut.toLowerCase();
     const list = [];
     const add = (visual,text) => list.push({visual,text});
+    const layerSteps=layerInstructions(design);
     const upper = isBodice(design.model);
     const fitArea = upper?'chest or bust':'hip or seat';
     const target = (upper?model.bust:model.hip)+design.ease;
@@ -95,7 +153,9 @@ const studioDesign = (() => {
     if (design.tone===tones[1]) {
       add('colorBlock','Mark a lower-panel seam on the traced pieces at the same height wherever panels meet. Split the pattern there, add matching seam allowances to both new edges and copy the grainline. Sew the contrast lower panels to their matching upper pieces before joining the garment seams.');
     }
+    list.push(...layerSteps.draft);
     add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.`);
+    list.push(...layerSteps.cut);
     if (design.pocket==='Patch pockets') add('pocketPatch','Mark matching pocket positions on the first fitting. Finish the pocket top edge, turn and press the remaining allowances, then topstitch the pockets onto the flat garment panels before assembly.');
     if (design.pocket==='In-seam pockets') add('pocket','Mark paired openings on the side seams. Sew the pocket bags to the matching front and back opening lines before joining the side seams. Join the bags, reinforce each opening end and check that the pockets sit flat.');
     if (isBodice(design.model)) {
@@ -121,6 +181,7 @@ const studioDesign = (() => {
     };
     add(...(closureSteps[design.closure] || closureSteps[closureChoices(design.model)[0]]));
     if (!isBodice(design.model) && design.closure!=='Elastic waistband') add('band','Finish the top edge with the chosen waistband or waist facing. Test the closure and check that the waist stays level when sitting.');
+    list.push(...layerSteps.assemble);
     const hem = {
       'Double-fold hem':'Turn the raw edge twice, press and stitch. Check that the hem lies smoothly without ripples.',
       'Faced hem':'Trace a shaped facing that matches the hem curve. Stitch it to the lower edge, grade the seam, turn it inside and secure the upper edge.',
@@ -131,11 +192,16 @@ const studioDesign = (() => {
       add('fairyHem',`Let the skirt hang so any bias edges can settle. Check the ${hemDrop(design)} cm drop from high to low again on the wearer. Test the selected finish on a scrap cut at the same angle and check that the points hang cleanly before you trim.`);
       add('finish',hem[design.finish]);
     } else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
+    list.push(...layerSteps.hem);
     return list;
   }
 
   function make(design,name,model) {
     const spec = silhouettes[design.model];
+    const garmentLayers=layers(design);
+    design={...design};
+    if (hasSkirt(design.model)) design.layers=garmentLayers;
+    else delete design.layers;
     const list = instructions(design,model);
     const tools = ['Sewing machine','iron','fabric shears','measuring tape','ruler','pins or clips','tailor’s chalk','matching thread','pattern paper'];
     if (/zipper|zip fly/i.test(design.closure)) tools.push('zipper foot',design.closure==='Invisible zipper'?'invisible zipper':'pattern-specified zipper');
@@ -145,13 +211,16 @@ const studioDesign = (() => {
     if (design.model==='corset') tools.push('sturdy foundation fabric','boning','channel tape');
     if (design.closure==='Back lacing') tools.push('eyelets and setting tool','lacing cord');
     if (design.closure==='Front busk') tools.push('busk');
+    if (garmentLayers.length) tools.push('hand-basting needle','removable fabric marker');
+    const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
       cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase()+(hasFairyHem(design)?' · fairy hem':''),
       level:'Intermediate',color:design.primary,design,
-      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'. Confirm yardage after laying out your drafted pieces.',
+      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+' Confirm yardage after laying out your drafted pieces.',
       tools:tools.join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,tones,backs,rises,
+    layerKinds,layerLimits,maxLayers,layers,newLayer,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,supportWidth,selectedBack,pocketChoices,defaults,measurements,instructions,make};
 })();

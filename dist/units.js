@@ -27,7 +27,17 @@ const studioUnits = (() => {
     input.dataset.metricLength=metric??'';
     input.dataset.shownLength=input.value;
   }
+  function showEstimate(input) {
+    const metric=Number(input.dataset.estimatedLength);
+    input.placeholder=Number.isFinite(metric)?`Est. ${precision(unit==='in'?metric/ratio:metric,1)} ${unit}`:'';
+  }
+  function writeEstimate(input,metric) {
+    if (Number.isFinite(metric)) input.dataset.estimatedLength=metric;
+    else delete input.dataset.estimatedLength;
+    showEstimate(input);
+  }
   function inputUnits(input) {
+    if (input.dataset.estimatedLength!==undefined) showEstimate(input);
     if (input.dataset.lengthUnit===unit) return;
     const old=input.dataset.lengthUnit || 'cm';
     const metric=lengthValue(input);
@@ -75,5 +85,5 @@ const studioUnits = (() => {
     });
     for (const root of roots) observer.observe(root,{childList:true,subtree:true,characterData:true});
   }
-  return {text,refresh,watch,lengthValue,writeLength};
+  return {text,refresh,watch,lengthValue,writeLength,writeEstimate};
 })();

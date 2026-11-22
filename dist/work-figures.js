@@ -17,10 +17,13 @@ const workFigures = (() => {
       dimText((x1+x2)/2,y-8,text,'middle');
   }
   const guide=(x1,y1,x2,y2)=>path(`M${x1} ${y1}L${x2} ${y2}`,'wf-guide');
+  const leader=(x1,y1,x2,y2)=>path(`M${x1} ${y1}L${x2} ${y2}`,'wf-extension');
+  const arrowhead=(x,y,direction)=>path(`M${x-5} ${y+direction*6}L${x} ${y}l5 ${direction*6}`,'wf-arrow');
+  const texture=(x,y)=>path(`M${x} ${y+12}l12 -12m-4 12l12 -12m-4 12l12 -12`,'wf-guide');
   const format=value=>Number.isFinite(value)?Number(value.toFixed(3))+' cm':'';
   const num=(step,regex)=>step.match(regex)?.[1];
-  function panel(title,drawing,description) {
-    return `<figure class="wf-panel step-figure"><svg viewBox="0 0 330 164" role="img" aria-label="${escape(title)}" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
+  function panel(title,drawing,description,classes='wf-panel step-figure') {
+    return `<figure class="${classes}"><svg viewBox="0 0 330 164" role="img" aria-label="${escape(title)}" focusable="false">${drawing}</svg><figcaption><strong>${escape(title)}</strong><span>${escape(description)}</span></figcaption></figure>`;
   }
   function strip(title,panels) {
     return `<section class="wf-figures"><h4>${title}</h4><div class="wf-grid">${panels.join('')}</div></section>`;
@@ -30,25 +33,37 @@ const workFigures = (() => {
     const second=format(allowances.second)||'Second turn per pattern';
     const total=Number.isFinite(allowances.first)&&Number.isFinite(allowances.second)
       ?format(allowances.first+allowances.second):'Total per pattern';
+    const edge=format(allowances.seam)||'Pattern seam';
     if (mode==='faced') return strip('Facing the hem',[
-      panel('Align the facing',path('M30 38H190V128H30Z','wf-cloth')+path('M45 94H173V128H45Z','wf-fold')+
-        path('M44 116H175','wf-stitch')+tick(188,116,128,format(allowances.seam)||'Seam per pattern')+label(44,65,'Right sides together'),
-        'Match the facing to the lower edge and stitch through the aligned layers.'),
-      panel('Turn inside and secure',path('M30 26H190V128H30Z','wf-cloth')+path('M30 91H190V128H30Z','wf-fold')+
-        path('M38 100H182','wf-stitch')+label(53,71,'Wrong side up')+label(55,152,'Finished edge'),
-        'Turn the facing to the wrong side, press the hem edge, and secure the upper edge as the pattern directs.')
+      panel('1. Match the facing to the raw edge',path('M24 35H204V134H24Z','wf-right')+texture(44,58)+
+        path('M34 91Q113 78 194 91V134H34Z','wf-cloth')+path('M26 119H202','wf-stitch')+
+        leader(202,119,222,119)+leader(202,134,222,134)+tick(221,119,134,edge)+label(85,67,'Garment right side')+
+        label(106,105,'Facing wrong side','middle')+label(82,153,'Match both cut edges'),
+        'Lay the garment right side up. Place the facing right side down so the two right sides touch. Match seams and notches, then sew the dashed line through both pieces.'),
+      panel('2. Roll the facing to the inside',path('M24 35H204V134H24Z','wf-cloth')+
+        path('M25 98Q113 86 203 98V134H25Z','wf-fold')+texture(44,107)+path('M31 103Q111 91 194 103','wf-stitch')+
+        path('M226 145Q269 139 252 109M248 118l4 -9 9 5','wf-arrow')+
+        label(40,62,'Garment wrong side')+label(116,122,'Facing inside','middle')+label(66,153,'Finished hem edge'),
+        'Trim or grade the seam allowance as your pattern directs. Roll the joined edge toward the wrong side and press. Secure the facing at the upper edge as specified.')
     ]);
+    const base=path('M25 30H185V139H25Z','wf-cloth');
     return strip('Double-fold hem',[
-      panel('1. Mark both fold lines',path('M24 23H162V138H24Z','wf-cloth')+guide(25,81,162,81)+guide(25,111,162,111)+
-        tick(173,111,138,first)+tick(173,81,111,second)+label(41,49,'Wrong side up')+label(42,154,'Raw edge'),
-        `Measure from the raw edge and mark the two folds. Total allowance from raw edge to final fold: ${total}.`),
-      panel('2. Turn the raw edge once',path('M24 23H162V139H24Z','wf-cloth')+path('M24 112H162V139H24Z','wf-fold')+
-        path('M72 145Q86 150 88 104M82 111L88 104L93 111','wf-arrow')+
-        tick(173,112,139,first)+label(39,64,'Lift toward wrong side'),
-        'Pinch the raw edge with your thumbs and forefingers. Lift it along the first mark toward the wrong side, then lay it down and press.'),
-      panel('3. Turn again and stitch',path('M24 23H162V136H24Z','wf-cloth')+path('M24 100H162V136H24Z','wf-fold')+
-        path('M24 106H162','wf-stitch')+tick(173,100,136,second)+label(39,82,'Stitch near inner fold')+label(42,153,'Finished edge'),
-        'Lift the folded band again, keeping the raw edge tucked inside. Press, clip, then stitch near the inner folded edge as the pattern directs.')
+      panel('1. Mark the first and second folds',base+guide(25,80,185,80)+guide(25,108,185,108)+
+        path('M185 80H210M185 108H210M185 139H210','wf-extension')+tick(207,108,139,first)+tick(207,80,108,second)+
+        label(38,52,'Wrong side facing up')+label(39,75,'Second fold mark')+label(39,103,'First fold mark')+label(39,155,'Raw cut edge'),
+        `Use your ruler at several points along the raw edge. Measure in by the first turn and mark it. Measure farther in by the second turn and mark it. From the raw edge to the second mark, the total is ${total}.`),
+      panel('2. Lift the raw edge and press the first fold',path('M25 30H185V108H25Z','wf-cloth')+
+        path('M25 81H185V108H25Z','wf-fold')+texture(41,88)+guide(25,139,185,139)+
+        path('M74 138Q108 129 109 85M103 93l6 -8 6 8','wf-arrow')+leader(185,81,207,81)+leader(185,108,207,108)+
+        tick(205,81,108,first)+label(37,56,'Wrong side facing up')+label(121,76,'Raw edge is now here')+
+        label(39,155,'Raw edge before turning'),
+        'Grip the cut edge between your thumbs and fingers. Lift the edge toward the wrong side, bending at the first mark. Press the first narrow fold flat.'),
+      panel('3. Tuck the raw edge into the second fold',path('M25 29H185V121H25Z','wf-cloth')+
+        path('M25 88H185V121H25Z','wf-fold')+texture(42,99)+path('M28 94H183','wf-stitch')+
+        leader(185,88,207,88)+leader(185,121,207,121)+tick(205,88,121,second)+
+        path('M25 121H185','wf-dimension')+leader(157,93,163,72)+label(90,65,'Sew near inner fold')+
+        label(39,141,'Finished lower edge')+label(40,52,'Wrong side facing up'),
+        'Lift the entire first fold and turn it inward again along the second mark. Tuck the raw edge inside. Press, clip, and stitch near the inner fold. Remove each clip before it reaches the foot.')
     ]);
   }
   function seamFold(allowances,dart=false) {
@@ -61,13 +76,23 @@ const workFigures = (() => {
     ]);
     const size=format(allowances.seam)||'Your pattern allowance';
     return strip('Align and sew the fabric layers',[
-      panel('1. Put right sides together',path('M34 26H115V125H34Z','wf-cloth')+path('M187 26H268V125H187Z','wf-right')+
-        path('M201 51Q156 27 117 62M128 59L117 62L123 50','wf-arrow')+label(40,145,'Layer 1')+label(196,145,'Layer 2'),
-        'Hold the upper piece at the edge. Flip it over so the two right sides touch, then match the raw edges and notches.'),
-      panel('2. Sew at the allowance',path('M28 29H213V139H28Z','wf-cloth')+path('M36 33H213V135H36Z','wf-fold')+
-        path('M167 34V111','wf-stitch')+guide(167,111,167,126)+guide(213,110,213,126)+span(167,213,127,size)+
-        label(72,63,'Stitch line')+label(221,78,'Raw edges'),
-        `Use ${Number.isFinite(allowances.seam)?size:'the allowance stated in your pattern'} to mark the stitch line inward from the matched edges. Keep the edges against the machine guide as you sew.`)
+      panel('1. Flip one piece so the right sides touch',path('M23 38H122V122H23Z','wf-right')+
+        path('M202 38H300V122H202Z','wf-right')+texture(44,70)+texture(221,70)+
+        path('M208 64Q170 40 123 76M131 67L123 76L135 78','wf-arrow')+
+        path('M113 95l9 -5v10Z M211 95l-9 -5v10Z','wf-cloth')+
+        label(73,111,'Right side','middle')+label(251,111,'Right side','middle')+label(73,145,'Leave flat','middle')+label(251,145,'Flip this piece','middle'),
+        'Start with the right side of both pieces facing you. Pick up one piece and turn it over onto the other. The right sides touch inside. The wrong sides face out.'),
+      panel('2. Match the cut edges and notches',path('M24 40H193V129H24Z','wf-right')+
+        path('M34 35H194V72l-7 4 7 4V122H34Z','wf-cloth')+
+        path('M154 55H196M154 97H196','wf-dimension')+leader(194,77,217,67)+leader(194,107,217,110)+
+        label(222,70,'Matched notches')+label(222,113,'Aligned edges')+label(49,65,'Top wrong side')+label(48,147,'Both fabric layers'),
+        'Line up the top and bottom raw edges, then match the notches. Place pins across the seam or clip the edges between marks. Keep both layers flat.'),
+      panel('3. Sew at the recorded allowance',path('M25 31H205V119H25Z','wf-right')+
+        path('M34 26H205V114H34Z','wf-cloth')+path('M151 33V112','wf-stitch')+
+        path('M151 111V136M205 115V136','wf-extension')+span(151,205,139,size)+
+        leader(151,50,125,38)+label(119,41,'Stitch line','end')+leader(205,63,227,63)+label(233,66,'Raw edges')+
+        path('M114 62V100','wf-arrow')+arrowhead(114,100,-1)+label(58,112,'Sew this way'),
+        `Use ${Number.isFinite(allowances.seam)?size:'the allowance stated in your pattern'} to mark the dashed stitching line inward from the aligned edges. Guide the fabric along the reference and remove each pin before sewing past it.`)
     ]);
   }
   function moveFigure(step,id) {
@@ -182,8 +207,11 @@ const workFigures = (() => {
     if (id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
       return straplessPanels(order,pattern.measurements)[0];
     }
+    if (layerPhases.includes(id)) return layerPanels(step,id,order,pattern.design)[0];
     if (id==='darts') return seamFold(allowance,true);
-    if (['seam','layer','sew'].includes(id)) return seamFold(allowance);
+    if (['seam','layer','sew'].includes(id) || id==='shoulder' && /^Sew and press the shoulder seams\b/i.test(step)) {
+      return seamFold(allowance);
+    }
     if (id==='topstitch') return strip('Topstitch placement',[topstitchPanel(allowance)]);
     if (['cut','designCut','grain'].includes(id)) return strip('Cutting and grainline',[
       layoutPanel(order.plan||{}),cutEdgePanel(allowance)
@@ -342,26 +370,121 @@ const workFigures = (() => {
     ];
   }
 
+  const layerPhases=['layerDraft','layerCut','layerFit','layerAttach','layerHem'];
+  function layerPanels(step,id,order,design) {
+    const number=Number(num(step,/^Layer (\d+)/));
+    const layer=studioDesign.layers(design)[number-1];
+    if (!layer) return [];
+    const title=`Layer ${number} · ${layer.kind}`;
+    const tier=layer.kind==='Tier';
+    const inside=layer.kind==='Underskirt';
+    const waist=33, mainHem=122;
+    const attach=tier?Math.round(waist+(mainHem-waist)*layer.attachment/100):waist;
+    const offset=layer.hemOffset?Math.sign(layer.hemOffset)*18:0;
+    const newHem=Math.max(attach+11,mainHem+offset);
+    const allowance=order.allowances||{};
+    const seam=format(allowance.seam)||'Pattern allowance';
+    const main=path(`M105 ${waist}H173Q197 80 226 ${mainHem}H54Q91 67 105 ${waist}Z`,'wf-cloth');
+    const layerTop=Math.round(105-51*(attach-waist)/(mainHem-waist));
+    const layerEdge=path(`M${layerTop} ${attach}H${278-layerTop}L232 ${newHem}H47Z`,'wf-right');
+    const outline=(inside?layerEdge+main:main+layerEdge)+path(`M${layerTop} ${attach}H${278-layerTop}`,'wf-stitch');
+    const hemSize=layer.hemOffset?format(Math.abs(layer.hemOffset))+(offset<0?' shorter':' longer'):'Same length';
+    const hemMarks=guide(42,mainHem,282,mainHem)+guide(47,newHem,282,newHem)+
+      (offset?tick(279,Math.min(mainHem,newHem),Math.max(mainHem,newHem),hemSize,-1):dimText(281,114,hemSize,'end'));
+    const anchor=(tier?tick(30,waist,attach,`${layer.attachment}%`)+guide(30,waist,105,waist)+guide(30,attach,layerTop,attach)
+      :label(103,22,inside?'Inside waist':'Outer waist'));
+    const hemFigure=outline+hemMarks+anchor+label(56,156,'Compare matching hem points');
+    if (id==='layerDraft') return [
+      panel(`${title} · Mark the attachment and hem`,hemFigure,
+        `Use the fitted main skirt as a reference. ${tier?'Measure the center-front waist-to-hem length, multiply by '+layer.attachment+'%, then mark a level attachment line around the skirt.':'Copy the waist seam and matching marks.'} Check that the new hem is below its attachment and has the intended floor clearance. Sketches are schematic.`),
+      panel('Add the sweep across the pattern panels',
+        path('M52 45H128L143 122H38ZM169 45H245L259 122H155Z','wf-cloth')+
+        path('M51 94L45 115H137L132 94M168 94L161 115H253L249 94','wf-stitch')+
+        span(42,255,135,layer.sweep?`+${format(layer.sweep)} around the layer`:'Match main hem circumference')+
+        label(90,75,'Panel 1','middle')+label(206,75,'Panel 2','middle'),
+        `Add the indicated sweep across all the panels at their finished seam lines. Use the panel count in your paper pattern. Keep the upper seam long enough to join the waist or attachment line as drafted.`)
+    ];
+    if (id==='layerCut') return [
+      panel(`${title} · Trace the finished and cut edges`,
+        path('M49 36H146L181 140H30Z','wf-cloth')+path('M39 116H174','wf-stitch')+
+        path('M174 116H208M181 140H208','wf-extension')+tick(206,116,140,
+          design.finish==='Double-fold hem' && Number.isFinite(allowance.first) && Number.isFinite(allowance.second)
+            ?format(allowance.first+allowance.second):design.finish!=='Double-fold hem' && format(allowance.seam)||'Pattern hem allowance')+
+        path('M101 107V50m-5 6l5 -6 5 6','wf-arrow')+label(114,74,'Grainline')+label(53,110,'Finished hem line')+
+        label(41,156,'Cut along outer edge'),
+        `Write the layer number and ${layer.fabric} on the paper. Mark both ends of the grainline, attachment points and any opening. Trace the finish allowance outward from the marked hem.`),
+      layoutPanel(order.plan||{}),
+      panel('Transfer and label the matching marks',
+        path('M47 40H184L215 137H32Z','wf-cloth')+guide(118,45,118,130)+path('M63 40l4 10 4 -10M118 40v13M168 40l4 10 4 -10','wf-dimension')+
+        guide(173,43,228,43)+label(234,47,'Attachment marks')+guide(155,79,225,79)+label(232,83,'Opening mark')+
+        label(118,110,'Center line','middle'),
+        'Hold the paper flat until you transfer the marks to the wrong side. Mark and name each cut piece before moving it off the cutting board.')
+    ];
+    if (id==='layerFit') return [
+      panel(`${title} · Match centers and sides`,
+        path('M29 39H280V70H29Z','wf-cloth')+path('M29 88H280L300 139H16Z','wf-right')+
+        path('M47 50V97M151 50V97M260 50V97','wf-guide')+label(155,25,'Garment attachment marks','middle')+
+        label(47,131,'Side','middle')+label(151,131,'Center','middle')+label(260,131,'Side','middle'),
+        'Match each transferred mark and pin it separately. Check the opening before pinning between the marks. A layer that already matches the attachment length can be basted flat.'),
+      panel('Draw up the basting evenly',
+        path('M39 38H257L281 127H29Z','wf-right')+path('M43 57H255M42 73H260','wf-stitch')+
+        path('M250 57Q271 56 299 68M250 73Q272 73 299 77M61 50v33M152 50v33M240 50v33','wf-dimension')+
+        label(152,111,'Gather between matching marks','middle')+label(307,92,'Pull thread tails','end'),
+        'When the layer is longer along the attachment edge, sew two long basting rows in the allowance. Leave thread tails. Hold the matching marks in place, pull the bobbin threads gently, then spread the gathers with your fingertips.')
+    ];
+    if (id==='layerAttach') {
+      const elastic=design.closure==='Elastic waistband';
+      const opening=format(elastic?order.plan?.casingWidth:order.plan?.zipperOpening);
+      return [
+        panel(`${title} · Stitch at the attachment`,hemFigure,
+          `Baste ${tier?'the tier to the marked level on the main skirt':inside?'the layer to the inside waist':'the layer to the outer waist'}. Check standing, sitting, and walking before stitching. Use the attachment method and allowance from your tested pattern.`),
+        panel('Keep the garment opening clear',
+          path('M32 40H211V139H32Z','wf-cloth')+path('M32 83H107M130 83H211','wf-stitch')+
+          path('M110 52V124M126 52V124','wf-dimension')+label(64,71,'Layer seam')+
+          (opening?tick(237,52,124,opening):label(230,99,elastic?'Casing opening':'Closure opening')),
+          'Leave the matching opening free while basting. Open and close the garment fully and check that the layer clears every part of the closure. After stitching, secure the layer’s seam ends at the opening.')
+      ];
+    }
+    const hemPanels=design.finish==='Double-fold hem'
+      ?'Press and turn this edge separately, using the two turn widths specified for this layer on your pattern.'
+      :design.finish==='Faced hem'?'Trace a facing that matches this layer’s edge. Stitch it, grade the allowance, then turn and secure the facing.'
+        :'Confirm the band placement on the layer. Join the band and finish the inside edge using the tested pattern.';
+    return [
+      panel(`${title} · Check its own hem`,hemFigure,
+        'Hang the garment until the layers settle. Mark the finished edge on the wearer at matching front, side and back points. Measure a fairy hem from its corresponding high or low point.'),
+      panel('Pin the other layers out of the way',
+        path('M34 34H199V139H34Z','wf-cloth')+path('M51 48H192V116H51Z','wf-fold')+
+        path('M38 118H194','wf-stitch')+path('M201 118H229M199 139H229','wf-extension')+
+        tick(227,118,139,format(allowance.first)||seam)+guide(187,69,224,69)+label(229,73,'Hold clear'),
+        `Finish and sew only this layer’s hem. ${hemPanels} Check for caught layers after sewing.`)
+    ];
+  }
+
   function layoutPanel(plan) {
     const folded=plan.layout==='folded';
     const width=format(plan.usableWidth && (folded?plan.usableWidth/2:plan.usableWidth));
-    const boundary=folded?'Fold':'Opposite selvage';
+    const boundary=folded?'Fabric fold · leave intact':'Opposite selvage';
     const direction=plan.oneWay?'Cut all pieces with the print or nap arrows pointing the same way.':'Read the grainline and any direction arrow on each piece.';
     return panel(folded?'Set up the folded fabric':plan.layout==='single'?'Lay out one layer':'Check the pattern layout against your fabric',
-      path('M37 38H290V139H37Z','wf-cloth')+guide(43,42,43,138)+guide(284,42,284,138)+
-      path('M95 53H178L194 122H93Z','wf-right')+path('M130 113V63m-5 6l5 -6 5 6','wf-arrow')+
-      guide(44,70,129,70)+guide(44,103,129,103)+label(48,63,'Same distance')+label(155,90,'Grainline')+
-      span(43,284,31,width||'Measure usable width')+label(38,154,'Selvage')+label(288,154,boundary,'end'),
-      `${folded?'Bring the selvages together without stretching the fold.':plan.layout==='single'?'Spread one layer flat. Flip paper pieces to cut left and right copies when the pattern calls for a mirrored pair.':'Use the layout for your pattern size and fabric width. Check whether it shows a fold or one layer.'} Measure from each end of the grainline to the same selvage. Adjust the paper until the two distances match. ${direction}`);
+      (folded?path('M45 44H294V141H45Z','wf-fold'):'')+path('M37 40H287V134H37Z','wf-cloth')+
+      guide(45,43,45,132)+(folded?path('M286 41V134','wf-dimension'):guide(279,43,279,132))+
+      path('M109 56H208L232 120H101Z','wf-right')+path('M151 110V68','wf-arrow')+
+      arrowhead(151,68,1)+arrowhead(151,110,-1)+label(161,85,'Grainline')+label(161,102,'Paper piece')+
+      span(45,151,68,'Distance A')+span(45,151,110,'Distance B')+
+      span(45,folded?286:279,30,width||'Usable width')+label(37,153,folded?'Matched selvages':'Selvage')+label(289,153,boundary,'end'),
+      `${folded?'Bring the two factory-finished selvages together to make an uncut fold on the opposite side. Smooth both layers flat.':plan.layout==='single'?'Spread one layer flat. Flip paper pieces to cut left and right copies when the pattern calls for a mirrored pair.':'Use the layout for your pattern size and fabric width. Confirm whether it shows a fold or a single layer.'} Measure from the top of the grainline to the selvage for distance A and from the bottom to the same selvage for B. Rotate the paper until A and B are equal. ${direction}`);
   }
 
   function cutEdgePanel(allowance) {
     const seam=format(allowance.seam);
-    return panel('Find the cut edge and stitch line',
-      path('M31 35H188V126H31Z','wf-cloth')+path('M150 42V119','wf-stitch')+
-      span(150,188,134,seam||'Pattern allowance')+label(46,74,'Paper pattern')+label(199,54,'Solid cut edge')+label(66,109,'Stitch line')+
-      path('M181 85L188 81L188 89Z','wf-right')+label(199,86,'Matching notch'),
-      `Circle the cutting line for your size. Check whether the pattern already includes the ${seam?seam+' ':''}seam allowance before tracing. Weight the paper inside the outline. Keep the lower blade of the fabric shears flat on the board and follow the outer line without lifting the cloth. Mark the notches and label each piece before removing the paper.`);
+    return panel('Find the cutting edge, stitching line, and notch',
+      path('M24 28H238V137H24Z','wf-right')+texture(32,101)+path('M60 39H172L192 123H46Z','wf-cloth')+
+      path('M70 50H163L179 112H60Z','wf-stitch')+path('M177 79l7 -6 3 12Z','wf-right')+
+      leader(170,40,199,38)+label(205,41,'Solid cut line')+leader(170,64,199,58)+label(205,61,'Dashed stitch line')+
+      leader(183,80,211,88)+label(213,93,'Notch mark')+label(112,83,'Paper pattern','middle')+
+      path('M176 112V143M192 123V143','wf-extension')+span(176,192,149,seam||'Pattern allowance')+
+      path('M65 57h15v14H65zM137 87h15v14h-15z','wf-fold')+label(25,155,'Fabric underneath'),
+      `Circle the outer cutting line for your size and place weights inside it. The dashed line is where the seam will be sewn. The gap between the lines is ${seam?seam:'the allowance in your pattern'}. Keep the lower blade of your shears against the board along the solid edge. Mark each notch on the fabric before lifting the paper.`);
   }
 
   function cutPiecePanel(piece) {
@@ -534,14 +657,43 @@ const workFigures = (() => {
     ['screen','For stable woven fabric, attach foot J and select centered straight stitch 01. Start at 2.5 mm. Use the project stitch and compatible needle for stretch fabrics.'],
     ['check','Sew a scrap folded to the same number of layers. Look at both sides and gently pull the seam. Fix loops, skipped stitches or popped thread before sewing the garment.']
   ];
-  function standardPanel(title,visual,text) {
-    return panel(title,`<svg class="wf-standard" x="0" y="0" width="330" height="164" viewBox="0 0 270 141">${visual}</svg>`,text);
+  function standardPanel(title,visual,text,classes) {
+    return panel(title,`<svg class="wf-standard" x="0" y="0" width="330" height="164" viewBox="0 0 270 141">${visual}</svg>`,text,classes);
   }
   function machineActions() {
     return `<details class="wo-how wo-storyboard"><summary>Set up the Brother CP2160F in pictures</summary><div class="wf-grid">${setupSteps.map(([figure,text],i)=>{
       const [title,visual]=sewingVisuals.figureParts(figure);
       return standardPanel((i+1)+'. '+title,visual,text);
     }).join('')}</div></details>`;
+  }
+  function zipperDrawing(phase,plan) {
+    const measure=format(plan.zipperOpening)||'Per pattern';
+    const hardware=(x,y)=>path(`M${x} ${y}v86m7 -86v86`,'wf-edge')+
+      path(`M${x} ${y+7}h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7m-7 8h7`,'wf-dimension');
+    if (phase==='foot') return path('M27 38H191V129H27Z','wf-cloth')+
+      path('M66 82H172V112H66Z','wf-fold')+path('M106 18H122V65H137V83H97V65H106Z','wf-cloth')+
+      path('M116 32v65','wf-dimension')+arrowhead(116,99,-1)+path('M67 102h106','wf-stitch')+
+      leader(139,75,191,65)+label(195,68,'Zipper foot on tape')+
+      leader(116,96,191,110)+label(195,113,'Needle beside coil')+label(40,147,'Test with handwheel first');
+    if (phase==='zipClearance') return path('M33 29H243V139H33Z','wf-cloth')+
+      path('M97 37H189V132H97Z','wf-fold')+hardware(158,43)+path('M144 79V128','wf-stitch')+
+      path('M138 31H150V66L144 84L138 66Z','wf-cloth')+path('M120 87V123','wf-arrow')+
+      arrowhead(120,123,-1)+leader(139,65,84,59)+label(82,55,'Needle','end')+
+      leader(166,85,201,77)+label(205,81,'Coil or teeth')+leader(143,108,196,113)+label(200,117,'Stitch path')+
+      label(92,155,'Sew parallel to the coil');
+    if (phase==='zipCheck') return path('M25 27H133V137H25ZM151 27H239V137H151Z','wf-right')+
+      texture(41,41)+texture(196,41)+hardware(137,37)+path('M133 55H147L145 68H135Z','wf-fold')+
+      path('M133 75h14m-12 0l-2 13h14l-2 -13','wf-edge')+guide(31,104,130,104)+guide(154,104,236,104)+
+      path('M133 41V57m20 -16v16M141 31v14','wf-dimension')+arrowhead(141,31,1)+
+      leader(155,103,255,98)+label(257,96,'Both marks')+label(258,109,'line up')+
+      label(53,155,'Close before sewing the seam below');
+    return path('M26 29H102V138H26ZM157 29H234V138H157Z','wf-cloth')+
+      path('M87 38H111V126H87ZM146 38H171V126H146Z','wf-fold')+
+      path('M108 40V126M150 40V126','wf-dimension')+path('M95 45V123M162 45V123','wf-stitch')+
+      path('M92 37h18m40 0h19M92 126h18m40 0h19','wf-dimension')+
+      path('M171 37H256M171 126H256','wf-extension')+tick(254,37,126,measure)+
+      guide(49,81,212,81)+label(32,74,'Matching mark')+
+      leader(163,111,211,123)+label(216,128,'Tape')+label(97,154,'Stitch one side at a time');
   }
   function actionPanel(order,figure,title,description,id,measurements) {
     const allowance=order.allowances||{};
@@ -569,11 +721,10 @@ const workFigures = (() => {
     if (figure==='grain') return layoutPanel(plan);
     if (figure==='shears') return panel(title,local[1]+path('M136 120V144M169 120V144','wf-extension')+
       span(136,169,145,annotated)+path('M136 60V120','wf-stitch'),description);
-    if (figure==='zipper' || figure==='zipCheck') {
-      const drawing=path('M35 24H204V138H35Z','wf-cloth')+path('M116 43V119M122 43V119','wf-edge')+
-        path('M119 46V115','wf-stitch')+guide(52,73,181,73)+label(52,68,'Matching seam')+
-        path('M122 43H212M122 119H212','wf-extension')+tick(210,43,119,format(plan.zipperOpening)||'Pattern opening');
-      return panel(title,drawing,description);
+    if (['zipper','zipClearance','zipCheck'].includes(figure) || figure==='foot' && id==='zipper') {
+      const titles={foot:'Fit the zipper foot',zipper:'Align both tapes and mark the opening',zipClearance:'Sew next to the coil',zipCheck:'Close and compare the marks'};
+      const count=title.match(/^\d+\. /)?.[0]||'';
+      return panel(count+titles[figure],zipperDrawing(figure,plan),description);
     }
     if (figure==='fold') {
       const turn=format(allowance.first)||'Turn per pattern';
@@ -585,7 +736,7 @@ const workFigures = (() => {
       return panel(title,scenes.stitchStart[1]+span(145,177,144,
         id==='topstitch'?format(allowance.topstitch)||'Pattern distance':annotated),description);
     }
-    if (['clipCurve','turnFacing','matchSleeve','easeSleeve','pin','foot','pinOut','allowance','zipClearance'].includes(figure) && local) {
+    if (['clipCurve','turnFacing','matchSleeve','easeSleeve','pin','foot','pinOut','allowance'].includes(figure) && local) {
       const line={
         clipCurve:guide(67,48,142,48)+tick(105,48,77,annotated),
         turnFacing:tick(104,69,89,annotated),
@@ -594,8 +745,7 @@ const workFigures = (() => {
         pin:span(145,177,146,annotated),
         foot:span(146,177,144,annotated),
         pinOut:span(145,177,144,annotated),
-        allowance:label(173,145,annotated,'middle'),
-        zipClearance:format(plan.zipperOpening)?tick(169,45,115,format(plan.zipperOpening),-1):''
+        allowance:label(173,145,annotated,'middle')
       }[figure];
       return panel(title,local[1]+line,description);
     }
@@ -614,6 +764,10 @@ const workFigures = (() => {
   };
   function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
+    if (layerPhases.includes(id)) {
+      const panels=layerPanels(step,id,order,design).slice(1);
+      return panels.length?`<details class="wo-how wo-storyboard"><summary>Follow this step in pictures · ${panels.length} ${panels.length===1?'action':'actions'}</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
+    }
     if (id==='fairyHem') return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures</summary><div class="wf-grid">${fairyHemActions(design,order.allowances||{}).join('')}</div></details>`;
     if (Object.hasOwn(seatedRegions,id)) return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures · 2 actions</summary><div class="wf-grid">${seatedPanels(step,id,order,measurements).slice(1).join('')}</div></details>`;
     if (id==='strap' || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
@@ -636,7 +790,7 @@ const workFigures = (() => {
       return `<div class="wf-panel wf-written"><strong>${i+1}.</strong> ${escape(text)}</div>`;
     });
     const tip=practicalTips[id];
-    return `<details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures · ${items.length} actions</summary><div class="wf-grid">${items.join('')}</div>${tip?`<p class="wo-tip"><strong>Tip</strong> ${tip}</p>`:''}</details>`;
+    return `<details class="wo-how wo-storyboard"${index===0||id==='zipper'?' open':''}><summary>Follow this step in pictures · ${items.length} actions</summary><div class="wf-grid">${items.join('')}</div>${tip?`<p class="wo-tip"><strong>Tip</strong> ${tip}</p>`:''}</details>`;
   }
   function stepList(pattern,order={},measurements=pattern.measurements) {
     scenes ??= createScenes();
@@ -673,5 +827,100 @@ const workFigures = (() => {
     const pins=dims.map(({point,value},i)=>point?`<span class="wf-photo-pin${point[0]>.5?' wf-photo-pin-end':''}" aria-hidden="true" style="left:${100*point[0]}%;top:${100*point[1]}%">${i+1}<span>${escape(value)}</span></span>`:'').join('');
     return `<figure class="wf-reference"><div class="wf-reference-image"><img src="${escape(reference)}" alt="Reference garment">${arrows}${pins}</div><figcaption><strong>Reference garment and project measurements</strong>${dims.length?`<ol>${dims.map(({label,value})=>`<li>${escape(label)} <strong>${escape(value)}</strong></li>`).join('')}</ol>`:''}<p>Use the photo to compare details. Take cutting dimensions from your pattern or fitting sample.</p></figcaption></figure>`;
   }
-  return {bodySheet,cuttingPlan,seamPlan,featurePlan,stepList,referenceSheet,machineActions};
+  function lessonScenes(lesson) {
+    const {allowances:{seam=1,topstitch=.25}={},practice:{width=12,length=12,gap=5,grain=7}={}}=lesson;
+    const cutWidth=format(width), cutLength=format(length), reveal=format(gap), margin=format(seam);
+    const finishedWidth=format(width-2*seam), finishedLength=format(length-2*seam);
+    const practiceRight=92+Math.round(100*width/length);
+    const practicePiece=path(`M92 32H${practiceRight}V132H92Z`,'wf-cloth');
+    const piece=path('M92 32H192V132H92Z','wf-cloth');
+    const inner=path('M121 124H100V40H184V124H163','wf-stitch');
+    const exposed=path('M121 124H163','wf-arrow');
+    const gapFigure=piece+inner+exposed+span(121,163,146,reveal)+span(92,100,94,margin);
+    const stitchGuide=layers+raw+row+span(145,177,145,margin);
+    return {
+      needleClamp:path('M111 28h50v33h-50zM126 62h12v72l-6 10 -6 -10z','wf-cloth')+
+        path('M159 39h22v11h-22M168 43h8m-4 -4v8','wf-edge')+
+        path('M107 104V72m-5 5l5 -5 5 5M141 69h41','wf-arrow')+
+        label(187,47,'Clamp screw')+label(191,73,'Flat face points back')+label(47,117,'Push up'),
+      winder:path('M32 59H76V104H32Z M38 53h32v6m-32 45h32v6M214 80h54v33h-54z','wf-cloth')+
+        path('M105 74a19 19 0 1 0 38 0a19 19 0 1 0 -38 0M118 74h12M217 74h48M228 65h26V78H228Z','wf-edge')+
+        path('M55 67H107q-4 25 17 26q23 -2 20 -17l98 -26v20M236 67l6 6 6 -6','wf-arrow')+
+        label(27,125,'Spool')+label(83,38,'Pretension disk')+label(198,136,'Bobbin winder seat'),
+      bobbinSetup:path('M85 32H151V57H85Z M78 29h80v8H78Z M78 54h80v8H78Z','wf-cloth')+
+        path('M67 120H203V136H67Z M112 99h12v21h-12z','wf-edge')+
+        path('M118 68v23m-5 -6l5 6 5 -6M137 108h55m-6 -5l6 5 -6 5','wf-arrow')+
+        label(171,47,'Seat notch on shaft')+label(204,110,'Slide right')+label(69,151,'Winder seat'),
+      windFill:path('M59 66H117V106H59Z M53 62h70v8H53Z M53 102h70v8H53Z M202 66H260V106H202Z M196 62h70v8H196Z M196 102h70v8H196Z','wf-cloth')+
+        path('M72 74H105M72 82H105M72 90H105M214 74H250M214 82H250M214 90H250M214 98H250','wf-stitch')+
+        path('M66 58V40h27m-5 -4l5 4 -5 4M147 86h23m-6 -5l6 5 -6 5','wf-arrow')+
+        label(36,131,'Trim the starting tail')+label(190,131,'Evenly wound layers'),
+      bobbinDrop:path('M44 45H197V123H44Z','wf-edge')+path('M81 83a38 27 0 1 0 76 0a38 27 0 1 0 -76 0','wf-cloth')+
+        path('M143 86Q148 66 123 66Q98 65 94 84m-4 -6l4 6 6 -4','wf-arrow')+
+        path('M153 94q18 23 43 19h53m-6 -5l6 5 -6 5','wf-dimension')+
+        label(46,34,'Unwinds counterclockwise')+label(204,102,'Pull through slit')+label(211,132,'Cutter'),
+      threadEye:path('M114 23h13v92l-7 13 -6 -13z','wf-cloth')+path('M117 104a3 6 0 1 0 6 0a3 6 0 1 0 -6 0M102 51h30l9 8','wf-edge')+
+        path('M90 49q41 -4 63 33q14 26 -34 22l-27 16q-9 6 -29 6m7 -4l-7 4 7 4','wf-arrow')+
+        label(153,54,'Needle-bar guide')+label(141,106,'Through eye, then back')+label(32,145,'Tail under foot')+label(156,141,'Leave 10 cm'),
+      zigzag:path('M61 50H201V118H61Z','wf-cloth')+path('M187 55l12 9 -12 9 12 9 -12 9 12 9 -12 9','wf-dimension')+
+        label(75,80,'One allowance at a time')+label(77,97,'Just inside the raw edge')+label(78,137,'LCD 04 · foot J'),
+      board:path('M43 29H252V137H43Z','wf-edge')+
+        guide(43,54,252,54)+guide(43,80,252,80)+guide(43,106,252,106)+guide(80,29,80,137)+guide(120,29,120,137)+
+        guide(160,29,160,137)+guide(200,29,200,137)+path('M62 48H225V115H62Z','wf-cloth')+
+        label(109,72,'Fabric stays flat')+label(65,102,'One layer · no wrinkles')+label(81,153,'Cutting board grid'),
+      basicGrain:path('M45 29H274V134H45Z','wf-cloth')+path('M64 29V134M103 42H247V123H103Z','wf-edge')+
+        path('M166 50V108m-4-7l4 7 4 -7M162 57l4 -7 4 7','wf-arrow')+
+        span(65,165,63,format(grain))+span(65,165,109,format(grain))+label(178,84,'Grainline')+label(44,149,'Selvage'),
+      cutRectangle:practicePiece+span(92,practiceRight,145,cutWidth)+tick(practiceRight+12,32,132,cutLength)+label(111,79,'Cut on')+label(111,95,'solid line'),
+      seamGuide:stitchGuide+label(190,96,'Raw edge')+label(55,89,'Stitch line'),
+      startSeam:scenes.stitchStart[1]+span(145,177,145,margin),
+      lockSeam:stitchGuide+path('M108 50V102m-4 -6l4 6 4 -6M124 102V50m-4 6l4 -6 4 6','wf-arrow')+
+        label(43,48,'Forward')+label(47,102,'Reverse'),
+      pressOpen:path('M38 46H267V120H38Z','wf-cloth')+path('M101 46H152V120H101Z M152 46H204V120H152Z','wf-fold')+
+        path('M152 47V120','wf-stitch')+path('M139 77H105m6 -6l-6 6 6 6M166 77H199m-6 -6l6 6 -6 6','wf-arrow')+
+        span(101,152,138,margin)+span(152,204,138,margin)+label(54,34,'Wrong side up'),
+      rotaryCut:path('M42 36H244V124H42Z','wf-edge')+path('M57 54H185V114H57Z','wf-cloth')+
+        path('M176 37H201V125H176Z','wf-fold')+path('M201 49V120','wf-stitch')+
+        path('M212 86l21 26M204 81a9 9 0 1 0 18 0a9 9 0 1 0 -18 0','wf-edge')+
+        path('M233 72V44m-5 5l5 -5 5 5','wf-arrow')+label(81,82,'Keep ruler steady')+label(72,147,'Rated rotary mat'),
+      squareGap:gapFigure+label(110,82,'Leave open'),
+      pivot:piece+inner+path('M184 86V40H149m6 -5l-6 5 6 5','wf-arrow')+
+        path('M181 40a3 3 0 1 1 6 0a3 3 0 1 1 -6 0','wf-dimension')+
+        span(184,192,102,margin)+label(106,68,'Needle down')+label(208,75,'Foot up to rotate'),
+      trimCorner:piece+inner+path('M92 45l13 -13M179 32l13 13M92 119l13 13M179 132l13 -13','wf-dimension')+
+        label(104,77,'Clip diagonally')+label(202,95,'Keep stitches intact'),
+      turnSquare:piece+inner+exposed+path('M155 73Q177 94 145 121v15m-5 -6l5 6 5 -6','wf-arrow')+
+        span(121,163,151,reveal)+label(201,83,'Pull through gap'),
+      pointTurner:piece+inner+path('M130 116Q151 66 180 44Q154 87 143 123Z','wf-fold')+
+        path('M174 57l8 -12m-8 2l8 -2 -1 8','wf-arrow')+label(202,49,'Blunt tip')+label(202,74,'Nudge from inside'),
+      tuckGap:path('M48 40H236V122H48Z','wf-cloth')+path('M88 95H196V121H88Z','wf-fold')+
+        path('M88 121H196','wf-stitch')+path('M122 132V103m-4 6l4 -6 4 6M159 132V103m-4 6l4 -6 4 6','wf-arrow')+
+        tick(246,95,121,margin)+label(76,71,'Tuck both raw edges')+label(58,150,'Match the existing seam'),
+      edgeStitch:piece+path('M98 38H186V126H98Z','wf-stitch')+span(186,192,147,format(topstitch))+
+        label(202,80,'Across folded gap')+label(202,97,'Sew all four sides'),
+      finishedSquare:piece+path('M98 38H186V126H98Z','wf-stitch')+span(92,192,147,finishedWidth)+tick(204,32,132,finishedLength)+
+        label(111,75,'Gap is fully')+label(126,90,'closed')
+    };
+  }
+
+  function lessonSteps(lesson) {
+    scenes ??= createScenes();
+    const drawings=lessonScenes(lesson);
+    function figure(id,title,text,primary=false) {
+      const classes=primary?'wf-panel step-figure':'wf-panel';
+      const drawing=drawings[id] || scenes[id]?.[1];
+      if (drawing) return panel(title,drawing,text,classes);
+      const standard=sewingVisuals.figureParts(id);
+      return standardPanel(title,standard[1],text,classes);
+    }
+    return `<ol class="steps illustrated-steps wo-packet-steps">${lesson.steps.map(({title,figure:overview,text,actions,tip,check},index)=>`<li>
+      ${figure(overview,title,text,true)}
+      <details class="wo-how wo-storyboard"${index===0?' open':''}><summary>Follow this step in pictures · ${actions.length} actions</summary>
+        <div class="wf-grid">${actions.map(([id,name,description],i)=>figure(id,(i+1)+'. '+name,description)).join('')}</div>
+        ${tip?`<p class="wo-tip"><strong>Tip</strong> ${escape(tip)}</p>`:''}
+      </details><p class="wo-tip"><strong>Check before moving on</strong> ${escape(check)}</p>
+    </li>`).join('')}</ol>`;
+  }
+
+  return {bodySheet,cuttingPlan,seamPlan,featurePlan,stepList,referenceSheet,machineActions,lessonSteps};
 })();

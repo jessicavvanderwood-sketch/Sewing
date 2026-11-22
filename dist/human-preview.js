@@ -152,6 +152,12 @@ const humanPreview = (() => {
         : contours.filter(row=>row.xMin<0 && row.xMax>0);
       return [key,central.sort((a,b)=>b.girth-a.girth)[0]];
     }));
+    const seatLevels=[levels.midThigh,levels.thigh,levels.hip,levels.highHip,levels.waist];
+    const seatSlices=seatLevels.flatMap((start,i)=>i===seatLevels.length-1?[start]
+      :Array.from({length:5},(_,j)=>mix(start,seatLevels[i+1],j/5))).map(y=>{
+      const contours=sliceContours(mesh,y).sort((a,b)=>b.girth-a.girth);
+      return [y,contours[0]];
+    });
     const [shoulder,elbow,wrist]=arm;
     const armTape=(a,b,fraction)=>{
       const origin=a.map((value,i)=>mix(value,b[i],fraction));
@@ -168,33 +174,13 @@ const humanPreview = (() => {
     const armGirth={upperArm:armTape(shoulder,elbow,.53),forearm:armTape(elbow,wrist,.28),wrist:armTape(elbow,wrist,.96)};
     const foot=mesh.filter(([,y])=>y<.032).map(([, ,z])=>z);
     const heel=Math.min(...foot);
-    return {mesh,height,bottom,arm,leg,levels,sections,armGirth,heel,footLength:Math.max(...foot)-heel};
+    return {mesh,height,bottom,arm,leg,levels,sections,seatSlices,armGirth,heel,footLength:Math.max(...foot)-heel};
   });
 
-  function statureCurve(profile,body,props) {
-    const at=profile.levels;
-    const ankle=props.height*at.ankle;
-    const knee=clamp(props.knee,ankle+7,props.crotch-9);
-    const knots=[[0,0],[at.ankle,ankle],[at.knee,knee],[at.crotch,props.crotch],
-      [at.waist,props.waist],[at.shoulder,props.shoulder],[at.chin,props.chin],[1,props.height]];
-    const lowHip=props.crotch+2;
-    const fullHip=body.waistToHip?clamp(props.waist-body.waistToHip,lowHip,props.waist-5):null;
-    if (fullHip!=null) knots.push([at.hip,fullHip]);
-    if (body.waistToHighHip) {
-      const minimum=(fullHip ?? lowHip)+2;
-      knots.push([at.highHip,clamp(props.waist-body.waistToHighHip,minimum,props.waist-2)]);
-    }
-    if (body.calfHeight) knots.push([at.calf,clamp(body.calfHeight,ankle+2,knee-2)]);
-    const ordered=()=>knots.sort((a,b)=>a[0]-b[0]);
-    const estimated=smoothCurve(ordered(),true);
-    const bust=body.bustHeight?clamp(body.bustHeight,props.waist+6,props.shoulder-5):estimated(at.bust);
-    if (body.bustHeight) knots.push([at.bust,bust]);
-    if (body.underbustHeight) {
-      // Keep the inferred bust level stable when only the rib-cage height is known.
-      if (!body.bustHeight) knots.push([at.bust,bust]);
-      knots.push([at.underbust,clamp(body.underbustHeight,props.waist+2,bust-2)]);
-    }
-    return smoothCurve(ordered(),true);
+  function statureCurve(profile,props) {
+    const knots=Object.entries(profile.levels).filter(([name])=>name!=='neck')
+      .map(([name,at])=>[at,props.landmarks[name]]);
+    return smoothCurve([[0,0],...knots.sort((a,b)=>a[0]-b[0]),[1,props.height]],true);
   }
 
   function sectionScales(contour,targetCm,depthCm,aspect,cm) {
@@ -303,47 +289,85 @@ const humanPreview = (() => {
     return (x,y,z)=>y<=bottom || y>=top?[0,0]:offset(x,y,z,volume,widthAdjustment(y));
   }
 
-  function fitSeatDepth(profile,body,cm,widthAt,depthAt) {
-    const {levels,sections}=profile;
-    if (!body.hipDepth || !sections.hip) return [widthAt,depthAt];
-    const hipScale=sectionScales(sections.hip,body.hip,body.hipDepth,1,cm);
-    const depthChange=(hipScale[1]-depthAt(levels.hip))*sections.hip.depth*cm;
-    if (Math.abs(depthChange)<.05) return [widthAt,depthAt];
-    const deltas=[[levels.midThigh,0,0],[levels.waist,0,0],
-      [levels.hip,hipScale[0]-widthAt(levels.hip),hipScale[1]-depthAt(levels.hip)]];
-    // Continue the seat shape through the upper hips and the tops of the
-    // thighs. Refit each tape circumference as depth changes across the area.
-    for (const [key,share] of [['highHip',.45],['thigh',.28]]) {
-      const contour=sections[key];
-      if (!contour) continue;
-      const y=levels[key], width=widthAt(y), depth=depthAt(y);
-      const girth=body[key] || perimeter(contour.edges,width,depth)*cm;
-      const requestedDepth=Math.max(1,contour.depth*depth*cm+depthChange*share);
-      const [fittedWidth,fittedDepth]=sectionScales(contour,girth,requestedDepth,1,cm);
-      deltas.push([y,fittedWidth-width,fittedDepth-depth]);
-    }
-    deltas.sort((a,b)=>a[0]-b[0]);
-    return [widthAt,depthAt].map((scale,axis)=>{
-      const correction=smoothCurve(deltas.map(row=>[row[0],row[axis+1]]));
-      return y=>scale(y)+correction(y);
-    });
+  function fitSeatDepth(profile,body,cm,heightAt,widthAt,depthAt,pivotZ) {
+    const {levels,sections,seatSlices}=profile;
+    const guide=['midThigh','thigh','hip','highHip','waist'];
+    if (!guide.every(key=>sections[key])) return [widthAt,depthAt,()=>0];
+    const measure=(y,contour)=>{
+      const pivot=pivotZ(y), scale=depthAt(y);
+      const center=pivot+(contour.z-pivot)*scale;
+      const radius=contour.depth*scale/2;
+      return {y,height:heightAt(y),front:center+radius,back:center-radius};
+    };
+    const [mid,thigh,hip,high,waist]=guide.map(key=>measure(levels[key],sections[key]));
+    const targetDepth=body.hipDepth
+      ?sections.hip.depth*sectionScales(sections.hip,body.hip,body.hipDepth,1,cm)[1] : hip.front-hip.back;
+    const hipChange=targetDepth-(hip.front-hip.back);
+    const hipFront=hip.front+hipChange*.48, hipBack=hip.back-hipChange*.52;
+    const thighProgress=(thigh.height-mid.height)/(hip.height-mid.height);
+    const thighBack=Math.min(thigh.back+.24*(hipBack-hip.back),mix(mid.back,hipBack,thighProgress**1.72));
+    const thighFront=thigh.front+.5*(thighBack-thigh.back)+.20*(hipFront-hip.front);
+    const highBack=clamp(high.back+.44*(hipBack-hip.back),hipBack+.18,Math.max(hipBack+.18,waist.back));
+    const highFront=high.front+.48*(hipFront-hip.front);
+    const crest=seatSlices.find(([y])=>Math.abs(y-mix(hip.y,high.y,.4))<1e-6);
+    const crown=crest?measure(...crest):hip;
+    const crownBack=clamp(crown.back+.8*(hipBack-hip.back),hipBack-.10,hipBack+.13);
+    // Trace the front and back through the fit landmarks in body centimeters.
+    // A broad upper seat and a gradual back-thigh transition avoid concentrating
+    // the full depth change just above the crotch where the two legs join.
+    const rows=[[mid.height,mid.front,mid.back],[thigh.height,thighFront,thighBack],
+      [hip.height,hipFront,hipBack],
+      ...(crest?[[crown.height,mix(crown.front,mix(hipFront,highFront,.4),.88),crownBack]]:[]),
+      [high.height,highFront,highBack],[waist.height,waist.front,waist.back]];
+    const frontAt=smoothCurve(rows.map(([h,front])=>[h,front]));
+    const backAt=smoothCurve(rows.map(([h,,back])=>[h,back]));
+    const corrections=(y,contour)=>{
+      const {height,front,back}=measure(y,contour);
+      const weight=ease((height-mid.height)/(thigh.height-mid.height))
+        *ease((waist.height-height)/(waist.height-high.height));
+      const dzFront=(frontAt(height)-front)*weight;
+      const dzBack=(backAt(height)-back)*weight;
+      const scale=(dzFront-dzBack)/contour.depth;
+      const translation=(dzFront+dzBack)/2-(contour.z-pivotZ(y))*scale;
+      return [scale,translation];
+    };
+    const sagittal=seatSlices.filter(([,contour])=>contour).map(([y,contour])=>[y,...corrections(y,contour)]);
+    const widthCorrection=smoothCurve(guide.map(key=>{
+      const y=levels[key], contour=sections[key], width=widthAt(y), depth=depthAt(y);
+      const [scale]=corrections(y,contour);
+      if (Math.abs(scale)<1e-8) return [y,0];
+      const target=body[key] || perimeter(contour.edges,width,depth)*cm;
+      const [fittedWidth]=sectionScales(contour,target,contour.depth*(depth+scale)*cm,1,cm);
+      return [y,fittedWidth-width];
+    }));
+    const depthCorrection=smoothCurve(sagittal.map(([y,scale])=>[y,scale]));
+    const translation=smoothCurve(sagittal.map(([y,,offset])=>[y,offset]));
+    return [y=>widthAt(y)+widthCorrection(y),y=>depthAt(y)+depthCorrection(y),translation];
   }
 
-  function armShape(profile,body,cm,shoulderRatio) {
+  function armShape(profile,body,cm,shoulderRatio,hipWidth,lengths) {
     const [shoulder,elbow,wrist]=profile.arm;
     const upper=direction(shoulder,elbow), lower=direction(elbow,wrist);
     const upperLength=Math.hypot(...upper), lowerLength=Math.hypot(...lower);
     const up=normalize(upper), low=normalize(lower);
-    const naturalTotal=(upperLength+lowerLength)*cm;
-    const total=body.arm || (body.shoulderToElbow?body.shoulderToElbow+lowerLength*cm:naturalTotal);
-    const upperCm=body.shoulderToElbow || total*upperLength/(upperLength+lowerLength);
+    const {arm:total,shoulderToElbow:upperCm}=lengths;
     const upperScale=clamp(upperCm/(upperLength*cm),.64,1.55);
     const lowerScale=clamp((total-upperCm)/(lowerLength*cm),.64,1.55);
     const tape=Object.entries({upperArm:.53*upperLength,forearm:upperLength+.28*lowerLength,wrist:upperLength+.96*lowerLength})
       .filter(([key])=>body[key] && profile.armGirth[key])
       .map(([key,at])=>[at,clamp(body[key]/(profile.armGirth[key]*cm),.57,1.9)]);
     const trim=smoothCurve([[0,1],...tape,[upperLength+lowerLength+.42,1]]);
-    const angle=.28, sin=Math.sin(angle), cos=Math.cos(angle);
+    const shoulderX=shoulder[0]*shoulderRatio;
+    // Keep a small fitting gap beside the torso and hips while the hands
+    // hang below the elbows. Rotate both measured segments with their skin.
+    const armLength=upperLength*upperScale+lowerLength*lowerScale;
+    const wristX=shoulderX+upperLength*upperScale*.24+lowerLength*lowerScale*.13;
+    const clearance=clamp((hipWidth+.27-wristX)/armLength,0,.22);
+    const upperHang=normalize([.24+.85*clearance,-1,-.04]);
+    const lowerHang=normalize([.13+1.2*clearance,-1,.14]);
+    const upperTurn=aim(up,upperHang);
+    const lowerTurn=multiply(aim(rotate(upperTurn,low),lowerHang),upperTurn);
+    const fittedElbow=times(upperHang,upperLength*upperScale);
     return (x,y,z)=>{
       const rawY=y*profile.height+profile.bottom;
       const relative=[x-shoulder[0],rawY-shoulder[1],z-shoulder[2]];
@@ -353,15 +377,30 @@ const humanPreview = (() => {
       const progress=mix(start,upperLength+end,bend);
       const size=trim(progress);
       const lowerPosition=Math.min(lowerLength,end);
-      const [dx,dy,dz]=relative.map((value,i)=>{
-        const before=up[i]*start;
-        const after=upper[i]+low[i]*lowerPosition;
-        const from=mix(before,after,bend);
-        const to=mix(before*upperScale,upper[i]*upperScale+low[i]*lowerPosition*lowerScale,bend);
-        return to+(value-from)*size;
-      });
-      return {x:shoulder[0]*shoulderRatio+dx*cos+dy*sin,y:dx*-sin+dy*cos,z:shoulder[2]+dz};
+      const upperAxis=times(up,start);
+      const lowerAxis=add(upper,times(low,lowerPosition));
+      const upperPoint=add(times(upperHang,start*upperScale),rotate(upperTurn,times(direction(upperAxis,relative),size)));
+      const lowerPoint=add(add(fittedElbow,times(lowerHang,lowerPosition*lowerScale)),
+        rotate(lowerTurn,times(direction(lowerAxis,relative),size)));
+      const [dx,dy,dz]=lerp3(upperPoint,lowerPoint,bend);
+      return {x:shoulderX+dx,y:dy,z:shoulder[2]+dz};
     };
+  }
+
+  function relaxKnees(vertices,[hip,knee,ankle]) {
+    const align=(knee[1]-hip[1])/(ankle[1]-hip[1]);
+    const center=mix(hip[2],ankle[2],align);
+    const setback=clamp(knee[2]-center-.85*unit,0,3.3*unit);
+    if (setback===0) return;
+    // Keep a slight anatomical bend while leaving joint heights, tape
+    // sections, and both feet fixed.
+    knee[2]-=setback;
+    for (const point of vertices) {
+      const y=point[1];
+      if (y<=hip[1] || y>=ankle[1] || point[3]>=.995) continue;
+      const blend=ease((y-hip[1])/(knee[1]-hip[1]))*ease((ankle[1]-y)/(ankle[1]-knee[1]));
+      point[2]-=setback*blend*(1-point[3]);
+    }
   }
 
   function fit(body) {
@@ -371,7 +410,7 @@ const humanPreview = (() => {
     const geometry=sewingModels.bustGeometry(body,props);
     const at=profile.levels;
     const cm=props.height/profile.height;
-    const heightAt=statureCurve(profile,body,props);
+    const heightAt=statureCurve(profile,props);
     const outline=body.scan?modelCamera.rings([
       [-.90,1,1],[-.79,1,1],[-.75,1,1],[-.63,1,1],[-.45,1,1],[-.25,1,1],[-.04,1,1],[.16,1,1],[.30,1,1]
     ],body.scan):null;
@@ -386,32 +425,35 @@ const humanPreview = (() => {
     });
     const scales=female?bustScales(profile,contourScales):contourScales;
     const scaleAt=axis=>smoothCurve([[.026,1],...scales.map(row=>[row[0],row[axis]]),[.925,1]]);
-    const [widthAt,depthAt]=fitSeatDepth(profile,body,cm,scaleAt(1),scaleAt(2));
-    const adjustBust=female?bustVolume(profile,body,geometry,cm,widthAt,depthAt):()=>[0,0];
     const pivotZ=smoothCurve([...legSections,...torsoSections].filter(key=>profile.sections[key])
       .map(key=>[at[key],profile.sections[key].z]));
+    const [widthAt,depthAt,seatShiftAt]=fitSeatDepth(profile,body,cm,heightAt,scaleAt(1),scaleAt(2),pivotZ);
+    const adjustBust=female?bustVolume(profile,body,geometry,cm,widthAt,depthAt):()=>[0,0];
     const legPivot=smoothCurve([...legSections.map(key=>[at[key],profile.sections[key]?.x || 0]),
       [at.crotch,profile.sections.thigh?.x || 0],[at.hip,0]]);
+    const thighAlignment=clamp(widthAt(at.hip)-widthAt(at.thigh),-.28,.28);
     const footScale=body.footLength?clamp(body.footLength/(cm*profile.footLength),.7,1.35):1;
     const shoulderWidth=(2*profile.arm[0][0]+.62)*cm;
     const shoulderRatio=body.shoulder?clamp(body.shoulder/shoulderWidth,.73,1.35):1;
-    const shapeArm=armShape(profile,body,cm,shoulderRatio);
+    const hipWidth=Math.max(...['waist','highHip','hip'].map(key=>(profile.sections[key]?.xMax||0)*widthAt(at[key])));
+    const shapeArm=armShape(profile,body,cm,shoulderRatio,hipWidth,props.estimates);
     const shoulderY=floor-props.shoulder*unit;
     function shaped([x,y,z],armWeight=0) {
       const sign=Math.sign(x);
-      const arm=shapeArm(Math.abs(x),y,z);
+      const arm=armWeight?shapeArm(Math.abs(x),y,z):null;
       const shoulder=ease((y-at.upperChest)/(at.shoulder-at.upperChest))*ease((at.neck-y)/(at.neck-at.shoulder));
       const vertical=floor-heightAt(y)*unit;
       const center=legPivot(y)*sign*ease(Math.abs(x)/.35);
+      const alignThigh=center*thighAlignment*ease((y-at.midThigh)/(at.thigh-at.midThigh));
       const zCenter=pivotZ(y);
       const [bustWidth,bustDepth]=adjustBust(x,y,z);
-      const sizedX=center+(x-center)*widthAt(y)+(shoulderRatio-1)*x*shoulder+bustWidth;
+      const sizedX=center+(x-center)*widthAt(y)+alignThigh+(shoulderRatio-1)*x*shoulder+bustWidth;
       const stance=sign*.43*ease((at.crotch-y)/(at.crotch-at.calf));
       const foot=(z-profile.heel)*(footScale-1)*ease((at.ankle-y)/(at.ankle-.012));
       return [
-        (mix(sizedX,sign*arm.x,armWeight)-stance)*cm*unit,
-        mix(vertical,shoulderY-arm.y*cm*unit,armWeight),
-        (mix(zCenter+(z-zCenter)*depthAt(y)+foot+bustDepth,arm.z,armWeight)-.34)*cm*unit,
+        (mix(sizedX,sign*(arm?.x??0),armWeight)-stance)*cm*unit,
+        mix(vertical,shoulderY-(arm?.y??0)*cm*unit,armWeight),
+        (mix(zCenter+(z-zCenter)*depthAt(y)+seatShiftAt(y)+foot+bustDepth,arm?.z??0,armWeight)-.34)*cm*unit,
         armWeight
       ];
     }
@@ -427,6 +469,7 @@ const humanPreview = (() => {
     });
     const joints=profile.arm.map(point=>shaped(normalized(point),1).slice(0,3));
     const legJoints=profile.leg.map(point=>shaped(normalized(point)).slice(0,3));
+    relaxKnees(vertices,legJoints);
     return {vertices,joints,legJoints};
   }
 

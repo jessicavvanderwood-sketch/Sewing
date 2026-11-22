@@ -19,7 +19,7 @@ Then open http://localhost:8000. The project uses plain HTML, CSS and JavaScript
 - **Work Orders** copies the fabric, tools and construction checklist from a style. Check off steps to update progress.
 - **3D Fitting Room** rotates a simplified garment on a dress form. Set the form waist and hip and adjust the garment waist, hip or hem length. Generate a tailoring guide and save it as a work order.
 
-- **Sewing Basics** covers Brother CP2160F setup, measuring and cutting, straight seams, and a beginner fabric coaster project.
+- **Sewing Basics** shows Brother CP2160F setup, cutting-board layout, straight seams, and a fabric coaster project. Each illustrated lesson breaks the work into actions and checks. The video library shows seams, neckline finishes, and sleeve construction.
 
 Data is stored in the current browser for the current site origin. Different browsers and devices have separate data. The 3D model provides a visual approximation. Confirm ease, available seam allowances and the final fit on the physical garment.
 
@@ -38,7 +38,9 @@ Tool photos show representative examples. The Brother machine photo links to the
 
 ## Design a garment or use a reference photo
 
-Open **Design Studio** to combine a silhouette, length, neckline, sleeves, color, and fabric. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
+Open **Pattern Library → New custom piece** to combine a silhouette, length, neckline, sleeves, color, and fabric in the design editor. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
+
+For a dress or skirt, **Fabric layers** adds up to five overskirts, underskirts, or tiers. Set each layer’s fabric, color, opacity, hem offset, and extra hem sweep. A tier also has an attachment position between the waist and main hem. The preview and saved garment carry those settings into the Fitting Room. The construction plan shows layer measurements and how to cut, attach, and hem each layer.
 
 Select **Fit to model** to use a saved model’s chest, waist, hip and shoulder measurements in the preview and work order. The construction plan adds your selected wearing ease to the applicable finished measurement. A front-view JPG, PNG, or WebP can suggest a garment type, silhouette, sleeve presence and color from visible pixels. Use a well-lit, flat garment on a plain contrasting background. The analysis and thumbnail stay in your browser. Review the suggested design and provide details the photo cannot establish. Use a compatible base pattern and a test garment to establish sizing and cutting shapes.
 
@@ -89,6 +91,8 @@ Modeling references include the [ISO 8559-1 apparel measurement definitions](htt
 ### Detailed human preview
 
 The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, three-quarter, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Optional torso depth and height, arm segment length, forearm girth, and leg and foot measurements refine the shape. Smooth interpolation follows the measured landmarks without stepping abruptly from one section to the next. The Fitting Room uses the selected avatar and has static poses plus playable and scrubbable walk, sit-to-stand, and arm-motion loops. The stretch map and drape use the selected fabric settings to estimate movement.
+
+The model editor estimates blank landmark heights using adult references and the measurements you enter. As a starting point, crotch height is about 48% of stature, kneecap height is about 57–58% of crotch height, shoulder height is about 82% of stature, and the fullest part of the seat is about 50–51% of stature. These estimates draw on medians from the adult US Army ANSUR II sample. The waist, chest, and intermediate surface landmarks also use the fitting mesh and sewing measurement locations. An entered barefoot body inseam, natural-waist height, or other compatible landmark takes precedence. See [ANSUR II data and measurement manual](https://mreed.umtri.umich.edu/mreed/downloads.html) and [ISO apparel measurement landmarks](https://gso-sims-preview-doc-aws.s3-eu-west-1.amazonaws.com/iso-8559-1989-en.html).
 
 The preview uses the [MakeHuman base mesh](https://github.com/makehumancommunity/makehuman/blob/master/makehuman/data/3dobjs/base.obj) and [MPFB adult morph targets](https://github.com/makehumancommunity/mpfb2/tree/master/src/mpfb/data/targets/macrodetails), released under [CC0 1.0](https://www.makehumancommunity.org/about/license.html). The generation command and asset inputs are documented in `scripts/build-human-mesh.py`. The geometry ships with the dashboard and the preview runs on the device.
 

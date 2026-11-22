@@ -79,7 +79,7 @@ const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
 const notice = document.querySelector('#notice');
 studioUnits.watch(document.querySelector('#length-units'),view,modal);
-const titles = {overview:'Overview',design:'Design Studio',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'3D Fitting Room',models:'Model Library',basics:'Sewing Basics'};
+const titles = {overview:'Overview',design:'New custom piece',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'3D Fitting Room',models:'Model Library',basics:'Sewing Basics'};
 const features = [['design','✧','Create an original garment or start from a reference photo.'],['library','▤','Browse garment styles, cuts and construction guides.'],['fitting','◇','Preview fit changes and plan your alterations.']];
 const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const allPatterns = () => [...patterns, ...state.custom];
@@ -784,6 +784,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const model = pattern ? basePattern(pattern).id : null;
   const skirtFit=model==='dress'||model==='skirt';
   const design = pattern?.design;
+  const garmentLayers=skirtFit?studioDesign.layers(design):[];
   const designShape = design ? studioDesign.measurements(design) : null;
   const necklineStyle = changes.neckline || design?.neckline;
   const support=changes.support || (design?studioDesign.selectedSupport(design):'Integrated shoulders');
@@ -896,7 +897,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const column=Math.floor(position);
       return geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
     }
-    if (part && part!=='torso-skin') surfaces[part]={rings,opening:neckWidth,sampleRing,projectPoint:(row,theta,index)=>{
+    if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,opening:neckWidth,sampleRing,projectPoint:(row,theta,index)=>{
       const point=sampleRing(theta,index);
       if (row!==rings[index]) {
         const current=movePoint(restPoint(row,theta,index),theta,index);
@@ -1002,7 +1003,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const articulated=avatar?.pose?.(pose);
   const torsoMove=articulated?.torso||rig.torso;
   const legMove=articulated?.leg||rig.leg;
-  const skirtMove=(point,theta)=>{
+  const skirtMove=(point,theta,cloth=analysis?.material)=>{
     if (articulated && pose.sit && point[1]>.045) {
       const [x,y,z]=point;
       const {hip,knee}=articulated.joints[1];
@@ -1022,7 +1023,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const blend=Math.sqrt(pose.sit)*fabricFit.clamp(distance/.075,0,1);
       return neutral.map((n,i)=>fabricFit.mix(n,bent[i],blend));
     }
-    const hang=rig.skirt(point,theta,analysis?.material);
+    const hang=rig.skirt(point,theta,cloth);
     if (!articulated) return hang;
     const previous=rig.torso(point);
     return torsoMove(point).map((value,i)=>value+hang[i]-previous[i]);
@@ -1281,6 +1282,109 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     }
   }
 
+  function drawSkirtLayers() {
+    if (!garmentLayers.length) return;
+    const {rest,geometry}=surfaces.shell;
+    const segments=rest[0].length;
+    const unit=2.368/168;
+    const waist=proportions.yAt(shell[model==='dress'?3:0][0]);
+    const floor=proportions.yAt(1.105);
+    const frontHem=proportions.yAt(rest.at(-1)[segments/4][1]);
+    const columns=Array.from({length:segments},(_,i)=>{
+      const theta=i*2*Math.PI/segments;
+      const levels=rest.map((row,j)=>({height:proportions.yAt(row[i][1]),point:geometry[j][i]}))
+        .sort((a,b)=>a.height-b.height);
+      return {theta,levels,restHem:rest.at(-1)[i],hem:proportions.yAt(rest.at(-1)[i][1]),posedHem:geometry.at(-1)[i]};
+    });
+    const ordered=[...garmentLayers.filter(layer=>layer.kind==='Underskirt'),...garmentLayers.filter(layer=>layer.kind!=='Underskirt')];
+    const stack=[];
+    for (const layer of ordered) {
+      const under=layer.kind==='Underskirt';
+      const tier=layer.kind==='Tier';
+      const attachment=tier?fabricFit.mix(waist,frontHem,layer.attachment/100):waist;
+      const gap=under?-.012:.008;
+      const cloth=getFabric(layer.fabric);
+      const weave=fabricFit.weave(layer.fabric,cloth.category);
+      const opacity=layer.opacity/100;
+      const channels=color(layer.color).slice(1).match(/../g).map(n=>parseInt(n,16));
+      const sweep=unit*layer.sweep/(2*Math.PI);
+      const length=Math.max(.042,Math.min(floor,frontHem+unit*layer.hemOffset)-attachment);
+      const rows=Math.max(8,Math.ceil(length/(thumbnail?.078:.050)));
+      const section=columns.map(({theta,levels,restHem,hem,posedHem},i)=>{
+        const end=Math.min(floor,Math.max(attachment+.036,hem+unit*layer.hemOffset));
+        const start=under?Math.min(end,Math.max(attachment,hem-.014)):attachment;
+        const hidden=under && end<=hem+.001;
+        const dx=Math.cos(theta),dz=Math.sin(theta);
+        const movedHem=skirtMove(restHem,theta,cloth);
+        const correction=posedHem.map((n,i)=>n-movedHem[i]);
+        const vertices=Array.from({length:rows+1},(_,j)=>{
+          const fraction=j/rows;
+          const y=fabricFit.mix(start,end,fraction);
+          const drop=fabricFit.clamp((y-attachment)/Math.max(.036,end-attachment),0,1);
+          const extension=Math.max(0,y-hem);
+          let point;
+          if (extension>0) {
+            const canonical=proportions.baseAt((1.128-y)/unit);
+            const fade=Math.max(0,1-extension/.24);
+            point=skirtMove([restHem[0],canonical,restHem[2]],theta,cloth)
+              .map((n,i)=>n+correction[i]*fade);
+          } else {
+            const hi=levels.findIndex(row=>row.height>=y);
+            const b=levels[hi<0?levels.length-1:hi];
+            const a=levels[Math.max(0,(hi<0?levels.length-1:hi)-1)];
+            const t=fabricFit.clamp((y-a.height)/Math.max(.001,b.height-a.height),0,1);
+            point=a.point.map((n,i)=>fabricFit.mix(n,b.point[i],t));
+          }
+          const spread=drop**(tier?.73:1.28)*sweep;
+          const fullness=(.016+sweep*.11)*(1-.64*cloth.bend)*drop**1.45;
+          const fold=Math.cos(theta*(tier?12:8)+drop*1.9)*fullness;
+          const release=under?fabricFit.clamp(extension/.105,0,1):1;
+          const moved=fabricFit.followThrough(point,theta,drop,pose,cloth);
+          const motion=(moved[0]-point[0])*dx+(moved[2]-point[2])*dz;
+          let offset=gap+release*Math.max(0,spread+fold+motion*.55);
+          // Keep later panels outside the ones they cover. Ease out the
+          // extra width above an attachment and below a shorter hem.
+          if (!under || extension>.014) for (const inner of stack) {
+            const panel=inner[i];
+            if (panel.hidden || y<panel.start-.065 || y>panel.end+.065) continue;
+            const t=fabricFit.clamp((y-panel.start)/Math.max(.001,panel.end-panel.start),0,1)*(panel.vertices.length-1);
+            const a=panel.vertices[Math.floor(t)],b=panel.vertices[Math.ceil(t)];
+            const width=(fabricFit.mix(a[0],b[0],t%1)-point[0])*dx+(fabricFit.mix(a[2],b[2],t%1)-point[2])*dz;
+            const edge=fabricFit.clamp(1-Math.max(panel.start-y,y-panel.end,0)/.065,0,1);
+            offset+=Math.max(0,width+.012-offset)*edge*edge*(3-2*edge);
+          }
+          point=[point[0]+dx*offset,point[1]+(extension>0?moved[1]-point[1]:0),point[2]+dz*offset];
+          if (extension>0 && shellContact) point=shellContact(point,theta);
+          return point;
+        });
+        return {start,end,vertices,points:vertices.map(project),hidden};
+      });
+      stack.push(section);
+      for (let i=0;i<segments;i++) {
+        const a=section[i],b=section[(i+1)%segments];
+        if (a.hidden && b.hidden) continue;
+        const theta=(i+.5)*2*Math.PI/segments+angle;
+        for (let j=0;j<rows;j++) {
+          const band=(j+.5)/rows;
+          const points=[a.points[j],b.points[j],b.points[j+1],a.points[j+1]];
+          const [p,q,r]=points;
+          const inner=(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])>=0;
+          const visibleTex=fabricFit.sample(cloth.photo,i/segments*3,band*2.5,analysis?.redraw);
+          const swatch=visibleTex ? .35+.85*(.2126*visibleTex[0]+.7152*visibleTex[1]+.0722*visibleTex[2])/255 : 1;
+          const grain=weave==='satin'?Math.max(0,Math.cos(theta-1.95))**11*.17:
+            weave==='mesh'?(Math.sin(i*2.3)+Math.cos(j*2.7))*.012:
+              Math.sin(theta*(weave==='twill'?13:9)+band*42)*.017;
+          const edge=tier && j===0 || j===rows-1;
+          const light=(.76+.23*Math.cos(theta-1.95)+.11*Math.sin(theta)+grain)*(inner?.90:1)*(edge?.91:1);
+          const tint=channels.map(c=>fabricFit.clamp(Math.round(c*light*swatch),0,255));
+          const paint=opacity===1?'rgb('+tint.join(',')+')':'rgba('+tint.join(',')+','+opacity+')';
+          const depth=points.reduce((sum,p)=>sum+p[2],0)/4;
+          faces.push({points,depth,paint,skipStroke:opacity<1,seam:edge});
+        }
+      }
+    }
+  }
+
   if (pattern) {
     const torsoClearance = body.mesh ? importedEnvelope(body.mesh,torso) : torso;
     const aroundAvatar=([y,w,d,center=0,centerZ=0],part,side=1)=>{
@@ -1327,6 +1431,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (model==='dress'||model==='skirt') return skirtMove(moved,theta);
         return model==='trousers'?rig.pelvis(moved,theta):torsoMove(moved);
       },'shell');
+    drawSkirtLayers();
     bridgeShoulders();
     if (design?.hood) {
       const hood=fabricFit.resample([[-.867,.072,.041],[-.835,.10,.061],[-.775,.136,.079],[-.705,.136,.105],
@@ -1466,8 +1571,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
     }
   }
-  const depthRendered=skinPoints && typeof fittingRender!=='undefined' && humanPreview.topology && fittingRender.paint(context,{
-    faces,skinPoints,skinTopology:humanPreview.topology,skinColor:skin,width,height,cx,cy,scale,markings
+  const depthRendered=(skinPoints||garmentLayers.length) && typeof fittingRender!=='undefined' && fittingRender.paint(context,{
+    faces,skinPoints,skinTopology:skinPoints?humanPreview.topology:null,skinColor:skin,width,height,cx,cy,scale,markings
   });
   if (!depthRendered && skinPoints) {
     const channels=skin.slice(1).match(/../g).map(value=>parseInt(value,16));
@@ -1481,7 +1586,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     context.fill();
     context.lineWidth = face.skin?.52:.85;
     context.strokeStyle = face.paint;
-    context.stroke();
+    if (!face.skipStroke) context.stroke();
     if (face.seam) {
       const [a,b,c] = face.points;
       context.beginPath();
@@ -1523,17 +1628,20 @@ function models() {
 
 function addModel(existing) {
   const starting = existing || getModel('studio-form');
+  const baseKeys=['bust','waist','hip','shoulder'];
+  const editedBase=new Set();
   const field=(key,required=false)=>{
     const [label,min,max]=sewingModels.dimensions[key];
     const tip=sewingModels.measuringTips[key];
-    return `<label class="field"><span>${label} (cm)</span><input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${escape(starting[key]??'')}" step="0.5" ${required?'required':''} ${tip?`aria-describedby="model-tip-${key}"`:''}></label>${tip?`<small class="measurement-tip" id="model-tip-${key}">${tip}</small>`:''}`;
+    const measured=existing?.[key] ?? (required?starting[key]:'');
+    return `<label class="field"><span>${label} (cm)</span><input type="number" data-length-input name="${key}" min="${min}" max="${max}" value="${escape(measured)}" step="0.5" ${required?'required':''} ${tip?`aria-describedby="model-tip-${key}"`:''}></label>${tip?`<small class="measurement-tip" id="model-tip-${key}">${tip}</small>`:''}`;
   };
   const fieldGrid=(keys,required=false)=>keys.map(key=>`<div class="model-measurement">${field(key,required)}</div>`).join('');
   const group=(section,help='',open=false)=>`<details class="design-options model-measurements"${open?' open':''}><summary>${section.title}</summary>${help}<div class="fields tight">${fieldGrid(section.keys)}</div></details>`;
   const [overall,...regions]=sewingModels.measurementGroups;
   showDialog(existing?'Edit model':'Add custom model',`<form id="model-form"><label class="field">Model name<input name="name" maxlength="90" value="${escape(existing?.name || '')}" required></label>
-    <label class="field">Starting profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
-    <div class="fields">${fieldGrid(['bust','waist','hip','shoulder'],true)}</div>
+    <label class="field">Adult body profile<select name="profile">${Object.entries(sewingModels.profiles).map(([key,name])=>option(key,name,sewingModels.profileOf(starting))).join('')}</select></label>
+    <div class="fields">${fieldGrid(baseKeys,true)}</div>
     <div class="fields">
       <div>${field('underbust')}</div>
       <label class="field" data-bra-size${sewingModels.profileOf(starting)==='male'?' hidden':''}>Bra size (optional)<input name="braSize" maxlength="20" value="${escape(existing?.braSize||'')}" placeholder="e.g. 34DD"></label>
@@ -1553,7 +1661,8 @@ function addModel(existing) {
     <div class="model-views"><canvas id="model-scan-preview" class="model-scan-preview" width="560" height="410" role="img" aria-label="Model shape preview"></canvas>
       <div class="actions tight"><button type="button" class="secondary" data-model-angle="0">Front view</button><button type="button" class="secondary" data-model-angle="0.65">Three-quarter view</button><button type="button" class="secondary" data-model-angle="1.57">Side view</button><button type="button" class="secondary" data-model-angle="3.14">Back view</button></div>
     </div>
-    <p class="muted tight">Use the measurements you have. The preview estimates the fields you leave blank.</p>
+    <p class="muted tight">Your measurements shape the preview. Placeholders marked “Est.” are adult landmark estimates for blank fields. Enter your height and body inseam for a closer starting fit.</p>
+    <p id="model-proportion-note" class="muted tight" role="status" hidden></p>
     ${group(overall,`<div class="measurement-help">
       <svg viewBox="0 0 190 168" role="img" aria-label="Body measurement landmarks from shoulder, waist and crotch to floor">
         <circle cx="54" cy="22" r="12" fill="none" stroke="currentColor"/>
@@ -1566,9 +1675,9 @@ function addModel(existing) {
       <dt>Waist to floor</dt><dd>From your natural waist straight down at the side to the floor.</dd>
       <dt>Crown to chin</dt><dd>With your head level, measure the vertical distance from the top of your head to the bottom of your chin.</dd>
       <dt>Shoulder to waist</dt><dd>At the back, measure from where the neck meets the shoulder down to your natural waist.</dd></dl>
-    </div>`,Boolean(starting.height||starting.inseam))}
+    </div>`,true)}
     ${regions.map(section=>group(section)).join('')}
-    <details class="design-options"><summary>Shape your form with a camera</summary>
+    <details class="design-options" data-model-camera><summary>Shape your form with a camera</summary>
       <p class="tight">Stand head to toe against a plain, contrasting background. Wear fitted clothes and keep your arms down and a little away from your torso. Capture one front view and one side view. Use the same camera position for both.</p>
       <p class="tight">Your measurements set the sizing. Only the outline is kept. Camera frames stay on this device and aren’t saved.</p>
       <video class="model-camera" muted autoplay playsinline hidden aria-label="Live camera preview"></video>
@@ -1583,16 +1692,48 @@ function addModel(existing) {
     <p id="model-error" class="tight" role="alert"></p><button>Save model</button></form>`);
   const form = document.querySelector('#model-form');
   const canvas = form.querySelector('#model-scan-preview');
+  const proportionNote=form.querySelector('#model-proportion-note');
+  const modelError=form.querySelector('#model-error');
+  const dimensionFields=Object.fromEntries(Object.keys(sewingModels.dimensions).map(key=>[key,form.elements.namedItem(key)]));
   let scan = existing?.scan || null;
   let previewAngle=-.38;
   let previewFrame;
+  let lastHint='';
   for (const button of form.querySelectorAll('[data-model-angle]')) button.onclick=()=>{
     previewAngle=Number(button.dataset.modelAngle);preview();
   };
-  const readDimensions=()=>Object.fromEntries(Object.keys(sewingModels.dimensions).flatMap(key=>{
-    const metric=studioUnits.lengthValue(form.elements.namedItem(key));
+  const readDimensions=()=>Object.fromEntries(Object.entries(dimensionFields).flatMap(([key,field])=>{
+    const metric=studioUnits.lengthValue(field);
     return metric==null?[]:[[key,metric]];
   }));
+  function measurementHints() {
+    const profile=form.elements.namedItem('profile').value;
+    const data={...readDimensions(),profile};
+    const {estimates={},adjusted=[]}=sewingModels.proportions(data);
+    const review=new Set(adjusted);
+    for (const [key,input] of Object.entries(dimensionFields)) {
+      if (input.value==='' && Number.isFinite(estimates[key])) studioUnits.writeEstimate(input,estimates[key]);
+      else if (input.dataset.estimatedLength!==undefined) studioUnits.writeEstimate(input,null);
+      const {rangeUnderflow,rangeOverflow,badInput}=input.validity;
+      if (rangeUnderflow || rangeOverflow || badInput) review.add(key);
+      if (input.closest('#cup-field')?.hidden) review.delete(key);
+      const flagged=review.has(key);
+      if (flagged) input.setAttribute('aria-invalid','true');
+      else input.removeAttribute('aria-invalid');
+      const descriptions=[sewingModels.measuringTips[key]?`model-tip-${key}`:'',flagged?'model-proportion-note':''].filter(Boolean);
+      if (descriptions.length) input.setAttribute('aria-describedby',descriptions.join(' '));
+      else input.removeAttribute('aria-describedby');
+    }
+    const labels=[...review].map(key=>sewingModels.dimensions[key]?.[0]).filter(Boolean);
+    const issue=sewingModels.measurementIssue(data);
+    const message=[labels.length?`Review ${labels.join(', ')}. Check the tape landmarks and the selected unit.`:'',issue].filter(Boolean).join(' ');
+    proportionNote.hidden=!message;
+    if (lastHint!==message) {
+      lastHint=message;
+      proportionNote.textContent=message;
+      studioUnits.refresh(proportionNote);
+    }
+  }
   function preview() {
     const data = new FormData(form);
     const shape={...readDimensions(),profile:data.get('profile'),cup:data.get('cup'),braSize:data.get('braSize'),mesh:data.has('removeMesh')?null:existing?.mesh,scan,skin:color(data.get('skin'))};
@@ -1602,7 +1743,7 @@ function addModel(existing) {
     if (depth.limited) note.textContent='The entered depth is too large for the preview. Check the measurement and the selected unit.';
     drawModel(canvas,null,previewAngle,{},shape,true);
   }
-  const cleanCamera = modelCamera.setup(form,scan,next=>{
+  const cleanCamera = modelCamera.setup(form.querySelector('[data-model-camera]'),scan,next=>{
     scan=next;
     preview();
   });
@@ -1611,21 +1752,25 @@ function addModel(existing) {
     cleanCamera?.();
   };
   form.addEventListener('input',event=>{
+    if (baseKeys.includes(event.target.name)) editedBase.add(event.target.name);
     const male=form.elements.namedItem('profile').value==='male';
     form.querySelector('#cup-field').hidden=male;
     form.querySelector('[data-bra-size]').hidden=male;
     if (event.target.name==='profile' && !existing) {
       const preset=sewingModels.starter[event.target.value];
-      for (const key of Object.keys(sewingModels.dimensions)) studioUnits.writeLength(form.elements.namedItem(key),preset[key]??null);
+      for (const key of baseKeys) if (!editedBase.has(key)) studioUnits.writeLength(dimensionFields[key],preset[key]);
     }
+    if (event.target.matches('[data-length-input], [name=profile]')) measurementHints();
+    modelError.textContent='';
     cancelAnimationFrame(previewFrame);
     previewFrame=requestAnimationFrame(preview);
   });
+  measurementHints();
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     const data = new FormData(form);
     const name = data.get('name').trim();
-    const error = form.querySelector('#model-error');
+    const error = modelError;
     if (!name) { error.textContent = 'Enter a model name.'; return; }
     const file = data.get('mesh');
     let mesh = data.has('removeMesh')?undefined:existing?.mesh;
@@ -1795,8 +1940,12 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
     const key=['top','dress'].includes(model)?'bust':'hip';
     targets.push([key==='bust'?'Finished chest / bust target':'Finished hip / seat target',cm(body[key]+pattern.design.ease+(targetChanges[key]||0))]);
   }
+  const layers=make?studioDesign.layers(pattern.design).map((layer,index)=>[
+    `Layer ${index+1} · ${layer.kind}`,layer.fabric,adjustmentText(layer.hemOffset),cm(layer.sweep),
+    layer.kind==='Tier'?`${layer.attachment}% from waist to main hem`:'Waist seam'
+  ]):[];
   return {headings:make?['Model measurement','Size']:['Model measurement','Source','Target'],
-    rows,adjustments,targets,make};
+    rows,adjustments,targets,layers,make};
 }
 function fitMeasurementTable(sheet) {
   if (!sheet) return '';
@@ -1805,6 +1954,7 @@ function fitMeasurementTable(sheet) {
   return `<section class="wo-measurements"><h3>Measurement sheet</h3>${table(sheet.headings,sheet.rows)}
     ${sheet.adjustments.length?table(['Garment setting',sheet.make?'Change from the base pattern':'Change from source to target'],sheet.adjustments):''}
     ${sheet.targets.length?table(['Finished garment','Target including design ease'],sheet.targets):''}
+    ${sheet.layers?.length?table(['Fabric layer','Fabric','Hem offset','Extra hem sweep','Attachment'],sheet.layers):''}
     <p class="muted">${sheet.make?'Use your selected sewing pattern for cut-piece dimensions and seam allowances.':'Measure the existing garment before marking the listed changes.'}</p></section>`;
 }
 
@@ -1819,7 +1969,8 @@ function constructionGuide(pattern,changes,body,fabric) {
     steps.push('Make a fitting sample in similar fabric. Apply the changes below to that sample, then transfer them to the paper pattern and check the adjoining seam lengths before cutting your final fabric.',...settings.steps.slice(2));
     visuals.push('designCut',...settings.visuals.slice(2));
   }
-  const instructions=base.design?studioDesign.make({...designForFit(base.design,changes),fabric:fabric.name},base.name,body):base;
+  const design=pattern.design || base.design;
+  const instructions=design?studioDesign.make({...designForFit(design,changes),fabric:fabric.name},pattern.name,body):base;
   const baseVisuals=instructions.visuals || sewingVisuals.patterns[base.id] || instructions.steps.map(sewingVisuals.identify);
   return {steps:[...steps,...instructions.steps],visuals:[...visuals,...baseVisuals],tools:instructions.tools,
     fabric:`${fabric.name} (${fabric.gsm} g/m²). ${instructions.fabric}`};
@@ -1885,7 +2036,7 @@ function fitting() {
         <div data-sleeve-style ${canHaveSleeves&&hasSleeves(pattern)?'':'hidden'}><label class="field">Sleeve style<select name="sleeveStyle">${studioDesign.sleeves.filter(style=>style!=='Sleeveless').map(name=>option(name,name,shoulders.sleeveStyle)).join('')}</select></label></div>
       </fieldset>`:''}
     ${pattern.revision?`<p class="muted fit-baseline">Changes are measured from revision ${pattern.revision}. Saving creates a new revision.</p>`:
-      Object.values(pattern.design?.fitAdjustments||{}).some(Boolean)?'<p class="muted fit-baseline">These sliders start from the fit saved in Design Studio.</p>':''}
+      Object.values(pattern.design?.fitAdjustments||{}).some(Boolean)?'<p class="muted fit-baseline">These sliders start from the fit saved with this design.</p>':''}
     <div id="fit-sliders"></div>
     <p class="muted fit-baseline">The map estimates stretch demand as the fabric moves. The preview uses the selected weight, stretch and drape. Check the fit and movement on a sewn sample.</p>${publisher?`<div class="actions tight"><button type="button" data-action="new" data-use-fit-model data-id="${escape(pattern.id)}">Create publisher-pattern work order</button><button type="reset" class="secondary">Reset changes</button></div>${referenceLinks(pattern)}`:`<fieldset class="wo-path"><legend>Create work order</legend>
       <label class="field">Tailoring target<select name="tailorTarget"><option value="">Current fit as a new revision</option>${siblings.map(item=>option(item.id,'Saved revision '+item.revision)).join('')}</select></label>
@@ -2347,7 +2498,8 @@ function saveFit(name) {
 let designDraft = {...studioDesign.defaults(),name:'',reference:'',fitModelId:'studio-form'};
 
 function designStudio() {
-  view.innerHTML = heading('Design Studio','Combine garment details into a new design, or use a photo to suggest a starting shape.')+`
+  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p>
+    <h1>${titles.design}</h1><p>Combine garment details into a new design, or use a photo to suggest a starting shape.</p></div>
     <div class="split"><div class="panel viewer fitting-viewer">
       <canvas id="design-model" role="img" aria-label="Three-dimensional design preview"></canvas>
       <div class="viewer-footer"><label class="field design-rotate">Rotate preview <input type="range" id="design-angle" min="-180" max="180" value="-21" aria-label="Rotate preview"></label></div>
@@ -2373,6 +2525,12 @@ function designStudio() {
       <label class="field">Garment name<input name="name" required maxlength="100" value="${escape(designDraft.name)}" placeholder="e.g. Plum bell-sleeve dress"></label>
       <label class="field">Garment type<select name="model">${Object.entries(studioDesign.silhouettes).map(([id,entry])=>option(id,entry.label,designDraft.model)).join('')}</select></label>
       <div id="design-settings"></div>
+      <details class="design-options" id="design-layers">
+        <summary>Fabric layers</summary>
+        <p class="muted tight">Add an overskirt, underskirt, or tier. Negative hem offsets shorten a layer. Positive offsets extend it below the main hem. Outer layers stack in list order.</p>
+        <div id="design-layer-list"></div>
+        <button type="button" class="secondary" id="add-design-layer">＋ Add layer</button>
+      </details>
       <details class="design-options"><summary>Fine-tune fit</summary>
         <p class="muted tight">Adjust the garment from its starting shape.</p>
         <div id="design-fit-sliders"></div>
@@ -2386,6 +2544,9 @@ function designStudio() {
   const angle = document.querySelector('#design-angle');
   const settings = document.querySelector('#design-settings');
   const fitSliders = document.querySelector('#design-fit-sliders');
+  const layerPanel = document.querySelector('#design-layers');
+  const layerList = document.querySelector('#design-layer-list');
+  const addLayer = document.querySelector('#add-design-layer');
   const guide = document.querySelector('#design-guide');
   const photo = document.querySelector('#design-photo');
   const photoStatus = document.querySelector('#photo-status');
@@ -2439,6 +2600,32 @@ function designStudio() {
     }
   }
   const select = (key,label,items) => `<label class="field">${label}<select name="${key}">${items.map(item=>option(item,item,designDraft[key])).join('')}</select></label>`;
+  function drawLayers() {
+    layerPanel.hidden=!['dress','skirt'].includes(designDraft.model);
+    const layers=studioDesign.layers(designDraft);
+    const field=(layer,key,label,length=false)=>{
+      const [min,max]=studioDesign.layerLimits[key];
+      return `<label class="field">${label}<input type="number" data-layer-field="${key}" ${length?'data-length-input step="0.5"':''} min="${min}" max="${max}" value="${layer[key]}" required></label>`;
+    };
+    layerList.innerHTML=layers.map((layer,index)=>`<fieldset class="wo-path layer-card" data-layer-index="${index}">
+      <legend>Layer ${index+1}</legend>
+      <div class="fields tight">
+        <label class="field">Layer type<select data-layer-field="kind">${studioDesign.layerKinds.map(kind=>option(kind,kind,layer.kind)).join('')}</select></label>
+        <label class="field">Fabric<select data-layer-field="fabric">${fabricOptions(layer.fabric)}</select></label>
+        <label class="field">Color<input type="color" data-layer-field="color" value="${color(layer.color)}"></label>
+        ${field(layer,'opacity','Opacity (%)')}
+        ${field(layer,'hemOffset','Hem offset (cm)',true)}${field(layer,'sweep','Extra hem sweep (cm)',true)}
+        ${layer.kind==='Tier'?field(layer,'attachment','Tier starts (% down from waist)'):''}
+      </div>
+      <div class="actions tight">
+        ${index?`<button type="button" class="secondary" data-layer-move="-1" aria-label="Move layer ${index+1} up">Move up</button>`:''}
+        ${index<layers.length-1?`<button type="button" class="secondary" data-layer-move="1" aria-label="Move layer ${index+1} down">Move down</button>`:''}
+        <button type="button" class="secondary" data-layer-remove aria-label="Remove layer ${index+1}">Remove</button>
+      </div>
+    </fieldset>`).join('');
+    addLayer.disabled=layers.length>=studioDesign.maxLayers;
+    studioUnits.refresh(layerList);
+  }
   function settingsForModel(open=false) {
     const model=designDraft.model;
     const spec = studioDesign.silhouettes[model];
@@ -2464,6 +2651,7 @@ function designStudio() {
       </details>`;
     studioUnits.refresh(settings);
     drawFitSliders();
+    drawLayers();
   }
   function refreshReference() {
     const image=captured?.thumbnail || designDraft.reference;
@@ -2500,7 +2688,7 @@ function designStudio() {
   }
   function updateGuide() {
     if (!guide.open) return;
-    const design={...designDraft,fitAdjustments:activeDesignFit()};
+    const design={...designDraft,layers:studioDesign.layers(designDraft),fitAdjustments:activeDesignFit()};
     const item = applyDesignFit(studioDesign.make(design,designDraft.name,body()),body());
     const measurements=designMeasurementSheet(item);
     const figureValues={plan:{strapWidth:design.strapWidth}};
@@ -2521,7 +2709,7 @@ function designStudio() {
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
-    designDraft = {...studioDesign.defaults(model),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details};
+    designDraft = {...studioDesign.defaults(model),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details,layers:designDraft.layers};
     settingsForModel();
   }
   settingsForModel();
@@ -2532,6 +2720,26 @@ function designStudio() {
   fitCleanup = () => {size.disconnect();stopCamera();};
   angle.addEventListener('input',preview);
   guide.addEventListener('toggle',updateGuide);
+  const refreshLayers=()=>{drawLayers();preview();updateGuide();};
+  addLayer.onclick=()=>{
+    const current=studioDesign.layers(designDraft);
+    designDraft.layers=[...current,{...studioDesign.newLayer(),color:designDraft.accent}];
+    refreshLayers();
+    layerList.querySelector('fieldset:last-child select')?.focus();
+  };
+  layerList.addEventListener('click',event=>{
+    const button=event.target.closest('button');
+    if (!button) return;
+    const index=Number(button.closest('[data-layer-index]').dataset.layerIndex);
+    const current=studioDesign.layers(designDraft);
+    const [layer]=current.splice(index,1);
+    const move=Number(button.dataset.layerMove)||0;
+    if (move) current.splice(index+move,0,layer);
+    designDraft.layers=current;
+    refreshLayers();
+    const follow=layerList.querySelectorAll('fieldset')[Math.min(index+move,current.length-1)];
+    (follow?.querySelector('select')||addLayer).focus();
+  });
   form.querySelector('#reset-design-fit').onclick=()=>{
     designDraft.fitAdjustments={};
     drawFitSliders();
@@ -2541,6 +2749,22 @@ function designStudio() {
   };
   form.addEventListener('input',event=>{
     const field = event.target;
+    const layerKey=field.dataset.layerField;
+    if (layerKey) {
+      const index=Number(field.closest('[data-layer-index]').dataset.layerIndex);
+      const current=studioDesign.layers(designDraft);
+      const value=field.hasAttribute('data-length-input')?studioUnits.lengthValue(field):field.type==='number'?field.valueAsNumber:field.value;
+      if (value==null || typeof value==='number' && !Number.isFinite(value)) return;
+      current[index]={...current[index],[layerKey]:value};
+      designDraft.layers=studioDesign.layers({...designDraft,layers:current});
+      if (layerKey==='kind') {
+        drawLayers();
+        layerList.querySelector(`[data-layer-index="${index}"] select`)?.focus();
+      }
+      preview();
+      updateGuide();
+      return;
+    }
     if (!field.name || field.type==='file') return;
     const oldSupport=studioDesign.selectedSupport(designDraft);
     if (field.name==='model') changeModel(field.value);
@@ -2728,7 +2952,7 @@ function designStudio() {
     }
     stopCamera();
     const {name:_,reference,...draft} = designDraft;
-    const design={...draft,fitAdjustments:activeDesignFit()};
+    const design={...draft,layers:studioDesign.layers(designDraft),fitAdjustments:activeDesignFit()};
     const item = {id:'design-'+createId(),...applyDesignFit(studioDesign.make(design,name,body()),body()),reference};
     item.measurements=designMeasurementSheet(item);
     state.custom.push(item);
@@ -2747,58 +2971,187 @@ function designStudio() {
 const basicLessons = [
   {
     title:'Set up your Brother CP2160F',
-    tools:'Brother CP2160F, foot controller, SA156 Class 15 bobbin, all-purpose polyester thread, universal 80/12 needle, zigzag foot J, and two layers of woven cotton scrap.',
+    tools:'Brother CP2160F machine, foot controller, SA156 Class 15 bobbin, all-purpose polyester thread, universal 80/12 needle, zigzag foot J, fabric shears, and two layers of medium-weight woven cotton scrap.',
+    result:'Thread the machine and make an even row of centered straight stitches through two layers of woven cotton.',
     steps:[
-      'Switch off the machine. Raise the needle by turning the handwheel toward you. Insert the needle with its flat side to the back, push it up to the stop, and tighten the clamp.',
-      'Wind the bobbin using the numbered winding path and the cutter on the bobbin-winder seat. Switch off the machine before inserting the wound bobbin into the top-loading compartment. Follow the arrows to guide the thread through the slot and cutter, then snap the cover back on.',
-      'Raise the presser foot and needle before threading the top. With the power off, follow the numbered path on the machine, catch the take-up lever, and pass the thread behind the needle-bar guide. Thread the needle from front to back and leave about 10 cm of thread under foot J.',
-      'Turn on the machine. Use the stitch selection keys to display 01 for a centered straight stitch. The LCD shows foot J. Start with the default 2.5 mm stitch length and test on layered scraps. With this straight stitch, the width control moves the needle sideways.',
-      'Lower the presser foot and start gently with the foot controller. Hold the reverse stitch button briefly at the start and end to secure the seam. Let the feed dogs move the fabric while you guide it.',
-      'If the machine skips stitches or loops thread, raise the foot and rethread the top, check the bobbin against the arrows, and verify the needle is seated fully. Test again before adjusting tension.'
+      {title:'Install the needle and check foot J',figure:'needleClamp',text:'Start with a fresh universal 80/12 needle for the medium-weight woven cotton in these exercises.',actions:[
+        ['needleClamp','Raise the needle','Switch off the machine. Sit facing the needle. Grip the rim of the handwheel on your right and turn the top of the wheel toward you until the needle is at its highest point.'],
+        ['needleClamp','Hold the old needle while loosening the clamp','Hold the needle by its sides above the point. With your other hand, loosen the small clamp screw with the machine’s screwdriver. Slide the old needle down and set it aside.'],
+        ['needleClamp','Seat the new needle','Face the flat side of the shank toward the back of the machine. Push the shank straight up to the stop while tightening the clamp screw.'],
+        ['foot','Check the presser foot','Look for J on the presser foot. If it is missing, keep the power off, raise the foot lever, and use the release at the back of the holder. Center the bar of foot J beneath the holder and lower the lever to snap it on.']
+      ],check:'The new needle will not slide down when gently tugged and foot J stays attached when lifted.'},
+      {title:'Wind and load the lower bobbin',figure:'bobbinDrop',text:'Use the clear Brother SA156 Class 15 bobbin. Start with it empty so the thread can wind evenly.',actions:[
+        ['winder','Route the thread on top','Raise the spool pin and put the spool on it. Draw thread under the bobbin-winding guide and around the pretension disk from front to back. Follow the winding path printed on the top of the machine.'],
+        ['bobbinSetup','Snap the empty bobbin onto the winder','Place the bobbin over the winder shaft with its notch seated on the shaft projection. Slide the shaft right. If your winder seat has a slit cutter, wrap thread around the bobbin five or six times and pull into the slit to cut it.'],
+        ['windFill','Wind evenly','For a bobbin started through a hole, pass the tail from inside to outside before seating it. Hold the tail only for the first few turns, stop the machine and snip the tail close, then continue winding. Use light foot pressure to start.'],
+        ['windFill','Remove the wound bobbin','Release the foot controller when the bobbin is full and turns more slowly. Cut the connecting thread, slide the shaft left and lift off the bobbin.'],
+        ['bobbinDrop','Load and thread the bobbin case','Raise the needle and presser foot and switch off. Slide open the clear cover. Drop in the bobbin so the thread pulls off counterclockwise. Hold the bobbin down with a fingertip, route the tail through the slit as the plate arrows show, then pull it into the cutter. Refit the clear cover.']
+      ],tip:'If the thread slips out of the tension slit or the bobbin turns clockwise when you pull the tail, lift it out and reload it.',check:'The thread on the bobbin is even and the cover is flat and fully snapped in.'},
+      {title:'Thread the top path and needle',figure:'threadEye',text:'Raise the presser foot and needle so the thread can pass through the tension path and the take-up lever.',actions:[
+        ['upper','Find the presser-foot lever and the take-up lever','With the power off, lift the lever just behind the needle area. Turn the handwheel toward you until the moving take-up lever is visible at the top of the front slot.'],
+        ['upper','Follow the numbered channels','Hold the thread lightly near the spool with one hand. With the other, draw it through the top guide, down the numbered channel, around the bottom turn and up toward the take-up lever.'],
+        ['upper','Catch the take-up lever','Feed the thread into the visible take-up lever as the printed arrows show, then bring it down the final channel. Gently pull the tail to verify the thread is still inside the lever.'],
+        ['threadEye','Thread front to back','Slide the tail behind the small guide just above the needle. Point the end through the eye from the side facing you toward the back. Pull about 10 cm through and place it under the foot toward the back.']
+      ],tip:'Snip a fuzzy thread tip square so it can pass through the eye cleanly.',check:'The thread is inside the take-up lever and the tail moves freely while the presser foot is raised.'},
+      {title:'Select centered straight stitch 01',figure:'screen',text:'For these woven cotton exercises, the Brother settings are stitch 01, foot J and a 2.5 mm stitch length.',actions:[
+        ['screen','Read the LCD','Turn on the machine. Use the stitch selection buttons until the display reads 01 and shows foot J. The width display for this stitch is normally 3.5 mm, which positions the needle in the center.'],
+        ['screen','Confirm the stitch length','Find the length control and verify 2.5 mm. If the needle-position setting was changed, restore the center and turn the handwheel toward you slowly to check the needle clears the foot.'],
+        ['layer','Make a test stack','Lay one woven cotton scrap on another, match one straight raw edge and smooth both layers with your palm. Use the same layers you will sew in the project.']
+      ],check:'The LCD reads 01 and 2.5 mm. Turning the handwheel lowers the needle into the opening in foot J without touching the foot.'},
+      {title:'Sew and release a test row',figure:'startSeam',text:'Use the edge guide to keep the needle 1 cm in from the raw edges. Let the machine feed the cotton.',actions:[
+        ['foot','Set the fabric under the foot','Raise the needle and foot and slide the test stack in from the front. Put the matched raw edges against your 1 cm guide. Turn the handwheel toward you to put the needle down at the beginning, then lower foot J.'],
+        ['startSeam','Let the feed dogs carry the layers','Put your fingertips to the sides of the foot. Press the controller gently and guide the edge past the mark. Release the controller to stop, keeping the fabric still.'],
+        ['lockSeam','Practice securing the row','Use the reverse button to stitch two or three stitches back along the same line. Sew forward again. After the final backstitch, raise the needle first and then the foot. Slide the scrap out and cut the threads.']
+      ],check:'The row stays the same distance from the edge. Both layers advance together and the fabric lies flat.'},
+      {title:'Check both sides before a project',figure:'check',text:'Turn the scrap over and examine the top and underside. Look for smooth, evenly spaced stitches without loops or skipped spots.',actions:[
+        ['check','Inspect the sample','Lay it flat in good light. Look at each side. Gently separate the layers at the seam and check for gaps or broken thread.'],
+        ['upper','Fix thread loops first','If you see loops underneath, switch off, raise the foot and fully rethread the top with the take-up lever visible. If the bobbin thread is not seated, reload it through the tension slit and test again.'],
+        ['needle','Check the needle for skips','If you see spaces where stitches should be, switch off and check the needle for damage and that it sits fully up with the flat side back. Insert a new needle if needed.'],
+        ['check','Compare a fresh test row','Make a separate row on the scrap after each change. Compare it with the previous row before adjusting tension or moving to the project fabric.']
+      ],check:'The second sample has even stitches on both faces and holds under a gentle pull.'}
     ]
   },
   {
     title:'Measure and cut fabric',
-    tools:'Fabric cutting board, ruler, fabric chalk, pins or pattern weights, fabric shears or a rotary cutter with a compatible cutting mat, and an iron.',
+    tools:'Fabric cutting board, clear ruler, measuring tape, fabric chalk, pins or pattern weights, fabric shears, optional rotary cutter with a compatible cutting mat, iron and pressing surface, and woven cotton.',
+    result:'Cut a straight-grain practice rectangle and learn how to place a paper pattern.',
+    practice:{width:8,length:12},
     steps:[
-      'Prewash and dry washable fabric the way you plan to care for the finished item. Press it flat before measuring.',
-      'Find the selvage, the finished edge of woven fabric. For pieces with a grainline, measure from both ends of the grainline to the selvage and adjust until the distances match.',
-      'Lay the fabric flat on the cutting board. Mark the cutting lines and check whether seam allowance is already included. Secure any paper pattern with pins or weights.',
-      'Cut along the marks with fabric shears. If the board is rated for rotary blades, use a ruler and rotary cutter on the mat, cutting away from yourself and closing the blade after each cut.',
-      'Mark matching points and seam lines where needed. Keep pieces together and label them before moving to the machine.'
+      {title:'Wash, press and spread out the fabric',figure:'board',text:'Cotton can shrink in the wash. Prepare it first so the marks stay accurate when you cut.',actions:[
+        ['press','Wash and dry before marking','Use the care method intended for the finished piece. Let the cloth dry completely before working with it.'],
+        ['press','Press out the creases','Lay the cloth on a pressing surface. Set the iron for your fiber. Lower and lift the iron in overlapping sections so it flattens creases without dragging the cloth.'],
+        ['board','Lay out one layer','Set the cutting board flat on a sturdy work surface. Spread the cloth wrong side up. Smooth from the middle outward until there are no ripples or hanging edges pulling it off the board.']
+      ],check:'The area you will cut lies fully supported and flat. No folds run under it.'},
+      {title:'Line up the grain with the selvage',figure:'basicGrain',text:'The selvage is a tightly woven factory edge. The long arrow on the pattern usually runs parallel to it.',actions:[
+        ['board','Find the factory edge','Run a finger along the two long sides of the cloth. Look for a smooth, tighter edge. A cut crosswise end tends to show loose threads.'],
+        ['basicGrain','Measure both ends of the arrow','Set the ruler perpendicular to the selvage at the first arrow tip and read the distance. Slide the ruler to the opposite tip and rotate the paper until the reading matches. The diagram uses 7 cm at both ends as an example.'],
+        ['weights','Hold orientation before marking','Put a weight near each end of the pattern or pin inside its cut line. For a directional print, point each piece’s top the same way before weighing down the remaining pieces.']
+      ],tip:'If thick or tight selvages ripple, lay the fabric relaxed and avoid cutting the garment pieces into the puckered area.',check:'Both measurements from the grainline to the same selvage match after you secure the pattern.'},
+      {title:'Mark the cut line and its allowance',figure:'cutRectangle',text:'Make an 8 × 12 cm practice rectangle. A solid cut line sets the outer size. A seam line sits inside it.',actions:[
+        ['board','Use your cutting board to square a corner','Place a straight selvage parallel to a long grid line. Set the ruler at a right angle to it and lightly mark one corner on the wrong side. Confirm the grid scale with your ruler.'],
+        ['cutRectangle','Draw all four sides','Mark 8 cm across and 12 cm along the grain. Keep opposite sides parallel and extend each mark until the four corners meet.'],
+        ['seamGuide','Read the seam allowance before cutting','The practice rectangle uses a 1 cm seam allowance on the edge you sew later. On a commercial pattern, read whether the allowance is already printed between the cut and stitch lines. Add an allowance outside the stitching line only when the directions require it.']
+      ],check:'Two opposite sides measure 8 cm and the other two measure 12 cm. You can point to the cut line before you pick up the shears.'},
+      {title:'Cut the marked piece without lifting the cloth',figure:'shears',text:'Start at a corner and work along the outside line. Keep the layout secure while you cut.',actions:[
+        ['weights','Anchor the shape','If you have paper over the fabric, place weights inside the outline. Leave room for the blades and take any straight pin out before cutting past it.'],
+        ['shears','Glide the lower blade on the board','Slip the bottom blade under the edge. Open the shears, push the lower blade flat against the board and close the blades almost all the way. Slide ahead, then repeat. Turn the board or move your body to reach the next side.'],
+        ['rotaryCut','Use a rotary cutter on a rated mat','For a straight cut on a compatible mat, hold the acrylic ruler steady with your free hand. Place the cutting wheel beside it and roll away from your body. Close the blade as soon as you finish the cut.']
+      ],tip:'Use fabric shears on your cutting board when you are unsure whether it is rated for rotary blades.',check:'The cut follows the line, both ends finish at the corners and the fabric stays flat when you lift the offcuts.'},
+      {title:'Transfer marks and label the pieces',figure:'markPattern',text:'Move pattern markings to the fabric before you take the paper off or separate layers.',actions:[
+        ['markPattern','Transfer each useful mark','Test your chalk on a scrap. Copy notches, fold marks and any dart points onto the wrong side. For a notch, make a short chalk line into the allowance so the fabric edge stays intact.'],
+        ['separateLayers','Identify mirror pieces or repeated pieces','Label the wrong side with the piece name and left or right as needed. If two panels were stacked, lift them apart and transfer marked points to the second layer.'],
+        ['cutRectangle','Stack and compare','Put matching rectangles edge to edge before sewing. The cut edges should meet without stretching either piece.']
+      ],check:'Each piece has a readable label and matching marks line up across the pieces that will be joined.'}
     ]
   },
   {
     title:'Sew and press a straight seam',
-    tools:'Two cotton scraps, ruler or seam guide, pins or clips, machine, thread, and iron.',
+    tools:'Two woven cotton scraps, ruler or seam guide, fabric chalk, pins or clips, Brother CP2160F machine, all-purpose thread, seam ripper, and iron.',
+    result:'Join the scraps with a 1 cm seam and press the seam allowances open.',
     steps:[
-      'Put the right sides of the fabric together and align the raw edges. Pin or clip the layers so they stay aligned.',
-      'Line the fabric edge up with the seam allowance mark on the needle plate. Practice with a 1 cm allowance, or use the amount specified by your project.',
-      'Lower the presser foot, backstitch, and follow the guide. Remove pins before the needle reaches them. Backstitch again at the end.',
-      'Press the seam as stitched first, then press the allowances open or to one side, as the project calls for. Finish raw edges with a zigzag stitch if the woven fabric frays.'
+      {title:'Put the right sides together',figure:'layer',text:'The right side is the face you want to show. Place those faces against each other so the inner seam allowance will be hidden.',actions:[
+        ['layer','Find and flip the right side','Set the first piece right side up. Pick up the second by two corners and turn it face down on the first. Both wrong sides should face outward.'],
+        ['layer','Match the ends and then the edge','Line up the top corners, then the bottom corners. Run your fingers down the edge to make sure neither raw edge sticks out.'],
+        ['pin','Hold both layers','Clip the ends and then clip between them. If you use pins, pierce both layers across the seam with the heads easy to grasp. Keep the cloth flat between fasteners.']
+      ],check:'Both right sides touch inside the stack. No raw edge slips out when you lift the piece.'},
+      {title:'Mark and align the 1 cm stitching line',figure:'seamGuide',text:'Measure inward from the paired raw edges. The allowance is the space from that edge to the needle line.',actions:[
+        ['seamGuide','Put three marks 1 cm in','Place your ruler at a right angle to the raw edge. Mark 1 cm from the edge near each end and again midway. Join the marks with a light straight line.'],
+        ['screen','Set stitch 01 and foot J','Set the Brother to centered straight stitch 01, foot J and a 2.5 mm length. Use the same settings you tested in the setup lesson.'],
+        ['startSeam','Find the plate guide','With the pedal released, raise the foot and slide in the aligned scraps. Turn the handwheel toward you to bring the needle down on your first stitching mark. Find the plate line under the fabric edge. Use that line, or removable tape outside the feed dogs, as your guide.']
+      ],check:'The needle touches the drawn line and the edge sits on the same guide along the length of the fabric.'},
+      {title:'Secure the seam ends and sew the line',figure:'lockSeam',text:'Backstitch at the ends and sew the space in between at a slow, steady pace.',actions:[
+        ['foot','Lower the foot onto both layers','Lower foot J. Hold the thread tail lightly toward the back for the first few stitches and keep your fingertips beside the foot.'],
+        ['lockSeam','Lock the starting end','Sew two or three stitches forward. Hold the reverse button to sew back over those stitches. Release it and continue forward along the same line.'],
+        ['pinOut','Remove each fastener before it reaches the foot','Release the pedal when a clip or pin approaches. Take it out to the side, smooth the next section and resume. Look at the raw edge against the guide as you sew.'],
+        ['lockSeam','Lock the far end','As you approach the end, slow down and stop on the line while both layers still sit under the foot. Sew two or three stitches back over the line and stop.'],
+        ['check','Lift and inspect the stitching','Turn the handwheel toward you to raise the needle. Raise the foot, slide the work out and cut the tails. Check the line on both faces.']
+      ],tip:'If the edge drifts, stop with the needle down. Lift the foot briefly to straighten the edge, lower the foot and continue.',check:'Both ends are secured, the fabric lies flat, and the line measures 1 cm from the raw edge at several points.'},
+      {title:'Press open and finish the raw edges',figure:'pressOpen',text:'Pressing sets the seam and lets both layers lie flat. Use the edge finish specified by your project.',actions:[
+        ['press','Set the stitches with the layers closed','On the ironing surface, place the sewn stack as it came off the machine. Briefly press along the sewn line with the iron set for the fabric.'],
+        ['pressOpen','Open the fabric and spread the allowances','Turn the piece so the wrong side is up. Open the two main layers like a book. Use your fingers to smooth one 1 cm allowance to each side of the stitched line. Lift and set the iron along the opened seam.'],
+        ['zigzag','Practice a zigzag finish','On a scrap, select 04 with foot J. Start with the defaults of 3.5 mm width and 1.4 mm length. Use the handwheel to check clearance. Test with one seam allowance under the foot, stopping the swing just inside its raw edge, then finish each allowance separately if your project calls for it.'],
+        ['check','Compare both faces','Flatten the seam and check that the allowances stay on their own sides. Turn the work right side up and look for ridges and puckers.']
+      ],check:'The seam lies flat and the finish secures loose fibers without pulling the edge into a tunnel.'}
     ]
   },
   {
     title:'Practice project — fabric coaster',
-    tools:'Two 12 × 12 cm squares of medium-weight woven cotton, machine, matching thread, ruler, clips, shears, a blunt point turner, and iron.',
+    tools:'Two 12 × 12 cm squares of medium-weight woven cotton, fabric cutting board, Brother CP2160F machine, matching thread, ruler, fabric chalk, clips, fabric shears, a blunt point turner, and iron.',
+    result:'Make one coaster about 10 × 10 cm. You will practice pivoting, turning, pressing, and topstitching.',
     steps:[
-      'Measure and cut two squares. Put them right sides together and mark a 5 cm turning gap in the middle of one side.',
-      'Sew around the squares with a 1 cm seam allowance, leaving the gap open. Backstitch at both ends of the gap. At each corner, stop with the needle down, raise the foot, pivot, lower the foot and continue.',
-      'Trim the corners diagonally without cutting through the stitches. Turn the coaster through the gap and gently shape the corners with a blunt point turner.',
-      'Press the coaster flat with the gap edges folded inward by 1 cm. Topstitch 2–3 mm from the edge all the way around to close the gap.'
+      {title:'Cut the two squares and mark the turning gap',figure:'squareGap',text:'Cut two 12 × 12 cm squares. Mark a 5 cm gap centered on one side of the stitching line.',actions:[
+        ['cutRectangle','Square and cut both pieces','Spread woven cotton wrong side up. Use the ruler and board to mark right angles. Mark all four 12 cm sides of each square, then cut along the marks.'],
+        ['layer','Put the squares face to face','Put the printed or right sides together. Match all four corners and clip the stacked squares.'],
+        ['squareGap','Mark the line and the opening','Draw a stitching line 1 cm inside each edge. Mark the center of the bottom stitching line, then mark 2.5 cm to each side of the center. Leave the 5 cm between those marks open.']
+      ],check:'Two squares match edge to edge. The gap is 5 cm wide and sits between the corners.'},
+      {title:'Sew the perimeter and pivot at the corners',figure:'pivot',text:'Start at a gap mark, sew around the four corners and stop at the other gap mark. Use a 1 cm seam allowance.',actions:[
+        ['screen','Set up the straight stitch','Set the LCD to 01, foot J and a 2.5 mm stitch length. Turn the handwheel toward you to lower the needle onto the right-hand gap mark.'],
+        ['squareGap','Start away from the opening','Lower the foot and sew toward the nearest corner. Secure the start with two or three reverse stitches ending at the mark. Keep the opening clear for turning.'],
+        ['pivot','Turn with the needle holding the fabric','As the first crossed stitch lines approach, slow down. Stop with the needle in their intersection. Keep it down, lift the foot, rotate the square a quarter turn, and lower the foot. Verify the next edge is back at the 1 cm guide.'],
+        ['pivot','Repeat for all four corners','Keep the seam guide aligned along each side. Remove clips before they reach the foot. At each corner, stop on the line intersection and repeat the pivot.'],
+        ['squareGap','Stop at the other gap mark','When you reach the second mark, backstitch a few stitches along the sewn edge. Then raise the needle and foot and take out the work.']
+      ],tip:'With your foot off the pedal, turn the handwheel toward you to place the last stitch precisely at a corner.',check:'The line reaches each corner cleanly. Both ends are secured and the 5 cm gap is still open.'},
+      {title:'Clip the corners and turn the coaster',figure:'trimCorner',text:'Take out the corner bulk first, then draw the coaster through the gap until the right sides are outside.',actions:[
+        ['trimCorner','Trim the corner points','Lay the stitched square flat. Cut a short diagonal across each corner through both allowance layers. Stop just outside the stitches and keep the straight allowances intact.'],
+        ['turnSquare','Turn a corner through the gap','Open the gap with two fingers and reach inside. Pinch the fabric near a far corner and pull it through. Keep drawing the rest of the square through a little at a time.'],
+        ['pointTurner','Shape all four corners','Push each corner into place gently from inside with a blunt point turner. Roll the seam between your fingers so the stitch line rests on the outer edge.']
+      ],tip:'If a corner sticks, roll it between your fingers before you use the point turner. A sharp tool can push through the cloth.',check:'The right sides face out and each corner lies flat without an open seam.'},
+      {title:'Tuck, press and topstitch the opening closed',figure:'edgeStitch',text:'Fold both gap edges inward by 1 cm and sew a neat border 0.25 cm from the finished edge.',actions:[
+        ['tuckGap','Fold both raw edges inside','At the gap, pinch one raw edge and turn it inward 1 cm. Repeat on the other layer. Match those folds with the sewn edge next to them and clip them together.'],
+        ['press','Press the square flat','Lift and set the iron across the edges and corners. Take out each clip just before the iron reaches it, then put it back if the gap needs holding.'],
+        ['edgeStitch','Stitch close around the whole square','Keep stitch 01, foot J and a 2.5 mm length. Start on a long section away from a corner. Use the 0.25 cm distance as a guide around the four sides, pivot with the needle down and sew across both folds at the gap. Secure the final few stitches.'],
+        ['finishedSquare','Check the finished coaster','Trim the thread tails, press once more and place the coaster on a tabletop. Measure its finished width and length and gently tug both sides of the former gap.']
+      ],check:'The coaster is about 10 × 10 cm, sits flat, and the folded opening stays closed.'}
     ]
   }
 ];
 
+const basicVideos = [
+  ['Thread the Brother CP2160 series','Brother','R986D8ipEcw'],
+  ['Sew a straight seam','Made to Sew','tg6_ILHQ_q4'],
+  ['Finish raw edges with zigzag','Made to Sew','Hi0jN4wlUbA'],
+  ['Make a basic hem','Professor Pincushion','1vvCWFmQUhw'],
+  ['Finish a neckline with a facing or binding','Seamwork','M6c2YJIPBAI'],
+  ['Set in a sleeve','Professor Pincushion','pYlDH7gT7rA']
+];
+
 function basics() {
-  view.innerHTML = heading('Sewing Basics','Set up your machine, cut fabric accurately, and practice on a simple coaster.') +
-    `<p class="basics-intro">Machine setup is written for your Brother CP2160F. Start with woven cotton scraps and stitch 01 to practice a centered straight seam.</p>
+  view.innerHTML = heading('Sewing Basics','Learn your Brother CP2160F, work on your cutting board, and make your first project.') +
+    `<div class="actions tight"><button type="button" class="secondary" id="watch-sewing-videos">Watch sewing videos</button></div>
     <div class="lessons">${basicLessons.map((lesson,index) => `<details class="panel lesson"${index===0?' open':''}>
       <summary><h2>${escape(lesson.title)}</h2></summary>
+      <p>${escape(lesson.result)}</p>
       <p class="tight"><strong>Tools and materials</strong> ${escape(lesson.tools)}</p>
-      ${sewingVisuals.tools(lesson.tools)}${sewingVisuals.steps(lesson.steps,sewingVisuals.basics[index])}
+      ${sewingVisuals.tools(lesson.tools)}${workFigures.lessonSteps(lesson)}
     </details>`).join('')}</div>
+    <section class="section" id="sewing-videos" aria-labelledby="sewing-videos-title" tabindex="-1">
+      <h2 id="sewing-videos-title">Sewing videos</h2>
+      <div class="basic-videos">${basicVideos.map(([title,publisher,id])=>`<details class="panel basic-video" data-basic-video="${id}">
+        <summary><strong>${escape(title)}</strong><small>${escape(publisher)}</small></summary>
+        <div class="basic-video-player"></div>
+        <a class="basic-video-source" href="https://www.youtube.com/watch?v=${id}" target="_blank" rel="noopener" aria-label="${escape(title)} on YouTube">Open on YouTube</a>
+      </details>`).join('')}</div>
+    </section>
     <p class="basics-resources"><a href="https://support.brother.com/g/b/manualtop.aspx?c=us&amp;lang=en&amp;prod=hf_cp2160feus" target="_blank" rel="noopener">Brother CP2160F manuals, setup diagrams and stitch chart</a></p>`;
+  const library=view.querySelector('#sewing-videos');
+  view.querySelector('#watch-sewing-videos').onclick=()=>{
+    library.focus({preventScroll:true});
+    library.scrollIntoView({block:'start'});
+  };
+  const videos=[...library.querySelectorAll('[data-basic-video]')];
+  for (const video of videos) video.addEventListener('toggle',()=>{
+    const player=video.querySelector('.basic-video-player');
+    if (!video.open) {player.replaceChildren();return;}
+    if (player.firstChild) return;
+    for (const other of videos) if (other!==video) other.open=false;
+    const iframe=document.createElement('iframe');
+    iframe.src='https://www.youtube-nocookie.com/embed/'+video.dataset.basicVideo+'?autoplay=1&rel=0';
+    iframe.title=video.querySelector('strong').textContent;
+    iframe.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';
+    iframe.allowFullscreen=true;
+    iframe.referrerPolicy='strict-origin-when-cross-origin';
+    player.append(iframe);
+  });
 }
 
 let fitCleanup;
@@ -2807,9 +3160,10 @@ function render() {
   fitCleanup = undefined;
   const route = location.hash.slice(1);
   const page = Object.hasOwn(titles,route)?route:'overview';
-  document.querySelector('#page-name').textContent = titles[page];
+  const section=page==='design'?'library':page;
+  document.querySelector('#page-name').textContent = titles[section];
   for (const link of document.querySelectorAll('nav a')) {
-    if (link.hash === '#'+page) link.setAttribute('aria-current','page');
+    if (link.hash === '#'+section) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   }
   ({overview,design:designStudio,brand,library,fabrics:materialLibrary,orders,fitting,models,basics})[page]();

@@ -101,6 +101,84 @@ const sewingModels = (() => {
   const unit = 2.368/168;
   const clamp = (value,min,max)=>Math.min(max,Math.max(min,value));
 
+  // Adult standing references, expressed as fractions of barefoot stature.
+  // Use their spacing to place landmarks between measurements on this body.
+  const adultLandmarks = {
+    female:{floor:0,ankle:.039,calf:.207,knee:.275,midThigh:.373,thigh:.446,crotch:.480,
+      hip:.511,highHip:.557,waist:.609,underbust:.706,bust:.741,upperChest:.765,shoulder:.820,chin:.872,height:1},
+    male:{floor:0,ankle:.042,calf:.211,knee:.278,midThigh:.376,thigh:.456,crotch:.481,
+      hip:.505,highHip:.548,waist:.602,underbust:.693,bust:.731,upperChest:.759,shoulder:.820,chin:.87,height:1}
+  };
+
+  function armLengths(model,height) {
+    const [reach,upperShare]=profileOf(model)==='female'?[.333,.563]:[.339,.556];
+    const arm=model.arm || (model.shoulderToElbow?model.shoulderToElbow+height*reach*(1-upperShare):height*reach);
+    return {arm,shoulderToElbow:model.shoulderToElbow || arm*upperShare};
+  }
+
+  function bodyLandmarks(model) {
+    const profile=profileOf(model);
+    const reference=adultLandmarks[profile];
+    const height=Math.max(1,Number(model.height)||starter[profile].height);
+    const landmarks={floor:0,height};
+    const adjusted=[];
+    const between=(key,below,above)=>{
+      const fraction=(reference[key]-reference[below])/(reference[above]-reference[below]);
+      return landmarks[below]+fraction*(landmarks[above]-landmarks[below]);
+    };
+    const measured=(key,field,guess,min,max,transform=value=>value)=>{
+      const entered=Number(model[field]);
+      const value=entered>0?transform(entered):guess;
+      const fitted=clamp(value,min,max);
+      if (entered>0 && Math.abs(value-fitted)>.001) adjusted.push(field);
+      landmarks[key]=fitted;
+    };
+    measured('chin','headLength',height*reference.chin,height*.78,height*.94,value=>height-value);
+    measured('crotch','inseam',height*reference.crotch,height*.29,height*.59);
+    const {chin,crotch}=landmarks;
+    const waistMin=crotch+height*.07;
+    const waistMax=Math.min(height*.74,chin-height*.125);
+    const shoulderFromWaist=Number(model.shoulderToWaist)||0;
+    const shoulderLimit=Math.min(chin-height*.025,height*.89);
+    const waistGuess=between('waist','crotch','chin');
+    measured('waist','waistToFloor',Math.min(waistGuess,shoulderLimit-(shoulderFromWaist||height*.10)),waistMin,waistMax);
+    const {waist}=landmarks;
+    measured('shoulder','shoulderToWaist',between('shoulder','waist','chin'),waist+height*.10,shoulderLimit,
+      length=>waist+length);
+    measured('knee','kneeHeight',.65*between('knee','floor','crotch')+.35*height*reference.knee,
+      height*.145,crotch-height*.055);
+    const {knee,shoulder}=landmarks;
+    landmarks.ankle=.65*between('ankle','floor','knee')+.35*height*reference.ankle;
+    measured('calf','calfHeight',between('calf','ankle','knee'),landmarks.ankle+height*.025,knee-height*.013);
+    landmarks.midThigh=between('midThigh','knee','crotch');
+    landmarks.thigh=between('thigh','knee','crotch');
+
+    const minimumHip=crotch+height*.012;
+    const maximumHighHip=waist-height*.015;
+    const hipGap=height*.012;
+    const hipHeight=distance=>waist-distance;
+    if (model.waistToHighHip && !model.waistToHip) {
+      measured('highHip','waistToHighHip',between('highHip','crotch','waist'),minimumHip+hipGap,maximumHighHip,hipHeight);
+      landmarks.hip=clamp(between('hip','crotch','highHip'),minimumHip,landmarks.highHip-hipGap);
+    } else {
+      measured('hip','waistToHip',between('hip','crotch','waist'),minimumHip,maximumHighHip-hipGap,hipHeight);
+      measured('highHip','waistToHighHip',between('highHip','hip','waist'),landmarks.hip+hipGap,maximumHighHip,hipHeight);
+    }
+
+    const minimumRibs=waist+height*.032;
+    const maximumBust=shoulder-height*.03;
+    const chestGap=height*.012;
+    if (model.underbustHeight && !model.bustHeight) {
+      measured('underbust','underbustHeight',between('underbust','waist','shoulder'),minimumRibs,maximumBust-chestGap);
+      landmarks.bust=clamp(between('bust','underbust','shoulder'),landmarks.underbust+chestGap,maximumBust);
+    } else {
+      measured('bust','bustHeight',between('bust','waist','shoulder'),minimumRibs+chestGap,maximumBust);
+      measured('underbust','underbustHeight',between('underbust','waist','bust'),minimumRibs,landmarks.bust-chestGap);
+    }
+    landmarks.upperChest=between('upperChest','bust','shoulder');
+    return {landmarks,adjusted};
+  }
+
   function bustGeometry(model, proportions) {
     const female=profileOf(model)==='female';
     const {bust,underbust}=model;
@@ -108,7 +186,7 @@ const sewingModels = (() => {
     // by the available bust-to-rib difference, including on older models.
     const limit=underbust && bust ? clamp(1.8+Math.max(0,bust-underbust)*.31,1.8,8.5) : 8.5;
     const depth=female?Math.min(bustProjection(model),limit):0;
-    const y=model.bustHeight ? proportions.baseAt(clamp(model.bustHeight,proportions.waist+9,proportions.shoulder-5)) : -.49;
+    const y=proportions.baseAt(proportions.landmarks.bust);
     return {depth,y,spacing:(model.bustSpacing||19)*unit,limited:female && model.bustProjection>limit};
   }
 
@@ -216,33 +294,24 @@ const sewingModels = (() => {
   }
 
   function proportions(model) {
-    const floor=1.128, top=-1.24;
-    const height=model.height || starter[profileOf(model)].height;
-    const toWorld=unit;
-    const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
-    const crotch=clamp(model.inseam||height*.448,height*.29,height*.59);
-    const waist=clamp(model.waistToFloor||crotch+height*.142,crotch+height*.07,height*.74);
-    const shoulder=clamp(model.shoulderToWaist?waist+model.shoulderToWaist:height*.824,
-      waist+height*.10,height*.89);
-    const chin=clamp(height-(model.headLength||height*.123),shoulder+height*.025,height*.925);
-    const knee=clamp(model.kneeHeight||crotch*.58,height*.16,crotch*.76);
+    const floor=1.128;
+    const {landmarks,adjusted}=bodyLandmarks(model);
+    const {height,crotch,waist,shoulder,knee,chin,calf,hip,highHip,underbust,bust,ankle}=landmarks;
     const anchors=[
-      [top,height],[-.986,chin],[-.73,shoulder],[-.25,waist],[.30,crotch],
-      [.655,knee],[1.045,height*.035],[floor,0]
-    ].map(([base,aboveFloor])=>[base,floor-aboveFloor*toWorld]);
-    function yAt(value) {
-      const next=anchors.findIndex(([at])=>at>value);
+      [-1.24,height],[-.986,chin],[-.73,shoulder],[-.49,bust],[-.37,underbust],[-.25,waist],[-.04,highHip],
+      [.16,hip],[.30,crotch],[.655,knee],[.815,calf],[1.045,ankle],[floor,0]
+    ].map(([base,aboveFloor])=>[base,floor-aboveFloor*unit]);
+    function interpolate(value,axis) {
+      const next=anchors.findIndex(row=>row[axis]>value);
       const hi=next<0?anchors.length-1:Math.max(1,next);
-      const [a,b]=anchors.slice(hi-1,hi+1);
-      return a[1]+(b[1]-a[1])*(value-a[0])/(b[0]-a[0]);
+      const a=anchors[hi-1], b=anchors[hi], output=1-axis;
+      return a[output]+(b[output]-a[output])*(value-a[axis])/(b[axis]-a[axis]);
     }
-    const baseAt=aboveFloor=>{
-      const world=floor-aboveFloor*toWorld;
-      const hi=Math.max(1,anchors.findIndex(([,y])=>y>=world));
-      const [a,b]=anchors.slice(hi-1,hi+1);
-      return a[0]+(b[0]-a[0])*(world-a[1])/(b[1]-a[1]);
-    };
-    return {yAt,baseAt,height,crotch,waist,shoulder,knee,chin};
+    const estimates={height,inseam:crotch,waistToFloor:waist,shoulderToWaist:shoulder-waist,headLength:height-chin,
+      waistToHip:waist-hip,waistToHighHip:waist-highHip,kneeHeight:knee,calfHeight:calf,bustHeight:bust,
+      underbustHeight:underbust,...armLengths(model,height)};
+    return {yAt:value=>interpolate(value,0),baseAt:value=>interpolate(floor-value*unit,1),
+      height,crotch,waist,shoulder,knee,chin,landmarks,estimates,adjusted};
   }
   function measurementIssue(model) {
     const {height,inseam,waistToFloor,shoulderToWaist}=model;
