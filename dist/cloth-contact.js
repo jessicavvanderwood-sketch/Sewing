@@ -109,9 +109,37 @@ const clothContact = (() => {
     return projectOutside;
   }
 
+  // A hanging panel bends over the seat and carries that shape below the
+  // point of contact. The cloth does not reset to the leg profile at each row.
+  function hangBehindSeat(work,targets,rest,projectOutside,material,seat) {
+    const span=(.09+.29*material.bend)*(1-.85*material.stretch)*(1+.12*material.mass);
+    const columns=targets[0].length;
+    for (let j=0;j<columns;j++) {
+      const theta=j*2*Math.PI/columns;
+      const dx=Math.cos(theta),dz=Math.sin(theta);
+      const rear=Math.max(0,-dz)*seat.weight;
+      if (rear<.005) continue;
+      const support=[];
+      for (let i=0;i<targets.length;i++) {
+        const y=rest[i][j][1];
+        if (y<seat.top) continue;
+        const target=targets[i][j],point=work[i][j];
+        const offset=(point[0]-target[0])*dx+(point[2]-target[2])*dz;
+        if (y<=seat.bottom && offset>.003) support.push([y,offset]);
+        let held=0;
+        for (const [from,amount] of support) {
+          const distance=(y-from)/span;
+          held=Math.max(held,amount*Math.exp(-distance*distance));
+        }
+        const shift=Math.max(0,held-Math.max(0,offset))*rear;
+        if (shift>.001) work[i][j]=projectOutside([point[0]+dx*shift,point[1],point[2]+dz*shift],theta);
+      }
+    }
+  }
+
   // Deterministic position constraints keep the shoulder/waist attached and
   // let the hem move. Collision has priority over the fabric's target length.
-  function drape(targets,rest,projectOutside,material,{free=.35}={}) {
+  function drape(targets,rest,projectOutside,material,{free=.35,seat=null}={}) {
     const count=targets.length;
     const columns=targets[0].length;
     const work=targets.map(row=>row.map(point=>point.slice()));
@@ -151,6 +179,7 @@ const clothContact = (() => {
       }
       for (let i=0;i<count;i++) for (let j=0;j<columns;j++) work[i][j]=projectOutside(work[i][j],j*2*Math.PI/columns);
     }
+    if (seat?.weight>.005) hangBehindSeat(work,targets,rest,projectOutside,{bend,stretch,mass},seat);
     return work;
   }
 

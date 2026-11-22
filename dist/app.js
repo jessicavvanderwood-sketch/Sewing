@@ -885,8 +885,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const contact=part==='shell'?shellContact:null;
     const rest=rings.map((row,index)=>Array.from({length:segments},(_,i)=>restPoint(row,thetaAt(i),index)));
     const targets=rest.map((row,index)=>row.map((p,i)=>movePoint(p,thetaAt(i),index)));
+    const seat=skirtFit && part==='shell'
+      ? {top:proportions.yAt(-.12),bottom:proportions.yAt(.32),weight:1-pose.sit**.7}
+      : null;
     const geometry=contact?clothContact.drape(targets,rest.map(row=>row.map(([x,y,z])=>[x,proportions.yAt(y),z])),
-      contact,analysis?.material,{free:model==='dress'?.29:.13}):targets;
+      contact,material,{free:model==='dress'?.29:.13,seat}):targets;
     const projected=geometry.map(row=>row.map(project));
     function sampleRing(theta,index) {
       const position=((theta/(2*Math.PI)*segments)%segments+segments)%segments;

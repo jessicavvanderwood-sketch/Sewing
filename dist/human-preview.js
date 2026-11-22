@@ -111,14 +111,37 @@ const humanPreview = (() => {
     sorted.reverse();
     const hull=lower.concat(half());
     const edges=hull.map(([x,z],i)=>[x-hull.at(i-1)[0],z-hull.at(i-1)[1]]);
-    return {edges,girth:perimeter(edges),xMin,xMax,x:(xMin+xMax)/2,z:(zMin+zMax)/2,depth:zMax-zMin};
+    return {points,edges,girth:perimeter(edges),xMin,xMax,x:(xMin+xMax)/2,z:(zMin+zMax)/2,depth:zMax-zMin};
+  }
+
+  function softenChest(mesh) {
+    const neighbors=mesh.map(()=>new Set());
+    for (let i=0;i<topology.length;i+=4) for (let j=0;j<4;j++) {
+      const a=topology[i+j], b=topology[i+(j+1)%4];
+      neighbors[a].add(b);
+      neighbors[b].add(a);
+    }
+    const influence=mesh.map(([x,y,z])=>ease((y-.672)/.031)*ease((.80-y)/.048)
+      *ease((z-.75)/.57)*ease((1.44-Math.abs(x))/.31));
+    for (let pass=0;pass<8;pass++) {
+      mesh=mesh.map((point,i)=>{
+        if (!influence[i] || !neighbors[i].size) return point;
+        // Smooth the front tissue on the source surface before running the
+        // tape fit, which restores the measured volume after softening.
+        let depth=0;
+        for (const other of neighbors[i]) depth+=mesh[other][2];
+        return [point[0],point[1],mix(point[2],depth/neighbors[i].size,.62*influence[i])];
+      });
+    }
+    return mesh;
   }
 
   const profiles=humanMeshData.profiles.map((coordinates,index)=>{
     const points=Array.from({length:coordinates.length/3},(_,i)=>coordinates.slice(i*3,i*3+3));
     const bottom=Math.min(...points.map(p=>p[1]));
     const height=Math.max(...points.map(p=>p[1]))-bottom;
-    const mesh=points.map(([x,y,z])=>[x,(y-bottom)/height,z]);
+    const normalized=points.map(([x,y,z])=>[x,(y-bottom)/height,z]);
+    const mesh=index===0?softenChest(normalized):normalized;
     const arm=humanMeshData.arms[index], leg=humanMeshData.legs[index];
     const at=point=>(point[1]-bottom)/height;
     // Align the shape changes with the actual joints on each source body.
@@ -190,6 +213,122 @@ const humanPreview = (() => {
     return [clamp((left+right)/2,.62,1.58),depth];
   }
 
+  function bustScales(profile,scales) {
+    const {bust,underbust,upperChest}=profile.levels;
+    const full=scales.find(([y])=>y===bust);
+    // The full tape run includes the breast volume. Use the rib measurement
+    // to grade the chest structure instead of swelling the entire bust ring.
+    if (!full) return scales;
+    const ribs=scales.find(([y])=>y===underbust) || [underbust,...full.slice(1)];
+    const upper=scales.find(([y])=>y===upperChest) || [upperChest,...ribs.slice(1)];
+    return [...scales.filter(([y])=>![bust,underbust,upperChest].includes(y)),ribs,upper]
+      .sort((a,b)=>a[0]-b[0]);
+  }
+
+  function bustVolume(profile,body,geometry,cm,widthAt,depthAt) {
+    const at=profile.levels;
+    const contour=profile.sections.bust;
+    if (!contour || !body.bust) return ()=>[0,0];
+    const nativeApex=contour.points.reduce((best,point)=>point[0]>=0 && point[1]>best[1]?point:best,[.8,-Infinity]);
+    const center=clamp(nativeApex[0],contour.xMax*.35,contour.xMax*.73);
+    const lateral=Math.max(.3,contour.xMax-center);
+    const naturalSpacing=2*center*widthAt(at.bust)*cm;
+    const spacing=body.bustSpacing?clamp((body.bustSpacing-naturalSpacing)*.5/cm,-.28,.28):0;
+    const bottom=at.underbust-.020;
+    const top=Math.min(at.shoulder-.012,at.bust+.065);
+    function loft(y) {
+      return y<=at.bust?ease((y-bottom)/(at.bust-bottom)):ease((top-y)/(top-at.bust));
+    }
+    function crossSection(x,y,z) {
+      const face=ease((z-contour.z-.1)/(.31*contour.depth));
+      const t=(Math.abs(x)-center)/(lateral*.83);
+      const lobe=Math.exp(-t*t)*ease((contour.xMax+.06-Math.abs(x))/.27);
+      return face*lobe*loft(y);
+    }
+    function offset(x,y,z,volume,width) {
+      const tissue=crossSection(x,y,z);
+      const spread=Math.sign(x)*ease(Math.abs(x)/(center*.7));
+      return [x*width+spacing*spread*tissue,volume*tissue];
+    }
+    const tape=(key,volume,width)=>{
+      const y=at[key], row=profile.sections[key];
+      return describeContour(row.points.map(([x,z])=>{
+        const [dx,dz]=offset(x,y,z,volume,width);
+        return [x*widthAt(y)+dx,(z-row.z)*depthAt(y)+dz];
+      })).girth;
+    };
+    function fitRange(target,low,high,measure) {
+      for (let i=0;i<16;i++) {
+        const middle=(low+high)/2;
+        if (measure(middle)<target) low=middle;
+        else high=middle;
+      }
+      return (low+high)/2;
+    }
+    // The projection field is a preference within the feasible tape measure.
+    // Keep the adjustment centered on the volume, bounded enough to retain
+    // the native rib-to-breast transition on atypical saved measurements.
+    const target=body.bust/cm;
+    const limitLow=-.23, limitHigh=.25, widthLimit=.20;
+    const bustTape=(volume,width)=>tape('bust',volume,width);
+    const projectionPreference=!geometry.limited && (body.bustProjection || !body.underbust && (body.braSize || body.cup));
+    let volume=0;
+    if (projectionPreference) {
+      volume=clamp(.65*(geometry.depth-4.5)/cm,limitLow,limitHigh);
+      if (bustTape(volume,-widthLimit)>target) volume=fitRange(target,limitLow,volume,n=>bustTape(n,-widthLimit));
+      if (bustTape(volume,widthLimit)<target) volume=fitRange(target,volume,limitHigh,n=>bustTape(n,widthLimit));
+    } else {
+      volume=fitRange(target,limitLow,limitHigh,n=>bustTape(n,0));
+    }
+    let width=fitRange(target,-widthLimit,widthLimit,n=>bustTape(volume,n));
+    if (bustTape(volume,widthLimit)<target) {
+      // A larger tape difference needs both side volume and front volume.
+      // Grade them together instead of increasing depth into a point or
+      // stopping at the default proportions of the source profile.
+      const extra=fitRange(target,0,2.5,n=>bustTape(volume+n*.52,widthLimit+n*.78));
+      width=widthLimit+extra*.78;
+      volume+=extra*.52;
+    } else if (bustTape(volume,-widthLimit)>target) {
+      const low=-Math.max(widthLimit,widthAt(at.bust)*.65);
+      width=fitRange(target,low,-widthLimit,n=>bustTape(volume,n));
+    }
+    // Rebalance the small front-volume overlap at the rib and upper-chest
+    // tape lines so the transition can be gradual across both landmarks.
+    const widths=[[bottom,0],[at.bust,width],[top,0]];
+    for (const key of ['underbust','upperChest']) {
+      if (!body[key] || !profile.sections[key]) continue;
+      widths.push([at[key],fitRange(body[key]/cm,-.25,.25,n=>tape(key,volume,n))]);
+    }
+    const widthAdjustment=smoothCurve(widths.sort((a,b)=>a[0]-b[0]));
+    return (x,y,z)=>y<=bottom || y>=top?[0,0]:offset(x,y,z,volume,widthAdjustment(y));
+  }
+
+  function fitSeatDepth(profile,body,cm,widthAt,depthAt) {
+    const {levels,sections}=profile;
+    if (!body.hipDepth || !sections.hip) return [widthAt,depthAt];
+    const hipScale=sectionScales(sections.hip,body.hip,body.hipDepth,1,cm);
+    const depthChange=(hipScale[1]-depthAt(levels.hip))*sections.hip.depth*cm;
+    if (Math.abs(depthChange)<.05) return [widthAt,depthAt];
+    const deltas=[[levels.midThigh,0,0],[levels.waist,0,0],
+      [levels.hip,hipScale[0]-widthAt(levels.hip),hipScale[1]-depthAt(levels.hip)]];
+    // Continue the seat shape through the upper hips and the tops of the
+    // thighs. Refit each tape circumference as depth changes across the area.
+    for (const [key,share] of [['highHip',.45],['thigh',.28]]) {
+      const contour=sections[key];
+      if (!contour) continue;
+      const y=levels[key], width=widthAt(y), depth=depthAt(y);
+      const girth=body[key] || perimeter(contour.edges,width,depth)*cm;
+      const requestedDepth=Math.max(1,contour.depth*depth*cm+depthChange*share);
+      const [fittedWidth,fittedDepth]=sectionScales(contour,girth,requestedDepth,1,cm);
+      deltas.push([y,fittedWidth-width,fittedDepth-depth]);
+    }
+    deltas.sort((a,b)=>a[0]-b[0]);
+    return [widthAt,depthAt].map((scale,axis)=>{
+      const correction=smoothCurve(deltas.map(row=>[row[0],row[axis+1]]));
+      return y=>scale(y)+correction(y);
+    });
+  }
+
   function armShape(profile,body,cm,shoulderRatio) {
     const [shoulder,elbow,wrist]=profile.arm;
     const upper=direction(shoulder,elbow), lower=direction(elbow,wrist);
@@ -236,16 +375,19 @@ const humanPreview = (() => {
     const outline=body.scan?modelCamera.rings([
       [-.90,1,1],[-.79,1,1],[-.75,1,1],[-.63,1,1],[-.45,1,1],[-.25,1,1],[-.04,1,1],[.16,1,1],[.30,1,1]
     ],body.scan):null;
-    const sectionDepth={waist:body.waistDepth,hip:body.hipDepth};
-    const scales=[...legSections,...torsoSections].flatMap(key=>{
+    const contourScales=[...legSections,...torsoSections].flatMap(key=>{
       const contour=profile.sections[key];
-      if (!contour || (!body[key] && !sectionDepth[key] && (!outline || legSections.includes(key)))) return [];
+      const waistDepth=key==='waist'?body.waistDepth:undefined;
+      const hasDepth=waistDepth || key==='hip' && body.hipDepth;
+      if (!contour || (!body[key] && !hasDepth && (!outline || legSections.includes(key)))) return [];
       const [w,d]=outline ? fabricFit.envelope(outline,props.baseAt(heightAt(at[key]))) : [1,1];
       const aspect=w && d ? Math.sqrt(w/d) : 1;
-      return [[at[key],...sectionScales(contour,body[key],sectionDepth[key],aspect,cm)]];
+      return [[at[key],...sectionScales(contour,body[key],waistDepth,aspect,cm)]];
     });
+    const scales=female?bustScales(profile,contourScales):contourScales;
     const scaleAt=axis=>smoothCurve([[.026,1],...scales.map(row=>[row[0],row[axis]]),[.925,1]]);
-    const widthAt=scaleAt(1), depthAt=scaleAt(2);
+    const [widthAt,depthAt]=fitSeatDepth(profile,body,cm,scaleAt(1),scaleAt(2));
+    const adjustBust=female?bustVolume(profile,body,geometry,cm,widthAt,depthAt):()=>[0,0];
     const pivotZ=smoothCurve([...legSections,...torsoSections].filter(key=>profile.sections[key])
       .map(key=>[at[key],profile.sections[key].z]));
     const legPivot=smoothCurve([...legSections.map(key=>[at[key],profile.sections[key]?.x || 0]),
@@ -262,16 +404,14 @@ const humanPreview = (() => {
       const vertical=floor-heightAt(y)*unit;
       const center=legPivot(y)*sign*ease(Math.abs(x)/.35);
       const zCenter=pivotZ(y);
-      const sizedX=center+(x-center)*widthAt(y)+(shoulderRatio-1)*x*shoulder;
+      const [bustWidth,bustDepth]=adjustBust(x,y,z);
+      const sizedX=center+(x-center)*widthAt(y)+(shoulderRatio-1)*x*shoulder+bustWidth;
       const stance=sign*.43*ease((at.crotch-y)/(at.crotch-at.calf));
       const foot=(z-profile.heel)*(footScale-1)*ease((at.ankle-y)/(at.ankle-.012));
-      const influence=female?Math.exp(-(((y-at.bust)/.037)**2))*ease((z-.48)/.85)*ease((1.58-Math.abs(x))/.6):0;
-      const projected=female?(geometry.depth-4.5)/cm*influence*.2:0;
-      const spacing=body.bustSpacing && female?(body.bustSpacing/2-9.5)*unit*influence*sign*ease(Math.abs(x)/.43):0;
       return [
-        (mix(sizedX,sign*arm.x,armWeight)-stance)*cm*unit+spacing,
+        (mix(sizedX,sign*arm.x,armWeight)-stance)*cm*unit,
         mix(vertical,shoulderY-arm.y*cm*unit,armWeight),
-        (mix(zCenter+(z-zCenter)*depthAt(y)+foot,arm.z,armWeight)+projected-.34)*cm*unit,
+        (mix(zCenter+(z-zCenter)*depthAt(y)+foot+bustDepth,arm.z,armWeight)-.34)*cm*unit,
         armWeight
       ];
     }
