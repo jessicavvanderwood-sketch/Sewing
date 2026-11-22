@@ -29,6 +29,10 @@ const studioDesign = (() => {
   };
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
+  const pocketTypes = {patch:'Patch pocket',inseam:'In-seam pocket'};
+  const pocketSectionLabels = {body:'Garment body',leftLeg:'Wearer’s left leg',rightLeg:'Wearer’s right leg'};
+  const pocketLimits = {angle:[-180,180],height:[0,100],width:[4,30],depth:[4,35],opening:[3,30],rotation:[-45,45]};
+  const pocketShapes = ['Square','Rounded','Pointed'];
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
   const laceStyles = ['Scalloped lace','Eyelet lace','Stretch lace'];
   const laceWidthLimits = [.5,8];
@@ -127,6 +131,79 @@ const studioDesign = (() => {
   const layerStartsAt = (model='dress')=>hasSkirt(model)?'Waist':model==='trousers'?'Upper leg':'Upper edge';
   const layerIsInner = layer=>['Underskirt','Lining'].includes(typeof layer==='string'?layer:layer?.kind);
 
+  const supportsInseamPocket = model=>['dress','skirt','trousers'].includes(model);
+
+  function pocketChoicesForDesign(design) {
+    const model=design?.model;
+    if (!Object.hasOwn(silhouettes,model)) return {};
+    const choices={patch:pocketTypes.patch};
+    if (supportsInseamPocket(model) && !onePiece(design).legOutseam) choices.inseam=pocketTypes.inseam;
+    return choices;
+  }
+
+  function pocketSections(design,type='patch') {
+    if (!Object.hasOwn(silhouettes,design?.model) || !Object.hasOwn(pocketTypes,type)) return {};
+    if (type==='inseam' && !supportsInseamPocket(design.model)) return {};
+    return type==='patch' && design.model==='trousers'?{...pocketSectionLabels}:{body:pocketSectionLabels.body};
+  }
+
+  function pocketDefaults(design,type) {
+    const model=design.model;
+    const height={dress:26,top:32,skirt:20,trousers:40,corset:40}[model];
+    const patchWidth={top:12,corset:8}[model]||15;
+    const width=type==='inseam'?15:patchWidth;
+    const depth=type==='inseam'?20:({top:11,corset:8}[model]||15);
+    return {type,section:'body',angle:type==='inseam'?90:model==='top'?33:42,height,width,depth,
+      opening:type==='inseam'?14:width,rotation:0,shape:type==='inseam'?'Rounded':'Square'};
+  }
+
+  function pocketDetail(value,design) {
+    const type=value?.type;
+    const sections=pocketSections(design,type);
+    if (!Object.hasOwn(pocketTypes,type) || !Object.keys(sections).length) return null;
+    const base=pocketDefaults(design,type);
+    const sized=Object.fromEntries(Object.entries(pocketLimits).map(([key,limits])=>[key,numeric(value,key,base[key],limits)]));
+    sized.opening=Math.min(sized.opening,type==='patch'?sized.width:sized.depth);
+    if (type==='inseam') {
+      sized.angle=sized.angle<0?-90:90;
+      sized.rotation=0;
+    }
+    const section=Object.hasOwn(sections,value.section)?value.section:'body';
+    return {type,section,...sized,shape:pocketShapes.includes(value.shape)?value.shape:base.shape};
+  }
+
+  function legacyPocketDetails(design) {
+    const type=design?.pocket===pockets[1]?'patch':design?.pocket===pockets[2]?'inseam':undefined;
+    if (!type || !Object.hasOwn(silhouettes,design.model) || !pocketChoices(design.model).includes(design.pocket)) return [];
+    const base=pocketDefaults(design,type);
+    return [base,{...base,angle:-base.angle}];
+  }
+
+  function pocketDetails(design) {
+    if (!Array.isArray(design?.pocketDetails)) return legacyPocketDetails(design);
+    return design.pocketDetails.map(pocket=>pocketDetail(pocket,design)).filter(Boolean);
+  }
+
+  function hasInseamPocket(design) {
+    if (!supportsInseamPocket(design?.model)) return false;
+    return Array.isArray(design.pocketDetails)?design.pocketDetails.some(pocket=>pocket?.type==='inseam'):design.pocket===pockets[2];
+  }
+
+  function newPocket(design,overrides={}) {
+    const choices=pocketChoicesForDesign(design);
+    if (!choices.patch) return null;
+    const type=Object.hasOwn(choices,overrides.type)?overrides.type:'patch';
+    const base=pocketDefaults(design,type);
+    const existing=pocketDetails(design).filter(pocket=>pocket.type===type).length;
+    const angles=type==='inseam'?[90,-90]:[base.angle,-base.angle,180-base.angle,base.angle-180,90,-90,0,180];
+    return pocketDetail({...base,angle:angles[existing%angles.length],height:Math.min(90,base.height+10*Math.floor(existing/angles.length)),
+      ...overrides,type},design);
+  }
+
+  function pocketPositionLabel(pocket) {
+    return `${pocketSectionLabels[pocket.section]} · ${singleSeamLocation(pocket.angle)} (${pocket.angle}°) · ${pocket.height}% down`;
+  }
+
   function onePieceChoices(design) {
     const model=design?.model;
     if (!Object.hasOwn(silhouettes,model)) return {};
@@ -140,7 +217,7 @@ const studioDesign = (() => {
     const panel=design.seams;
     const hasPanelZipper=panel?.panelSeam===centerFrontSeam && Number.isFinite(panel.panelZipper);
     if (seamKeys(model).includes('panelSeam') && !hasPanelZipper) choices.panel='Continuous panel';
-    if (model==='trousers' && design.closure!=='Side zipper' && design.pocket!=='In-seam pockets') {
+    if (model==='trousers' && design.closure!=='Side zipper' && !hasInseamPocket(design)) {
       choices.legOutseam='Trouser legs without outseams';
     }
     return choices;
@@ -166,7 +243,7 @@ const studioDesign = (() => {
     if (isSleeved(design)) placements.sleeves='Sleeve openings';
     placements.hem=model==='trousers'?'Leg hems':'Hem';
     if (model==='trousers') placements.waistband='Waistband top edge';
-    if (design.pocket!==pockets[0] && pocketChoices(model).includes(design.pocket)) placements.pockets='Pocket openings';
+    if (pocketDetails(design).length) placements.pockets='Pocket openings';
     if (!onePiece(design).legOutseam) placements.seams='Seam overlay';
     return placements;
   }
@@ -636,7 +713,7 @@ const studioDesign = (() => {
   }
 
   function laceInstructions(design) {
-    return laceTrimTargets(design).map(({edge,label,trim})=>{
+    return laceTrimTargets(design).filter(({edge})=>edge!=='pockets'||!Array.isArray(design.pocketDetails)).map(({edge,label,trim})=>{
       const flexible=trim.style==='Stretch lace';
       const settings=flexible
         ?'Test zigzag 04 with foot J on the Brother CP2160F using a compatible stretch or ballpoint needle. After stitching, stretch the test piece and check that the thread holds and the edge recovers.'
@@ -656,6 +733,32 @@ const studioDesign = (() => {
         placement='Finish and fit the fabric edge first. With a flexible tape, measure the stitching path and mark matching points, joins and any closure. Match motifs on paired edges. Lay the right side of the lace outward and place its solid sewing rail just over the finished edge. Let the decorative part extend beyond the garment. Clip and baste the rail.';
       }
       return {edge,visual:'designLaceTrim',text:`${label}. Apply ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}). ${placement} Allow spare trim for pattern repeats, joins and a test piece. ${settings} With the lace lying flat, sew the basted path. Remove visible basting and check that the edge, seam, closure or pocket opens and moves as intended.`};
+    });
+  }
+
+  function customPocketInstructions(design) {
+    if (!Array.isArray(design?.pocketDetails)) return [];
+    const trim=laceTrim(design.laceTrims?.pockets);
+    const lace=trim?` With the opening fitted, use ${trim.width} cm wide ${trim.style.toLowerCase()}.`:'';
+    const machine='On the Brother CP2160F, test straight stitch 01 with foot J at 2.5 mm on stable woven scraps of the same thickness. If using stretch fabric, test a compatible stretch stitch or narrow zigzag and check the opening recovers.';
+    return pocketDetails(design).map((pocket,index)=>{
+      const {type,section,height,width,depth,opening,angle,rotation,shape}=pocket;
+      const inseam=type==='inseam';
+      const range=section!=='body'?'the top of the selected leg just below the crotch to its finished hem'
+        :design.model==='trousers'?'the waistband top to the bottom of the seat section'
+          :design.model==='skirt'?'the waistband’s upper edge to the finished hem':'the upper edge of the chosen body panel to its finished hem';
+      const rotationText=rotation?` Looking at the right side of the pocket, rotate its template ${Math.abs(rotation)}° ${rotation>0?'clockwise':'counterclockwise'}.`:'';
+      const share=Number((height/100).toFixed(4));
+      const place=`Pocket ${index+1} · ${pocketTypes[type]}. ${pocketPositionLabel(pocket)}. On the fitted sample, mark ${singleSeamLocation(angle)}. Measure down the garment from ${range} at that position. Multiply that distance by ${share} to locate the pocket’s upper edge.${rotationText}`;
+      const corners=shape==='Rounded'?'Round the lower corners in a smooth curve.':shape==='Pointed'?'Draw the two lower edges toward the centered point at full depth.':'Keep the lower corners square.';
+      if (inseam) {
+        const trimLip=trim?`${lace} Lay the trim on the outer lip after the side seam and bag are joined. Fold its ends under inside the reinforced marks, baste and sew through the lip only. Check that the mouth still opens.`:'';
+        return {visual:'designPocketInseam',text:`${place} Mark the top stop on the side seam and measure ${opening} cm down the seam for the bottom stop. Draft two matching bag pieces ${width} cm wide inward from the side seam and ${depth} cm deep. ${corners} Check that the whole bag fits on the tested panel and clears the closure. Mark both stops on the paper and add the pattern’s seam allowances to the bag edges. Cut and mark both pieces and stabilize the opening on the garment panels. ${machine} Put one bag piece and one garment edge right sides together. Match their stops, stitch the opening, press the bag away from the garment, and repeat on the other edge. Join the side seam above and below the two stops. Match and stitch around the bag edges. Reinforce both stops without closing the mouth.${trimLip} Slide a hand inside and check access, depth and seam clearance on the wearer.`};
+      }
+      const closed=Number(((width-opening)/2).toFixed(3));
+      const closeEnds=closed?` Measure ${closed} cm inward from each upper corner and mark the ends of the ${opening} cm centered opening. Secure the top edges only outside those marks.`:' Keep the full top edge open.';
+      const trimTop=trim?`${lace} Position the lace rail just below the finished opening and tuck its ends under. Baste and stitch it on the flat pocket before attaching the pocket to the garment.`:'';
+      return {visual:'designPocketPatch',text:`${place} Trace a ${width} cm wide by ${depth} cm deep finished pocket with a ${opening} cm top opening. ${corners} Check the template fits inside the selected section and clears any seams or closures. Draw the fold line at the top and add the pattern’s top finish and side and lower turnbacks outside the finished lines. Cut the fabric and transfer the marks. ${machine} Fold and press the top allowance inward, stitch the top finish, then turn and press the sides and bottom around the paper template.${trimTop} Transfer the tested placement to the flat garment panel. Pin the pocket there and check reach. Topstitch around the shape and reinforce both top ends.${closeEnds} Check the opening length again before joining the garment panels.`};
     });
   }
 
@@ -738,14 +841,15 @@ const studioDesign = (() => {
     list.push(...stitchSteps.filter(step=>step.prepare));
     add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.`);
     list.push(...layerSteps.cut);
-    if (design.pocket==='Patch pockets') {
+    if (Array.isArray(design.pocketDetails)) {
+      list.push(...customPocketInstructions(design));
+    } else if (design.pocket==='Patch pockets') {
       const pocketLace=laceSteps.find(step=>step.edge==='pockets');
       if (pocketLace) {
         list.push(pocketLace);
         add('pocketPatch','Mark matching pocket positions on the fitted sample and transfer them to the flat panels. Lay each lace-trimmed pocket on its marks. Turn and press the remaining allowances, then pin or baste the sides and bottom. Topstitch those edges and reinforce the top corners. Keep the lace-trimmed top edge open.');
       } else add('pocketPatch','Mark matching pocket positions on the first fitting. Finish the pocket top edge, turn and press the remaining allowances, then topstitch the pockets onto the flat garment panels before assembly.');
-    }
-    if (design.pocket==='In-seam pockets') add('pocket','Mark paired openings on the side seams. Sew the pocket bags to the matching front and back opening lines before joining the side seams. Join the bags, reinforce each opening end and check that the pockets sit flat.');
+    } else if (design.pocket==='In-seam pockets') add('pocket','Mark paired openings on the side seams. Sew the pocket bags to the matching front and back opening lines before joining the side seams. Join the bags, reinforce each opening end and check that the pockets sit flat.');
     if (isBodice(design.model)) {
       if (strapless) {
         add('seam','Join the fitted bodice panels and preserve the marked upper edge. Baste the intended closure at its marks for the trial fitting, leaving the opening accessible for final construction.');
@@ -809,6 +913,7 @@ const studioDesign = (() => {
     const spec = silhouettes[design.model];
     const garmentLayers=layers(design);
     design={...design};
+    if (Array.isArray(design.pocketDetails)) design.pocketDetails=pocketDetails(design);
     const continuous=onePiece(design);
     if (Object.keys(continuous).length) design.onePiece=continuous;
     else delete design.onePiece;
@@ -866,13 +971,15 @@ const studioDesign = (() => {
     const trimTargets=laceTrimTargets(design);
     if (trimTargets.length) tools.push('foot J','hand-basting needle','compatible needle','flexible measuring tape');
     if (details.length) tools.push('foot J','removable fabric marker','hand-basting needle','press cloth');
+    if (design.pocketDetails?.length) tools.push('foot J','removable fabric marker','press cloth');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
     const trimMaterials=trimTargets.length?' '+trimTargets.map(({label,trim})=>`Use ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}) for ${label.toLowerCase()}.`).join(' ')+' Measure each finished edge and allow spare for motif matching, joins and a test piece.':'';
     const detailMaterials=details.length?' Allow fabric for the selected ruffle fullness, folded bands or pintuck take-up. Measure the fitted attachment paths and add seam and hem allowances before finalizing the layout.':'';
+    const pocketMaterials=Array.isArray(design.pocketDetails) && hasInseamPocket(design)?' Allow lightweight pocketing and opening reinforcement for each in-seam pocket.':'';
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
       cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase()+(hasFairyHem(design)?' · fairy hem':''),
       level:'Intermediate',color:design.primary,design,
-      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+trimMaterials+detailMaterials+' Confirm yardage after laying out your drafted pieces.',
+      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+trimMaterials+detailMaterials+pocketMaterials+' Confirm yardage after laying out your drafted pieces.',
       tools:[...new Set(tools)].join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
   }
 
@@ -885,5 +992,6 @@ const studioDesign = (() => {
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,straplessSupportChoices,selectedStraplessSupport,
     selectedShoulderSide,supportWidth,supportsStrapShape,strapShapeLimits,strapShapeChoices,strapShape,
-    selectedBack,pocketChoices,defaults,measurements,straplessInstructions,straplessTools,strapInstructions,sleeveDrafting,laceInstructions,stitchInstructions,instructions,make};
+    selectedBack,pocketChoices,pocketChoicesForDesign,pocketSections,pocketLimits,pocketShapes,pocketDetail,pocketDetails,newPocket,hasInseamPocket,pocketPositionLabel,customPocketInstructions,
+    defaults,measurements,straplessInstructions,straplessTools,strapInstructions,sleeveDrafting,laceInstructions,stitchInstructions,instructions,make};
 })();

@@ -44,6 +44,8 @@ Each garment has XXS, XS, S, M, L, XL and XXL. M uses the saved fit. The dashboa
 
 Open **Pattern Library → New custom piece** to combine a silhouette, length, neckline, sleeves, color, and fabric in the design editor. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
 
+Open **Pockets** in a new design or when revising a saved design. Add pockets one at a time or start with a paired layout. Adjust each pocket’s placement, width, depth, and opening separately. Patch pockets can wrap around the body or go on either trouser leg, and have their own outline and rotation. In-seam pockets attach to a side seam. Select a pocket on the model to open its settings. Work orders show a numbered set of measurements and construction figures for each new pocket.
+
 Choose **Strapless** for a dress or top with an elastic top edge or a structured bodice. Corsets use structured support. Open **Strap curve and taper** or select a strap in the preview. The front and back groups set their own curve, width, depth along the bodice, and join angle. Halter straps have a rear collar that uses curve and width controls. Sleeve choices include Flutter, Bishop, and Tapered, alongside the width, length, cap, and cuff sliders.
 
 Choose a back style, including Boat back, Soft V-back, and Deep U-back. **Back neckline fit** gives the rear opening its own width and depth. In **Strap curve and taper**, change the distance between the rear anchors or shift them toward the wearer’s left or right.

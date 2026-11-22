@@ -207,6 +207,7 @@ const workFigures = (() => {
     if (id==='strap') return strapPanels(step,order,pattern.design)[0];
     if (id==='sleeve' && sleeveStylePattern.test(step)) return sleeveStylePanels(step,order,pattern.measurements)[0];
     if (id==='designLaceTrim') return laceTrimPanels(step,order,pattern.design)[0];
+    if (customPocketVisuals.includes(id)) return customPocketPanels(step,order,pattern.design)[0];
     if (stitchDetailVisuals.includes(id)) return stitchDetailPanels(step,id,order,pattern.design)[0];
     if (fastenerVisuals.includes(id)) return fastenerPanels(id,order,pattern.design)[0];
     if (straplessVisuals.includes(id) || id==='strapless' || id==='facing' && /strapless upper edge/i.test(step)) {
@@ -1432,9 +1433,133 @@ const workFigures = (() => {
     return `<details class="design-options wo-seam-guide"><summary>${title}</summary><p class="tight">Use this finish on seams that suit the fabric and pattern. Test it with the same layers and allowance first.</p><div class="wf-grid">${panels.join('')}</div></details>`;
   }
 
+  const customPocketVisuals=['designPocketPatch','designPocketInseam'];
+  function pocketLowerEdge(shape,x,y,w,h) {
+    const radius=Math.min(w*.22,h*.25);
+    const bottom=y+h,right=x+w;
+    return shape==='Pointed'?`V${bottom-radius}L${x+w/2} ${bottom}L${x} ${bottom-radius}`
+      :shape==='Rounded'?`V${bottom-radius}Q${right} ${bottom} ${right-radius} ${bottom}H${x+radius}Q${x} ${bottom} ${x} ${bottom-radius}`:`V${bottom}H${x}`;
+  }
+  const pocketShape=(shape,x,y,w,h)=>`M${x} ${y}H${x+w}${pocketLowerEdge(shape,x,y,w,h)}Z`;
+
+  function pocketPositionPanels(pocket,model,number) {
+    const leg=pocket.section!=='body';
+    const section=leg?`Wearer’s ${pocket.section==='leftLeg'?'left':'right'} leg`:'Garment body';
+    const top=leg?'Upper leg':model==='skirt'||model==='trousers'?'Waistband':'Upper edge';
+    const bottom=!leg&&model==='trousers'?'Seat / crotch edge':'Finished hem';
+    const angle=pocket.angle;
+    const turn=angle*Math.PI/180;
+    const locate=(rx,ry)=>[165+rx*Math.sin(turn),80+ry*Math.cos(turn)];
+    const [turnX,turnY]=locate(68,40);
+    const [pathX,pathY]=locate(46,27);
+    const side=angle<0?'right':'left';
+    const site=Math.abs(angle)===180?'center back':angle?`toward the wearer’s ${side}`:'center front';
+    const sideView=Math.abs(angle)===90?'Side view':Math.abs(angle)>90?'Back view':'Front view';
+    const ring=path('M97 80a68 40 0 1 0 136 0a68 40 0 1 0 -136 0Z','wf-cloth')+
+      guide(97,80,233,80)+guide(165,40,165,120)+path(`M165 80L${turnX} ${turnY}`,'wf-stitch')+
+      `<circle cx="${turnX}" cy="${turnY}" r="4" fill="#fbf5ef" stroke="#8a2541"/>`+
+      (angle?path(`M165 107 A46 27 0 0 ${angle>0?0:1} ${pathX} ${pathY}`,'wf-dimension'):'')+
+      label(165,151,'Center front','middle')+label(165,24,'Center back','middle')+
+      label(92,86,'Wearer’s right','end')+label(238,86,'Wearer’s left')+
+      dimText(166,72,`${angle>0?'+':''}${angle}°`,'middle');
+    const startY=39,endY=122;
+    const y=startY+(endY-startY)*pocket.height/100;
+    const x=leg||Math.abs(angle)===90?163:163+(Math.abs(angle)>90?-1:1)*41*Math.sin(turn);
+    const base=leg?'M128 39H195L209 123H116Z':model==='skirt'?'M128 39H196L224 123H101Z':
+      model==='trousers'?'M121 39H202L220 99Q206 106 200 123H127Q118 107 104 99Z':'M116 37L131 31Q163 49 196 31L210 37L222 67L208 91L215 123H111L118 91L104 67Z';
+    const sketch=path(base,'wf-cloth')+guide(104,startY,218,startY)+guide(104,endY,218,endY)+
+      guide(92,y,x,y)+guide(92,startY,104,startY)+
+      (y>startY?tick(89,startY,y,`${pocket.height}%`,-1):dimText(79,startY-7,'0%','end'))+
+      label(228,startY+3,top)+label(228,endY+3,bottom)+label(162,18,sideView,'middle');
+    const patch=pocket.type==='patch';
+    const rotation=pocket.rotation;
+    const marked=patch?`<g transform="rotate(${rotation} ${x} ${y})">${path(pocketShape(pocket.shape,x-14,y,28,22),'wf-fold')}</g>`
+      :path(`M${x} ${y}v${Math.min(24,140-y)}`,'wf-stitch');
+    return [panel(`Pocket ${number} · Locate ${section.toLowerCase()}`,ring,
+      `View from above. Start at center front and mark ${angle?`${Math.abs(angle)}° ${site==='center back'?'around to center back':site}`:site}. Transfer the position to ${section.toLowerCase()} on the fitted garment. Keep any waistband, zipper or lining reference marks visible.`),
+    panel('Mark the pocket top and its angle',sketch+marked+guide(x-20,y,x+20,y)+
+      label(163,148,patch?`${rotation>0?'+':''}${rotation}° pocket rotation`:'Keep the opening on the seam','middle'),
+      `Measure straight down from the ${top.toLowerCase()} to the ${bottom.toLowerCase()} at the selected point. Multiply that span by ${pocket.height}% and mark this as the top of the ${patch?'pocket':'opening'}. ${patch?(rotation?`Turn the pocket ${Math.abs(rotation)}° ${rotation>0?'clockwise':'counterclockwise'} from level while looking at its face. `:'Keep the pocket top level. '):'Keep both opening marks on the selected sewing line. '}Baste the paper or cloth mock-up there and check that it is reachable while worn.`)];
+  }
+
+  function customPocketPanels(step,order,design) {
+    const number=Number(num(step,/^Pocket (\d+)/));
+    const pocket=Array.isArray(design?.pocketDetails)?studioDesign.pocketDetails(design)[number-1]:null;
+    if (!pocket) return [];
+    const overview=pocketPositionPanels(pocket,design.model,number);
+    const allowance=format(order.allowances?.seam)||'Pattern allowance';
+    const topstitch=format(order.allowances?.topstitch)||'Pattern spacing';
+    const width=format(pocket.width),depth=format(pocket.depth),opening=format(pocket.opening);
+    const trim=studioDesign.laceTrims(design).pockets;
+    const x=65,y=52,w=141,h=73;
+    if (pocket.type==='patch') {
+      const finished=pocketShape(pocket.shape,x,y,w,h);
+      const cut=pocketShape(pocket.shape,x-10,y-15,w+20,h+25);
+      const mouth=pocket.opening/pocket.width*w;
+      const mid=x+w/2;
+      const left=mid-mouth/2,right=mid+mouth/2;
+      const topSeams=(left>70?`M70 55H${left}`:'')+(right<201?`M${right} 55H201`:'');
+      return [...overview,
+        panel(`${pocket.shape} patch pocket · Trace the finished shape`,
+          path(cut,'wf-cloth')+path(finished,'wf-stitch')+span(x,x+w,29,width)+
+          guide(206,y,234,y)+guide(206,y+h,234,y+h)+tick(231,y,y+h,depth)+
+          span(left,right,84,opening)+leader(mid,56,mid,67)+label(mid,111,'Centered opening','middle')+
+          span(55,65,153,allowance)+label(133,155,'Solid outside line is the cut edge'),
+          `Draft the finished ${pocket.shape.toLowerCase()} outline ${width} across and ${depth} down from its top edge. Center and mark the ${opening} opening. Add the pattern’s top turn allowance and the tested side and bottom allowances to draw the cut line. Check grain and label the wearer’s side before cutting.`),
+        panel('Fold and press the pocket on the wrong side',
+          path('M50 36H223V139H50Z','wf-cloth')+path('M52 37H221V72H52Z','wf-fold')+path('M53 69H220','wf-stitch')+
+          path('M53 72L62 78V127H213V79L221 72V138H53Z','wf-fold')+
+          leader(220,63,247,48)+label(251,52,'Top turn')+path('M100 46v17m-5-5l5 5 5-5','wf-arrow')+
+          leader(219,121,245,111)+label(249,114,'Turn sides')+label(137,154,'Keep the planned mouth open','middle'),
+          'Place the pocket wrong side up. Turn and press the top allowance as the pattern directs and sew its inner edge. Press the sides and bottom over a paper template with the finished shape. For a curve, ease the allowance around the curve. At a point, trim the bulk as the sample allows.'),
+        ...(trim?[customPocketLacePanel(trim,false)]:[]),
+        panel('Clip to the marks and stitch the closed edges',
+          path('M37 28H251V138H37Z','wf-cloth')+path(finished,'wf-fold')+
+          path(`M${left} 52H${right}`,'wf-dimension')+path(`M${left} 46v12M${right} 46v12`,'wf-dimension')+
+          path(`M201 55${pocketLowerEdge(pocket.shape,70,55,131,65)}V55${topSeams}`,'wf-stitch')+
+          span(left,right,42,opening)+span(65,70,150,topstitch)+label(251,79,'Panel'),
+          'Lay the pocket right side out on the marked garment panel and clip it in place. For stable wovens, test Brother CP2160F straight stitch 01 with foot J at 2.5 mm on the actual layers. Sew the sides and bottom, secure the top corners or marked ends, and leave the planned opening free. Check with your hand before closing the garment seams.')];
+    }
+    const openingEnd=y+h*pocket.opening/pocket.depth;
+    const bag=(left,top,right,bottom)=>pocket.shape==='Square'||pocket.shape==='Pointed'
+      ?pocketShape(pocket.shape,left,top,right-left,bottom-top)
+      :`M${left} ${top}H${left+29}Q${right} ${top+10} ${right} ${top+(bottom-top)*.54}Q${right} ${bottom} ${right-31} ${bottom}H${left}Z`;
+    const bagLine=bag(79,y,207,125);
+    return [...overview,
+      panel(`${pocket.shape} pocket bag · Draft both pieces`,path(bag(66,40,220,138),'wf-cloth')+path(bagLine,'wf-stitch')+
+        span(79,207,31,width)+tick(236,52,125,depth)+tick(52,52,openingEnd,opening,-1)+
+        path(`M72 52H86M72 ${openingEnd}H86`,'wf-dimension')+span(66,79,148,allowance)+label(147,103,'Pocket bag','middle'),
+        `Trace the bag ${width} wide from the seam to its outer edge and ${depth} deep from the top reference. Transfer the opening stops ${opening} apart to both paper pieces. Add the tested joining allowance, then cut the front and back bags in the orientation the pattern calls for.`),
+      panel('Match one bag to each garment edge',
+        path('M36 40H135V130H36ZM179 40H278V130H179Z','wf-cloth')+
+        path('M90 59H135V114H90ZM179 59H224V114H179Z','wf-fold')+
+        path('M124 61V111M190 61V111','wf-stitch')+path('M121 61h14m-14 49h14M179 61h14m-14 49h14','wf-dimension')+
+        tick(153,61,110,opening)+label(86,22,'Front panel','middle')+label(228,22,'Back panel','middle')+
+        label(157,151,'Align both stops','middle'),
+        'Mark both stops on the front and back seam edges. With fabric faces together, match one pocket bag to each edge and stitch between its stops. Press the bags away from the garment seam and check both ends line up.'),
+      panel('Sew around the bag and leave the opening free',
+        path('M35 30H205V137H35Z','wf-cloth')+path(bag(84,47,213,120),'wf-fold')+
+        path('M84 34V53M84 110V134M85 51Q219 43 208 89Q201 118 161 118H86','wf-stitch')+
+        guide(84,53,84,110)+tick(64,53,110,opening,-1)+leader(206,91,236,83)+label(240,86,'Sew bag edges')+
+        label(136,152,'Reinforce both stops','middle'),
+        'Join the garment seam above and below the marked opening. Sew around both bag pieces, keeping the garment layers clear. Test straight stitch 01 with foot J at 2.5 mm on stable woven scrap. Reinforce the opening ends according to the pattern, finish the raw edges, and check that your hand enters the bag freely.'),
+      ...(trim?[customPocketLacePanel(trim,true)]:[])];
+  }
+
+  function customPocketLacePanel(trim,inseam) {
+    const width=format(trim.width);
+    const trimBand=`<path d="M77 64H221V91H77Z" fill="${trim.color}" stroke="#70564f"/>`+
+      [88,110,132,154,176,198,211].map(cx=>`<circle cx="${cx}" cy="80" r="4" fill="none" stroke="#70564f"/>`).join('');
+    return panel(inseam?'Baste lace to only the visible pocket lip':'Add lace before attaching the pocket',
+      path('M53 60H242L224 131H69Z','wf-cloth')+trimBand+path('M78 68H220','wf-stitch')+
+      tick(253,64,91,width)+label(147,42,'Keep this edge open','middle')+label(152,115,'Leave the other layers clear','middle'),
+      inseam?'After joining the pocket, pin the bag and the opposite lip back. Turn the lace ends under at the marked stops, then baste the rail through the visible lip alone. Check that the full mouth opens.'
+        :'Lay the finished pocket right side up on the board. Baste the lace rail just below the mouth on the pocket face and tuck the ends into the turnbacks. Stitch through the pocket only before pinning the pocket to the garment.');
+  }
+
   function featurePlan(order,design) {
     const plan=order.plan||{}, allowance=order.allowances||{};
-    const pocket=plan.pocket==='pattern'||!plan.pocket?design?.pocket:plan.pocket;
+    const pocket=Array.isArray(design?.pocketDetails)?null:plan.pocket==='pattern'||!plan.pocket?design?.pocket:plan.pocket;
     const panels=[];
     if (pocket==='patch'||pocket==='Patch pockets') {
       const reference=plan.pocketReference||'Pattern reference line';
@@ -1653,6 +1778,10 @@ const workFigures = (() => {
     if (id==='fairyHem' || id==='hemContour') return `<details class="wo-how wo-storyboard" open><summary>Follow this step in pictures</summary><div class="wf-grid">${hemShapePanels(design || (id==='fairyHem'?{hemStyle:'Fairy / handkerchief'}:{}),order.allowances,design?.finish).join('')}</div></details>`;
     if (id==='sleeve' && sleeveStylePattern.test(step)) return `<details class="wo-how wo-storyboard" open><summary>Check the sleeve draft in pictures</summary><div class="wf-grid">${sleeveStylePanels(step,order,measurements).slice(1).join('')}</div></details>`;
     if (id==='designLaceTrim') return `<details class="wo-how wo-storyboard" open><summary>Attach the lace trim in pictures</summary><div class="wf-grid">${laceTrimPanels(step,order,design).slice(1).join('')}</div></details>`;
+    if (customPocketVisuals.includes(id)) {
+      const panels=customPocketPanels(step,order,design).slice(1);
+      return panels.length?`<details class="wo-how wo-storyboard" open><summary>Make this pocket in pictures</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
+    }
     if (stitchDetailVisuals.includes(id)) return `<details class="wo-how wo-storyboard" open><summary>Sew the detail in pictures</summary><div class="wf-grid">${stitchDetailPanels(step,id,order,design).slice(1).join('')}</div></details>`;
     if (fastenerVisuals.includes(id)) {
       const source=id==='designDrawstring'||id==='designButtons'&&design?.closure!=='Back button and loop'
