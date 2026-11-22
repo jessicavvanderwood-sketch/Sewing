@@ -60,7 +60,11 @@ Under **Seam overlay**, place lace centered, left, or right of the seam. Centere
 
 Open **Seams → Ruffle attachment seams** in New custom piece, or open **Ruffle attachment seams** in Fit and revise. Add a seam and choose how far down it sits from the upper edge at the side to the main hem. Add a gathered ruffle and set its finished drop and fullness, or start with **Add ruffle tiers**. Select a seam or tier in the preview to reach its controls. Work orders show where to mark each row, how to calculate strip length, and how to sew the tiers from the bottom up.
 
-Open **Slits** under **Trims & details** or in **Fit and revise**. Set the position, length from the finished hem, and opening width for each slit. Choose the left or right leg for trousers and shorts. Set the width to zero for edges that meet at rest. The work order marks each top stop and shows how to finish and reinforce the opening.
+Open **Slits** under **Trims & details** or in **Fit and revise**. Choose the main hem, either trouser leg, or either sleeve where fitted. Set the position, length from the finished hem, and opening width. A width of zero brings the edges together at rest. Sleeve options include a faced vent, bound placket, and button-and-loop vent. The work order shows where to stop cutting and how to finish the selected opening. [Sleeve Plackets and Bands](https://pubs.nmsu.edu/_c/C222/index.html)
+
+Choose **Keyhole** at the front or **Keyhole back** in Back style. Set the shape, width, depth, position below the neckline and bridge or button-loop finish for each opening. **Notched** adds a narrow split at the front edge, with width and depth in Fit. [Creating Rouleau Button Loops](https://www.seamwork.com/sewing-tutorials/creating-rouleau-button-loops) · [Notched Carpe Diem Top](https://fitforartpatterns.com/2022/05/03/notched-carpe-diem-top/)
+
+Open **Left and right fit → Back neckline** to change the width and depth on the wearer’s left and right separately. Select either rear edge in the preview to open its controls. In **Fit and revise**, use **Left and right back neckline**. The work order records each changed side and shows how to trace the matching facing.
 
 Choose a button closure to edit the button count, diameter, spacing and first position. **Wrap ties** offers length, width and placement. **Drawstring waistband** is available for trousers and skirts and includes cord dimensions, casing depth and exit placement. Illustrated work orders show the selected measurements.
 

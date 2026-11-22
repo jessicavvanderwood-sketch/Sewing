@@ -206,9 +206,12 @@ const workFigures = (() => {
     if (Object.hasOwn(seatedRegions,id)) return seatedPanels(step,id,order,pattern.measurements)[0];
     if (id==='strap') return strapPanels(step,order,pattern.design)[0];
     if (id==='designStrapCorner') return strapCornerPanels(step,order)[0];
+    if (id==='designKeyholeFront'||id==='designKeyholeBack') return keyholePanels(id,order,pattern.design)[0];
+    if (id==='designNotchedNeck') return notchedNeckPanels(order)[0];
     if (id==='sleeve' && sleeveStylePattern.test(step)) return sleeveStylePanels(step,order,pattern.measurements)[0];
     if (id==='designLaceTrim') return laceTrimPanels(step,order,pattern.design)[0];
     if (id==='designSlit') return slitPanels(step,order,pattern.design)[0];
+    if (id==='designSleeveSlit') return sleeveVentPanels(step,order,pattern.design)[0];
     if (attachmentSeamVisuals.includes(id)) return attachmentSeamPanels(step,id,order,pattern.design)[0];
     if (customPocketVisuals.includes(id)) return customPocketPanels(step,order,pattern.design)[0];
     if (stitchDetailVisuals.includes(id)) return stitchDetailPanels(step,id,order,pattern.design)[0];
@@ -993,6 +996,7 @@ const workFigures = (() => {
     const key=studioDesign.asymmetryKeys(design).find(key=>step.startsWith((key==='panelSeam'?'Front panel seam':garmentFit.fields[key][0])+'.'));
     if (!key) return [];
     const {left,right}=studioDesign.asymmetry(design);
+    if (key==='backNeck'||key==='backNeckWidth') return asymmetricBackNeckPanels(key,left[key]||0,right[key]||0,order);
     const region={shoulder:47,armhole:66,neckDepth:57,bust:76,waist:93,hip:110,
       sleeveWidth:66,sleeveLength:82,cuff:87,sweep:125,thigh:107,knee:123,leg:139,length:138,panelSeam:99};
     const y=region[key];
@@ -1022,6 +1026,41 @@ const workFigures = (() => {
       path('M109 46L121 123M224 46L208 123','wf-stitch')+path('M117 73h9m-5 25h9M216 73h9m-15 25h9','wf-dimension')+
       span(121,130,143,allowance)+label(78,72,'Right','middle')+label(251,72,'Left','middle'),
       'Lay out the paper pieces with their face and grainline marked. Measure their sewing edges against the pieces they join at the same notches. Add the recorded allowance beyond the new sewing lines. Use each separately traced side where the design differs.')];
+  }
+
+  function asymmetricBackNeckPanels(key,left,right,order) {
+    const width=key==='backNeckWidth';
+    const x=164,y=76;
+    const p=[109,219];
+    const shift=(value,sign)=>Math.max(-20,Math.min(20,value*1.85))*sign;
+    const [neckLeft,neckRight]=width?[p[0]+shift(left,-1),p[1]+shift(right,1)]:p;
+    const [depthLeft,depthRight]=width?[y,y]:[y+shift(left,1),y+shift(right,1)];
+    const contour=(leftX,rightX,leftY,rightY)=>`M${leftX} 52Q${leftX+9} 62 139 ${leftY}Q153 ${leftY+7} ${x} 87Q176 ${rightY+7} 189 ${rightY}Q${rightX-9} 62 ${rightX} 52`;
+    const reference=contour(...p,y,y);
+    const finished=contour(neckLeft,neckRight,depthLeft,depthRight);
+    const draft=path(finished+'L256 65L240 138H88L72 65Z','wf-cloth')+
+      path(reference,'wf-guide')+path(finished,'wf-stitch')+guide(x,87,x,143);
+    const labels=label(80,26,'Wearer’s left','middle')+label(246,26,'Wearer’s right','middle')+
+      dimText(77,121,left?signedLength(left):'0 cm · Base fit','middle')+dimText(251,121,right?signedLength(right):'0 cm · Base fit','middle')+
+      label(x,154,'Back view · Center back','middle');
+    const brackets=(width?[[p[0],neckLeft],[p[1],neckRight]].map(([old,next])=>
+      guide(old,50,old,39)+(old===next?'':guide(next,51,next,39)+span(Math.min(old,next),Math.max(old,next),42,''))):
+      [[139,depthLeft,-1],[189,depthRight,1]].map(([position,next,side])=>{
+        const edge=position+side*35;
+        return leader(position,y,edge,y)+(y===next?'':leader(position,next,edge,next)+tick(edge,Math.min(next,y),Math.max(next,y),'',side));
+      })).join('');
+    const allowance=format(order.allowances?.neck??order.allowances?.seam)||'Pattern allowance';
+    return [
+      panel(width?'Move the two back neckline endpoints independently':'Mark the depth on each half of the back neckline',draft+brackets+labels,
+        `Face the back of the fitted garment. Use the wearer’s left and right marks shown above. On each half, start from its fitted base. ${width?'Measure along the width at the outer neck point. Positive moves outward from center back and negative moves inward.':'Measure the depth vertically. Positive lowers that half and negative raises it.'} Blend the checked edges together at center back.`),
+      panel('Trace the full back facing from the tested edge',
+        path('M43 44H242V137H43Z','wf-cloth')+path('M44 73Q97 55 139 84Q192 112 241 72V93Q191 135 139 105Q98 78 44 94Z','wf-fold')+
+        path('M45 75Q98 58 139 86Q191 115 239 75','wf-stitch')+guide(140,40,140,135)+
+        tick(253,75,94,'')+leader(253,85,263,104)+dimText(317,116,allowance,'end')+
+        label(84,39,'Left back half','middle')+label(198,39,'Right back half','middle')+
+        label(144,154,'Transfer the matching marks','middle'),
+        'Trace both fitted halves of the back neckline on a full paper piece. Transfer center back, the shoulder marks and any closure. Compare the finished facing line edge to edge with the bodice, then restore the pattern allowance separately along each altered edge and check on the sample.')
+    ];
   }
 
   const layerHemSource=(layer,design)=>Object.hasOwn(layer,'hemStyle')?layer:design;
@@ -1653,6 +1692,136 @@ const workFigures = (() => {
     ];
   }
 
+  function sleeveVentPanels(step,order,design) {
+    const number=Number(num(step,/^Slit (\d+)/));
+    const vent=studioDesign.slits(design)[number-1];
+    if (!vent) return [];
+    const side=vent.section==='leftSleeve'?'left':'right';
+    const faced=vent.finish!=='Bound placket';
+    const loop=vent.finish==='Button-and-loop vent';
+    const length=format(vent.length),opening=format(vent.opening);
+    const allowance=format(order.allowances?.slit??order.allowances?.seam)||'Pattern allowance';
+    const center=139,stop=57,cuff=124;
+    const half=vent.opening?9+Math.min(16,vent.opening*2):0;
+    const sleeve=path(`M62 33H211L199 ${cuff}H${center+half}L${center} ${stop}L${center-half} ${cuff}H78Z`,'wf-cloth');
+    const guideSlit=path(`M${center-half} ${cuff}L${center} ${stop}L${center+half} ${cuff}`,'wf-dimension');
+    return [
+      panel(`Slit ${number} · Mark the wearer’s ${side} sleeve`,sleeve+guideSlit+
+        guide(center,stop,center,cuff)+leader(center,stop,232,stop)+leader(202,cuff,232,cuff)+tick(231,stop,cuff,length)+
+        (half?span(center-half,center+half,147,opening):dimText(center,149,'0 cm · Edges meet','middle'))+
+        label(148,48,'Vent stop')+leader(80,cuff,55,118)+label(50,114,'Cuff edge'),
+        `Find the planned sleeve position at ${studioDesign.singleSeamLocation(vent.angle)} on the ${side} sleeve. Measure ${length} up from the finished cuff or sleeve edge. ${half?`Mark the ${opening} finished opening at the cuff, distributed around the center mark.`:'Mark both finished lips to meet at the cuff.'} Transfer the top stop to the sleeve and finish pieces.`),
+      panel('Locate the vent around the sleeve',garmentAngleSketch(vent.angle),
+        `View the sleeve from above. Use the attached garment front and back as references when placing the mark on the ${side} sleeve. Baste a test opening and check elbow bend and hand clearance.`),
+      ...(loop?[panel('Baste the sleeve loop and fit the actual button',
+        path('M42 39H132V135H42ZM159 39H244V135H159Z','wf-cloth')+
+        path('M130 88Q183 62 191 90Q184 117 130 103','wf-dimension')+path('M125 82V111','wf-stitch')+
+        '<circle cx="185" cy="91" r="7" fill="#8a2541"/>'+leader(131,86,111,62)+label(107,58,'Loop ends','end')+
+        label(157,153,'Mark the opposite button with cuff closed','middle'),
+        'Test the loop around the actual button. Baste its two ends at the marked cuff edge before sewing the facing. After turning the facing, close the cuff to mark the opposite button and hand-sew it. Check that the loop opens easily.')]:[]),
+      panel(faced?'Stitch the facing before cutting the vent':'Reinforce the tip and slash the placket',
+        path('M42 33H233V137H42Z','wf-cloth')+
+        (faced?path('M83 39H196V132H83Z','wf-fold'):'')+
+        path('M112 127L135 60Q139 55 143 60L167 127','wf-stitch')+
+        path('M127 127L139 67L152 127','wf-guide')+guide(139,67,209,57)+label(214,60,'Cut inside')+
+        leader(163,114,210,108)+label(214,111,'Stitch path')+
+        span(112,127,150,allowance)+label(126,25,'Keep tip stitches intact','middle'),
+        `${faced?'Stabilize the point and lay its shaped facing on the sleeve with the right sides touching. Baste and stitch around the marked opening.':'Staystitch the two sides at the marked stop to support the slit before slashing.'} Test Brother CP2160F foot J and centered straight stitch 01 at 2.5 mm on stable woven scrap. Cut between the stitching lines and clip close to the point, keeping the stitches intact.`),
+      faced?panel('Turn the facing to the inside and press both lips',
+        path('M44 31H230V136H44Z','wf-cloth')+path('M84 39H190V131H84Z','wf-fold')+
+        path('M106 128L138 58L170 128','wf-dimension')+path('M99 127L138 50L177 127','wf-stitch')+
+        path('M121 94H102m5-4l-5 4 5 4M154 95h22m-5-4l5 4-5 4','wf-arrow')+
+        label(213,46,'Wrong side up','middle')+label(139,150,'Press along each lip','middle'),
+        'Turn the facing through to the sleeve’s wrong side. Roll each edge between your fingers until the seam lies flat. Press both lips separately. Understitch where there is room, then secure the facing ends inside the cuff or hem finish.')
+      :half?panel('Bind each side of the marked wedge separately',
+        sleeve+guideSlit+path(`M${center-half-7} ${cuff-2}L${center-4} ${stop+6}M${center+4} ${stop+6}L${center+half+7} ${cuff-2}`,'wf-stitch')+
+        leader(center+half,117,218,104)+label(222,106,'Wrap both lips')+span(center-half,center+half,146,opening),
+        `Bind each sloped edge individually. Wrap the strip over the raw edge and stitch it flat. Finish the two ends at the upper stop while holding the ${opening} cuff gap open. Check the tip remains flat.`)
+      :panel('Open the slit flat and wrap the binding',
+        path('M43 45H230V128H43Z','wf-cloth')+path('M45 80H229V109H45Z','wf-fold')+
+        path('M46 85H228M46 101H228','wf-stitch')+guide(137,62,137,116)+path('M109 68v19m-5-5l5 5 5-5','wf-arrow')+
+        label(139,33,'Open the slash into a straight edge','middle')+label(137,148,'Stitch the inside fold closed','middle'),
+        'Spread the slit flat and place its opening edge against the prepared strip. Stitch along the marked edge, keeping the reinforced point flat under the foot. Wrap the strip around the raw edge. Press the fold and stitch it in place, then check that the finished placket closes flat.'),
+      panel('Finish the cuff and keep the vent free',sleeve+guideSlit+
+        path(`M80 112H${center-half-7}M${center+half+7} 112H196`,'wf-stitch')+
+        label(141,151,'Finish the sleeve edges separately','middle'),
+        'Align the folded cuff or sleeve hem to the ends of the finished vent. Stitch each end flat and keep the opening free. Try the sleeve over the hand and check the cuff and vent while bending the arm.')
+    ];
+  }
+
+  function keyholeContour(shape,x,top,bottom,half) {
+    const height=bottom-top;
+    const mid=top+height*.5;
+    if (shape==='Diamond') return `M${x} ${top}L${x+half} ${mid}L${x} ${bottom}L${x-half} ${mid}Z`;
+    if (shape==='Teardrop') return `M${x} ${top}Q${x+half} ${top+height*.43} ${x+half} ${top+height*.65}Q${x+half} ${bottom} ${x} ${bottom}Q${x-half} ${bottom} ${x-half} ${top+height*.65}Q${x-half} ${top+height*.43} ${x} ${top}Z`;
+    const oval=half*4/3;
+    return `M${x} ${top}C${x+oval} ${top} ${x+oval} ${bottom} ${x} ${bottom}C${x-oval} ${bottom} ${x-oval} ${top} ${x} ${top}Z`;
+  }
+
+  function keyholePanels(id,order,design) {
+    const side=id==='designKeyholeFront'?'front':'back';
+    const hole=studioDesign.keyholes(design)[side];
+    if (!hole) return [];
+    const sideName=side==='front'?'Front':'Back';
+    const loop=hole.bridge==='Button and loop';
+    const width=format(hole.width),depth=format(hole.depth),offset=format(hole.offset);
+    const allowance=format(order.allowances?.neck??order.allowances?.seam)||'Pattern allowance';
+    const x=138,neck=47,top=71,bottom=128,half=hole.shape==='Teardrop'?26:31;
+    const widest=top+(bottom-top)*(hole.shape==='Teardrop'?.65:.5);
+    const shallow='M49 30H92Q138 64 184 30H227V141H49Z';
+    const finish=keyholeContour(hole.shape,x,top,bottom,half);
+    const inside=keyholeContour(hole.shape,x,top+7,bottom-7,half-7);
+    const channel=loop?path(`M${x} ${neck}V${top}`,'wf-dimension'):'';
+    return [
+      panel(`${sideName} keyhole · Mark the ${hole.shape.toLowerCase()} opening`,path(shallow,'wf-cloth')+path(finish,'wf-dimension')+channel+
+        guide(x,neck,x,135)+leader(x,neck,226,neck)+leader(x,top,226,top)+leader(x,bottom,226,bottom)+
+        tick(223,neck,top,offset)+tick(223,top,bottom,depth)+guide(x-half,widest,x-half,151)+guide(x+half,widest,x+half,151)+span(x-half,x+half,151,width)+
+        label(182,37,`Center ${side} neckline`)+label(246,119,'Finished depth'),
+        `On the fitted ${side}, measure ${offset} down from the finished center neckline to the top of the aperture. Outline the ${hole.shape.toLowerCase()} at ${width} across its widest point and ${depth} from top to bottom. ${loop?'Mark the connecting slit to the neckline for the button and loop.':'Retain and stabilize the fabric bridge above the opening.'} Check placement and coverage on the sample.`),
+      ...(loop?[panel('Place the button and loop across the slit',
+        path('M43 35H130L125 125H51ZM152 35H242L235 125H158Z','wf-cloth')+
+        path('M125 69Q176 48 188 77Q177 107 126 91','wf-dimension')+path('M121 64V100','wf-stitch')+
+        '<circle cx="183" cy="77" r="8" fill="#8a2541"/>'+leader(127,68,105,51)+label(101,49,'Baste loop ends','end')+
+        label(146,151,'Test the loop with the actual button','middle'),
+        'Wrap the loop around the actual button to mark its size. Baste its two ends into the planned neckline edge before sewing the facing. Fit the overlap with the garment on. After turning, sew the button opposite the loop and confirm it releases easily without pulling on the keyhole.')]:[]),
+      panel(loop?'Mark the keyhole and connecting slit':'Mark the facing and cut inside the sewn shape',
+        path(shallow,'wf-cloth')+path('M77 58H196V138H77Z','wf-fold')+path(finish,'wf-stitch')+path(inside,'wf-guide')+
+        (loop?path('M134 46V73M142 46V73','wf-stitch')+path('M138 48V79','wf-guide'):path('M91 52H185','wf-dimension'))+
+        leader(162,107,217,89)+label(220,92,'Sew the finish line')+
+        leader(138,bottom-7,209,132)+label(214,135,'Trim inside')+
+        guide(x-half,widest,x-half,151)+guide(x-half+7,widest,x-half+7,151)+span(x-half,x-half+7,152,allowance),
+        `${loop?'Stabilize the upper edges of the marked keyhole and the connecting slit. Baste the facing over the marked line with right sides together and stitch before cutting.':'Trace a matching shaped facing and use suitable interfacing around the bridge. Layer the facing and bodice right sides together and sew the finished shape before cutting the aperture.'} Test Brother CP2160F foot J with centered straight stitch 01 at 2.5 mm on stable woven scraps. Cut within the securing stitches and ${hole.shape==='Diamond'?'clip toward the points':'clip the curves'} while keeping the stitch line intact.`),
+      panel(loop?'Turn the faced edge through the slit':'Turn the facing inward and press the bridge flat',
+        path(shallow,'wf-cloth')+path(finish,'wf-dimension')+path(keyholeContour(hole.shape,x,top-5,bottom+6,half+7),'wf-stitch')+
+        channel+leader(153,81,210,61)+label(215,64,'Facing inside')+
+        path('M87 100H107m-5-5l5 5-5 5','wf-arrow')+label(137,154,loop?'Finish through to the neckline':'Let the bridge lie flat','middle'),
+        loop?'Turn the facing to the inside and smooth the opening by hand before pressing. Match and secure the neckline ends. Check that the loop is free at the edge and the opening keeps its fitted dimensions.':'Turn the facing through the keyhole to the inside. Roll the finished edge between your fingers before pressing. Understitch where you can reach and secure the outer facing at pattern seams. Check the bridge stays flat.')
+    ];
+  }
+
+  function notchedNeckPanels(order) {
+    const allowance=format(order.allowances?.neck??order.allowances?.seam)||'Pattern allowance';
+    const body='M45 33H80Q108 54 123 58L138 100L153 58Q171 54 197 33H237V132H45Z';
+    const seam='M82 38Q108 57 118 64L138 109L158 64Q170 57 195 38';
+    return [
+      panel('Notched front · Mark the V at center front',path(body,'wf-cloth')+guide(138,38,138,126)+
+        guide(123,59,123,36)+guide(153,59,153,36)+span(123,153,34,'Notch width')+
+        leader(155,58,226,58)+leader(140,100,226,100)+tick(224,58,100,'Notch depth')+
+        label(138,153,'Center front','middle'),
+        'Mark the center-front line on the fitted paper pattern. Place the two notch starts at the same level and mark the lower point on center front. Check the width between the starts and the depth to the point on a fitting sample. Transfer those three marks to the bodice and facing.'),
+      panel('Stitch the facing and clip toward the V',path('M39 28H232V135H39Z','wf-cloth')+
+        path('M61 31H207V118H61Z','wf-fold')+path(seam,'wf-stitch')+path('M122 57L138 97L154 57','wf-guide')+
+        leader(139,96,211,92)+label(216,96,'Clip inside')+leader(138,110,222,116)+label(227,121,'Sewn point')+
+        span(61,76,150,allowance)+label(179,149,'Facing right side down','middle'),
+        'Stabilize the V and match the facing to the bodice with right sides together. Test centered straight stitch 01 with foot J at 2.5 mm on stable woven scrap. Sew to the point, lift the foot with the needle down to pivot, and continue up the other side. Clip toward the reinforced point and stop before the stitches.'),
+      panel('Turn and press the shape against the facing',path(body,'wf-cloth')+path(seam,'wf-stitch')+
+        path('M64 69Q93 87 115 87L138 127L162 87Q183 87 218 69','wf-guide')+
+        path('M195 76Q212 71 210 101m-5-6l5 6 6-5','wf-arrow')+
+        label(145,153,'Roll the facing to the inside','middle')+label(227,110,'Press flat'),
+        'Turn the facing to the inside. Use your fingertips to settle the point, then press it over a suitable pressing surface. Understitch the straight or curved sections where reachable. Baste the facing at the shoulder seams and check that the notch lies flat on the wearer.')
+    ];
+  }
+
   function pocketPositionPanels(pocket,model,number) {
     const leg=pocket.section!=='body';
     const section=leg?`Wearer’s ${pocket.section==='leftLeg'?'left':'right'} leg`:'Garment body';
@@ -1960,6 +2129,15 @@ const workFigures = (() => {
   };
   function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
+    if (id==='designSleeveSlit'||id==='designKeyholeFront'||id==='designKeyholeBack') {
+      const sleeve=id==='designSleeveSlit';
+      const panels=(sleeve?sleeveVentPanels(step,order,design):keyholePanels(id,order,design)).slice(1);
+      const sources=sleeve
+        ?'<a href="https://pubs.nmsu.edu/_c/C222/index.html" target="_blank" rel="noopener">NMSU sleeve plackets</a> · <a href="https://simplicity.com/how-to-sew-continuous-lap" target="_blank" rel="noopener">Simplicity continuous lap</a>'
+        :'<a href="https://pubs.nmsu.edu/_c/C233/index.html" target="_blank" rel="noopener">NMSU facings</a> · <a href="https://www.seamwork.com/sewing-tutorials/creating-rouleau-button-loops" target="_blank" rel="noopener">Seamwork button loops</a>';
+      return panels.length?`<details class="wo-how wo-storyboard" open><summary>${sleeve?'Make the sleeve vent in pictures':'Make the keyhole in pictures'}</summary><div class="wf-grid">${panels.join('')}</div><p>${sources}</p></details>`:'';
+    }
+    if (id==='designNotchedNeck') return `<details class="wo-how wo-storyboard" open><summary>Make the notched neckline in pictures</summary><div class="wf-grid">${notchedNeckPanels(order).slice(1).join('')}</div><p><a href="https://fitforartpatterns.com/2022/05/03/notched-carpe-diem-top/" target="_blank" rel="noopener">Fit for Art Patterns notched neckline</a></p></details>`;
     if (isBackNeckStep(step,id,design)) return `<details class="wo-how wo-storyboard" open><summary>Mark the back neckline in pictures</summary><div class="wf-grid">${backNeckPanels(step,id,order,design).slice(combinedNeckStep(step,id)?0:1).join('')}</div></details>`;
     if (id==='asymmetricFit') {
       const panels=asymmetricPanels(step,order,design).slice(1);

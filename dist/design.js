@@ -8,12 +8,20 @@ const studioDesign = (() => {
     trousers:{label:'Pants',type:'Trousers',cuts:['Tapered','Straight','Wide leg','Bootcut','Flared','Palazzo','Barrel leg','Jogger'],lengths:['Cropped','Ankle','Full length','Bermuda','Short']},
     corset:{label:'Corset / structured bodice',type:'Tops',cuts:['Underbust','Overbust','Corset-style bodice'],lengths:['Waist','High hip','Low hip']}
   };
-  const necklines = ['Crew','Scoop','V-neck','Boat','Square','Sweetheart','U-neck','Mock neck'];
+  const necklines = ['Crew','Scoop','V-neck','Boat','Square','Sweetheart','U-neck','Mock neck','Keyhole','Notched'];
   const sleeves = ['Sleeveless','Cap','Short','Elbow','Long','Puff','Bell','Flutter','Bishop','Tapered'];
   const fabrics = ['Cotton poplin','Linen blend','Medium-weight twill','Fluid woven crepe'];
   const closures = ['Invisible zipper','Back button and loop','Front buttons','Elastic waistband','Side zipper','Zip fly',
     'Button fly','Wrap ties','Separating zipper','Back lacing','Front busk','Drawstring waistband'];
-  const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back','Boat back','Soft V-back','Deep U-back'];
+  const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back','Boat back','Soft V-back','Deep U-back','Keyhole back'];
+  const keyholeShapes = ['Teardrop','Oval','Diamond'];
+  const keyholeBridges = ['Closed bridge','Button and loop'];
+  const keyholeLimits = {width:[.75,18],depth:[1,25],offset:[.4,8]};
+  const keyholeLabels = {front:'Front keyhole',back:'Back keyhole'};
+  const keyholeDefaults = {
+    front:{shape:'Teardrop',width:4.5,depth:7,offset:1.5,bridge:'Closed bridge'},
+    back:{shape:'Oval',width:4,depth:8,offset:1.5,bridge:'Closed bridge'}
+  };
   const supports = ['Integrated shoulders','Wide straps','Narrow straps','Spaghetti straps','Halter strap','One-shoulder','Strapless'];
   const strapShapeLimits = {strapFrontCurve:[-5,5],strapBackCurve:[-5,5],strapFrontTaper:[25,250],strapBackTaper:[25,250],
     strapFrontJoin:[0,6],strapBackJoin:[0,6],strapFrontAngle:[-35,35],strapBackAngle:[-35,35],
@@ -42,6 +50,9 @@ const studioDesign = (() => {
   const pocketShapes = ['Square','Rounded','Pointed'];
   const slitLimits = {angle:[-180,180],length:[1,65],opening:[0,25]};
   const slitDefaults = {angle:90,length:14,opening:2};
+  const sleeveSlitLabels = {leftSleeve:'Wearer’s left sleeve',rightSleeve:'Wearer’s right sleeve'};
+  const sleeveSlitFinishes = ['Faced vent','Bound placket','Button-and-loop vent'];
+  const sleeveSlitDefaults = {length:6,opening:0,finish:sleeveSlitFinishes[0]};
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
   const laceStyles = ['Scalloped lace','Eyelet lace','Stretch lace'];
   const laceWidthLimits = [.5,8];
@@ -95,7 +106,7 @@ const studioDesign = (() => {
   const seamKeys = model=>Object.hasOwn(seamsByType,model)?seamsByType[model]:[];
   const bounded = (value,[min,max])=>Math.min(max,Math.max(min,value));
   const numeric = (source,key,fallback,limits)=>Number.isFinite(source?.[key])?bounded(source[key],limits):fallback;
-  const asymmetryLimits = {shoulder:[-6,6],armhole:[-4,4],neckDepth:[-16,16],bust:[-12,12],waist:[-12,12],hip:[-12,12],
+  const asymmetryLimits = {shoulder:[-6,6],armhole:[-4,4],neckDepth:[-16,16],backNeck:[-12,12],backNeckWidth:[-12,12],bust:[-12,12],waist:[-12,12],hip:[-12,12],
     sleeveWidth:[-8,8],sleeveLength:[-12,12],cuff:[-8,8],sweep:[-30,30],thigh:[-18,18],knee:[-16,16],leg:[-12,12],
     length:[-15,15],panelSeam:[-12,12]};
   const panelStart=(model,y)=>.42+(model==='skirt'?0:Math.max(0,1-Math.abs(y+.71)/.36)*.2);
@@ -155,6 +166,28 @@ const studioDesign = (() => {
   const selectedShoulderSide = design=>design?.shoulderSide==='right'?'right':'left';
   const supportWidth = style=>({'Integrated shoulders':6.5,'Wide straps':4.5,'Narrow straps':2.2,'Spaghetti straps':.8,'Halter strap':2.5,'One-shoulder':4.5})[style];
   const selectedBack = design=>backs.includes(design?.back)?design.back:backs[0];
+  function keyholeChoices(design) {
+    if (!isBodice(design?.model)) return {};
+    const support=selectedSupport(design);
+    if (support==='Strapless') return {};
+    const choices={};
+    if (design.neckline==='Keyhole') choices.front=keyholeLabels.front;
+    if (design.back==='Keyhole back' && support!=='Halter strap') choices.back=keyholeLabels.back;
+    return choices;
+  }
+
+  function keyhole(value,side='front') {
+    const defaults=side==='back'?keyholeDefaults.back:keyholeDefaults.front;
+    const shape=keyholeShapes.includes(value?.shape)?value.shape:defaults.shape;
+    const bridge=keyholeBridges.includes(value?.bridge)?value.bridge:defaults.bridge;
+    const dimensions=Object.fromEntries(Object.entries(keyholeLimits).map(([key,limits])=>[key,numeric(value,key,defaults[key],limits)]));
+    return {shape,...dimensions,bridge};
+  }
+
+  function keyholes(design) {
+    return Object.fromEntries(Object.keys(keyholeChoices(design)).map(side=>[side,keyhole(design.keyholes?.[side],side)]));
+  }
+
   const pocketChoices = model => model==='corset' ? pockets.slice(0,1) : model==='top' ? pockets.slice(0,2) : pockets;
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
   const isSleeved = design => isBodice(design.model) && design.model!=='corset' && selectedSupport(design)===supports[0] && design.sleeve!==sleeves[0];
@@ -239,10 +272,15 @@ const studioDesign = (() => {
     return `${sectionAngleLabel(pocket)} · ${pocket.height}% down`;
   }
 
+  const isSleeveSlit = section=>Object.hasOwn(sleeveSlitLabels,section);
+  const canHaveSleeveSlits = model=>model==='dress'||model==='top';
+
   function slitSections(design) {
     if (!Object.hasOwn(silhouettes,design?.model)) return {};
     if (design.model==='trousers') return {leftLeg:sectionLabels.leftLeg,rightLeg:sectionLabels.rightLeg};
-    return {body:sectionLabels.body};
+    const sleeves=canHaveSleeveSlits(design.model) && selectedSupport(design)===supports[0] &&
+      (design.hasSleeves??isSleeved(design));
+    return {body:sectionLabels.body,...(sleeves?sleeveSlitLabels:{})};
   }
 
   function slitDetail(value,design) {
@@ -250,11 +288,16 @@ const studioDesign = (() => {
     const choices=slitSections(design);
     const sections=Object.keys(choices);
     if (!sections.length) return null;
+    if (isSleeveSlit(value.section) && !Object.hasOwn(choices,value.section)) return null;
     const suggested=choices.rightLeg && value.angle<0?'rightLeg':sections[0];
     const section=Object.hasOwn(choices,value.section)?value.section:suggested;
-    const fallbackAngle=section==='rightLeg'?-slitDefaults.angle:slitDefaults.angle;
-    return {section,angle:numeric(value,'angle',fallbackAngle,slitLimits.angle),length:numeric(value,'length',slitDefaults.length,slitLimits.length),
-      opening:numeric(value,'opening',slitDefaults.opening,slitLimits.opening)};
+    const sleeve=isSleeveSlit(section);
+    const defaults=sleeve?sleeveSlitDefaults:slitDefaults;
+    const fallbackAngle=section==='rightLeg'||section==='rightSleeve'?-slitDefaults.angle:slitDefaults.angle;
+    const slit={section,angle:numeric(value,'angle',fallbackAngle,slitLimits.angle),length:numeric(value,'length',defaults.length,slitLimits.length),
+      opening:numeric(value,'opening',defaults.opening,slitLimits.opening)};
+    if (sleeve) slit.finish=sleeveSlitFinishes.includes(value.finish)?value.finish:defaults.finish;
+    return slit;
   }
 
   function slits(design) {
@@ -262,22 +305,48 @@ const studioDesign = (() => {
     return design.slits.map(slit=>slitDetail(slit,design)).filter(Boolean);
   }
 
+  function configuredSlits(design) {
+    if (!canHaveSleeveSlits(design?.model)) return slits(design);
+    return slits({...design,hasSleeves:true,support:supports[0]});
+  }
+
+  function activeSlitEntries(design) {
+    const sections=slitSections(design);
+    return configuredSlits(design).flatMap((slit,index)=>sections[slit.section]?[{slit,index}]:[]);
+  }
+
   function newSlit(design,overrides={}) {
     const sections=slitSections(design);
     const choices=Object.keys(sections);
     if (!choices.length) return null;
+    if (isSleeveSlit(overrides.section) && !Object.hasOwn(sections,overrides.section)) return null;
     const existing=slits(design);
-    const section=Object.hasOwn(sections,overrides.section)?overrides.section:choices[existing.length%choices.length];
-    const angles=section==='rightLeg'?[-90,0,180,90]:section==='leftLeg'?[90,0,180,-90]:[90,-90,180,0,45,-45,135,-135];
+    const suggested=choices.includes('body')?'body':choices[existing.length%choices.length];
+    const section=Object.hasOwn(sections,overrides.section)?overrides.section:suggested;
+    const angles=section==='rightLeg'||section==='rightSleeve'?[-90,0,180,90]
+      :section==='leftLeg'||section==='leftSleeve'?[90,0,180,-90]:[90,-90,180,0,45,-45,135,-135];
     const count=existing.filter(item=>item.section===section).length;
-    return slitDetail({...slitDefaults,...overrides,section,angle:overrides.angle??angles[count%angles.length]},design);
+    return slitDetail({...overrides,section,angle:overrides.angle??angles[count%angles.length]},design);
+  }
+
+  function slitAngleChoices(section) {
+    if (!isSleeveSlit(section)) return {0:'Center front',90:'Wearer’s left side',180:'Center back','-90':'Wearer’s right side'};
+    const outer=section==='leftSleeve'?90:-90;
+    return {0:'Sleeve front',180:'Sleeve back',[outer]:'Outer sleeve',[-outer]:'Inner sleeve'};
   }
 
   function sectionAngleLabel(piece) {
     return `${sectionLabels[piece.section]} · ${singleSeamLocation(piece.angle)} (${piece.angle}°)`;
   }
 
-  const slitLabel = slit=>sectionAngleLabel(slit);
+  function slitLabel(slit) {
+    if (!isSleeveSlit(slit.section)) return sectionAngleLabel(slit);
+    const angle=slit.angle===-180?180:slit.angle;
+    const preset=slitAngleChoices(slit.section)[angle];
+    const outer=(angle>0)===(slit.section==='leftSleeve');
+    const location=preset || `${Math.abs(angle)<90?'Front':'Back'} of ${outer?'outer':'inner'} sleeve`;
+    return `${sleeveSlitLabels[slit.section]} · ${location.toLowerCase()} (${slit.angle}°)`;
+  }
 
   const supportsAttachmentSeams = model=>hasSkirt(model)||model==='top'||model==='corset';
 
@@ -527,8 +596,10 @@ const studioDesign = (() => {
     if (model==='trousers') return [...keys,'thigh','knee','leg'];
     keys.push('sweep');
     if (isBodice(model)) {
+      const support=selectedSupport(design);
       keys.push('bust','neckDepth');
-      if (selectedSupport(design)!=='Strapless') keys.push('shoulder','armhole');
+      if (support!=='Strapless' && support!=='Halter strap') keys.push('backNeck','backNeckWidth');
+      if (support!=='Strapless') keys.push('shoulder','armhole');
       if (isSleeved(design)) keys.push('sleeveWidth','sleeveLength','cuff');
     }
     if (Number.isFinite((configured?configuredSeams(design):seams(design)).panelSeam)) keys.push('panelSeam');
@@ -705,7 +776,8 @@ const studioDesign = (() => {
 
   function sideFitInstructions(design) {
     const sides=asymmetry(design);
-    const directions={shoulder:['narrower','wider'],armhole:['higher','lower'],neckDepth:['higher','lower'],
+    const directions={shoulder:['narrower','wider'],armhole:['higher','lower'],neckDepth:['higher','lower'],backNeck:['higher','lower'],
+      backNeckWidth:['toward center back','away from center back'],
       sleeveLength:['shorter','longer'],length:['shorter','longer'],panelSeam:['toward center front','toward the side']};
     return asymmetryKeys(design).flatMap(key=>{
       const left=sides.left[key]||0,right=sides.right[key]||0;
@@ -717,6 +789,8 @@ const studioDesign = (() => {
         shoulder:'Measure from that side’s shoulder point and keep the shoulder end at the neckline fixed.',
         armhole:'Mark the vertical change at that side’s underarm. Walk the corresponding sleeve cap if the garment has a sleeve.',
         neckDepth:'Measure the vertical change on that half of the neckline. Blend the edge into the opposite half and trace a matching facing or binding.',
+        backNeck:'Mark the vertical change only on that half of the back neckline. Blend into center back and into the shoulder or strap, keeping the closure and any keyhole clear. Trace the revised back facing or binding.',
+        backNeckWidth:'Mark the lateral change at that half’s back neckline-to-shoulder or neckline-to-strap point. Hold the finished depth and blend toward center back. Check coverage and trace the revised back facing or binding.',
         panelSeam:'Measure from the front panel line at matching levels and walk the adjoining stitch lines.',
         length:'Measure vertically from that side’s starting finished hem and mark it on the wearer.',
         sleeveLength:'Measure down the marked outside line of that sleeve from its current finished edge.'
@@ -725,7 +799,7 @@ const studioDesign = (() => {
         ?'Measure this change across that half of the garment and distribute it across its matching panel edges.'
         :'Measure around just that sleeve or leg at the named position. Distribute the listed circumference change across the adjoining edges of that piece.');
       const layout=left===right?'Transfer the tested shape and label both sides.':'Trace full paper pieces for the affected sides, label them from the wearer’s perspective, and cut each in a single layer.';
-      return [{visual:'asymmetricFit',text:`${name}. From the fitted base, wearer’s left ${setting(left)} and wearer’s right ${setting(right)}. ${position} Mark the reference and new line separately on each side of the sample. Check coverage and movement, true the adjoining seam lines and transfer matching notches. ${layout}`}];
+      return [{key,visual:'asymmetricFit',text:`${name}. From the fitted base, wearer’s left ${setting(left)} and wearer’s right ${setting(right)}. ${position} Mark the reference and new line separately on each side of the sample. Check coverage and movement, true the adjoining seam lines and transfer matching notches. ${layout}`}];
     });
   }
 
@@ -885,7 +959,8 @@ const studioDesign = (() => {
         placement=`Sew and press the structural seams first. On the right side, mark the trim route along ${route}. Measure each exposed section. ${alignment}${matching} Fold or finish the trim ends at the ends of each section. Keep zipper teeth, pocket mouths and any vent clear. Baste the two lace edges flat before sewing or hand-tacking them to the outer fabric.`;
       } else {
         placement='Finish and fit the fabric edge first. With a flexible tape, measure the stitching path and mark matching points, joins and any closure. Match motifs on paired edges. Lay the right side of the lace outward and place its solid sewing rail just over the finished edge. Let the decorative part extend beyond the garment. Clip and baste the rail.';
-        if (edge==='hem' && slits(design).length) placement+=' Secure the lace ends separately where a slit meets the hem so the opening stays clear.';
+        if (edge==='hem' && slits(design).some(slit=>!isSleeveSlit(slit.section))) placement+=' Secure the lace ends separately where a slit meets the hem so the opening stays clear.';
+        if (edge==='sleeves' && slits(design).some(slit=>isSleeveSlit(slit.section))) placement+=' Finish separate lace ends where a vent meets its cuff so the vent can open.';
       }
       return {edge,visual:'designLaceTrim',text:`${label}. Apply ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}). ${placement} Allow spare trim for pattern repeats, joins and a test piece. ${settings} With the lace lying flat, sew the basted path. Remove visible basting and check that the edge, seam, closure or pocket opens and moves as intended.`};
     });
@@ -917,17 +992,58 @@ const studioDesign = (() => {
     });
   }
 
+  const openingStitchSettings='On the Brother CP2160F, test straight stitch 01 with foot J and a 2.5 mm length on a stable woven sample. For a stretch edge, test a compatible stretch stitch or narrow zigzag 04 on matching layers.';
+
+  function sleeveSlitInstructions(slit,index) {
+    const {length,opening,finish}=slit;
+    const halfWidth=Number((opening/2).toFixed(3));
+    const gap=opening?`At the finished cuff, mark ${halfWidth} cm to either side of the slit center for a ${opening} cm finished gap. Join the two marks to the upper stop.`
+      :'Mark one straight line from the finished cuff to the upper stop. Keep the finished edges meeting with a 0 cm gap.';
+    const face='Trace a facing around the marked opening and reinforce the upper stop.';
+    const sew='Stitch the facing and sleeve right sides together around the marked opening before cutting. Cut inside the stitch line, clip carefully toward the stop, turn the facing in and press.';
+    const bound=opening
+      ?'Staystitch and reinforce the upper stop, then open the marked wedge. Bind each side separately with narrow bias cut from a stable fabric. Wrap the binding over its raw edge, edge-stitch it and finish the joins at the top without drawing the opening narrower.'
+      :'Staystitch close to the slit line, reinforcing the top. Cut along the slit, spread the two edges nearly straight and stitch a continuous strip to them without stretching the top point. Fold the strip over the raw edges and edge-stitch it over the first stitching. Press the underlap and secure the top fold.';
+    const loop='Fit a fabric or cord loop around the actual button and check the fit while holding the finished vent at the planned gap. Baste both ends of the loop into the facing seam at one cuff edge.';
+    const sequence=finish==='Bound placket'?bound:finish==='Button-and-loop vent'
+      ?`${face} ${loop} ${sew} Sew the button at its tested position on the opposite edge. Unfasten it to check the hand passes through and the loop cannot pull out.`
+      :`${face} ${sew}`;
+    return {index,visual:'designSleeveSlit',text:`Slit ${index+1} · ${slitLabel(slit)}. ${finish}. On the fitted sleeve, mark the slit center on the finished cuff or sleeve edge. Measure ${length} cm toward the sleeve cap for the top stop. ${gap} Transfer the marks and the sleeve's front and back references to paper. Work on the flat sleeve before joining its seam or attaching the cuff. ${openingStitchSettings} ${sequence} Finish the cuff ends independently, then check the ${length} cm length and ${opening} cm finished gap with the chosen finish laid flat. Check movement and that a hand can pass through before attaching any trim.`};
+  }
+
   function slitInstructions(design) {
-    const settings='On the Brother CP2160F, test straight stitch 01 with foot J and a 2.5 mm length on a stable woven sample. For a stretch edge, test a compatible stretch stitch or narrow zigzag 04 on matching layers.';
-    return slits(design).map((slit,index)=>{
+    return activeSlitEntries(design).map(({slit,index})=>{
+      if (isSleeveSlit(slit.section)) return sleeveSlitInstructions(slit,index);
       const {length,opening,section}=slit;
       const halfWidth=Number((opening/2).toFixed(3));
       const which=section==='body'?'selected panel':'selected leg';
       const marks=opening?`Mark the two finished hem corners ${halfWidth} cm to each side of the center mark. Join each corner to the top stop to make a ${opening} cm opening across the finished hem.`
         :'Mark both finished hem corners at the center mark. Draw a straight slit to the top stop, with a 0 cm gap when the edges meet at rest.';
       const label=`Slit ${index+1} · ${slitLabel(slit)}.`;
-      return {visual:'designSlit',text:`${label} On the fitted ${which}, mark the finished hem, then mark the slit center at the indicated location. Measure ${length} cm up from that finished hem line to the top stop. ${marks} Check the opening while sitting or walking and transfer the hem mark and stop to paper. At a retained seam, keep the section below the top stop open and finish each edge separately. For a slit in an unbroken panel, trace a matching facing and stabilize the top stop. Mark the finished lines, the cut line inside the opening and the pattern’s seam allowances on the paper. ${settings} Baste and stitch the facing around the marked opening. Clip inside the allowance up toward the reinforced stop, then turn and press the facing. Fold the hem separately on both sides and secure the facing and top stop. Measure the ${length} cm finished length and ${opening} cm hem gap again. Keep any trim ends and hems free of the opening.`};
+      return {index,visual:'designSlit',text:`${label} On the fitted ${which}, mark the finished hem, then mark the slit center at the indicated location. Measure ${length} cm up from that finished hem line to the top stop. ${marks} Check the opening while sitting or walking and transfer the hem mark and stop to paper. At a retained seam, keep the section below the top stop open and finish each edge separately. For a slit in an unbroken panel, trace a matching facing and stabilize the top stop. Mark the finished lines, the cut line inside the opening and the pattern’s seam allowances on the paper. ${openingStitchSettings} Baste and stitch the facing around the marked opening. Clip inside the allowance up toward the reinforced stop, then turn and press the facing. Fold the hem separately on both sides and secure the facing and top stop. Measure the ${length} cm finished length and ${opening} cm hem gap again. Keep any trim ends and hems free of the opening.`};
     });
+  }
+
+  function keyholeInstructions(design) {
+    return Object.entries(keyholes(design)).map(([side,{shape,width,depth,offset,bridge}])=>{
+      const lower=side==='front'?'center front':'center back';
+      const half=Number((width/2).toFixed(3));
+      const outline=shape==='Diamond'?'Mark the widest points midway down and connect all four marks with straight lines.'
+        :shape==='Oval'?'Mark the widest points midway down and connect the marks with a smooth symmetrical oval.'
+          :'Place the widest points below the midpoint. Taper to the top mark and round the lower end.';
+      const split=bridge==='Button and loop';
+      const fastening=split
+        ?'Mark a connecting slit between the aperture and the finished neckline. If the pattern uses a neckband, divide it at the same line. Fit a cord or fabric loop over the actual button, then baste its ends between the shell and facing at one upper edge before stitching.'
+        :`Keep the ${offset} cm bridge of fabric above the opening intact. Check that the neckline can pass over the head or that a separate closure provides enough clearance.`;
+      const button=split?' Sew the button opposite the loop and check that fastening it leaves the shaped aperture open.':'';
+      const closure='If a center zipper or placket uses the same panel, keep it below the keyhole or move it to an available side. Test that it opens without catching the facing and leaves the aperture clear.';
+      return {side,visual:side==='front'?'designKeyholeFront':'designKeyholeBack',text:`${keyholeLabels[side]} · ${shape} · ${width} cm wide by ${depth} cm deep. Mark the finished neckline and ${lower} grainline on the fitted sample. Measure ${offset} cm directly down from the finished neckline for the top of the aperture, then mark the lower point ${depth} cm below it. Mark the maximum width ${half} cm on either side of the centerline. ${outline} Verify coverage on the wearer, then transfer the finished opening and matching facing to paper. Stabilize the opening with suitable interfacing. ${fastening} ${openingStitchSettings} Put the facing and panel right sides together and stitch on the finished line before cutting the opening. Cut inside the stitching, grade the layers and clip inward curves or corners without cutting the stitches. Turn the facing to the inside and understitch where accessible. Press, then check the finished width, depth and top placement.${button} ${closure}`};
+    });
+  }
+
+  function notchedNeckInstruction(design) {
+    if (!isBodice(design?.model) || design.neckline!=='Notched' || selectedSupport(design)==='Strapless') return null;
+    return {visual:'designNotchedNeck',text:`Notched front neckline. Mark center front on the finished neckline of the fitted sample. Measure and record the actual finished width at the upper edge and the depth down to the notch point. Draw both sloping sides to that point using the tested template. Extend the facing below the point and reinforce that area with lightweight interfacing. ${openingStitchSettings} Match the shell and facing right sides together with the center marks aligned. Stitch the original neckline and both sides of the V before cutting. Stop with the needle down at the notch point, pivot, then sew back up the other side. Trim fabric between the stitched lines, clip carefully toward the point without cutting the stitches, and grade the allowances. Turn the facing to the inside, understitch where accessible and press. Measure the notch again and check that both sides lie flat.`};
   }
 
   function attachmentSeamInstructions(design) {
@@ -957,7 +1073,7 @@ const studioDesign = (() => {
 
   function stitchInstructions(design) {
     const placements=stitchPlacements(design);
-    const keepsSlits=slits(design).length?' Finish each section separately at a slit so the trim stays clear of the opening.':'';
+    const keepsSlits=slits(design).some(slit=>!isSleeveSlit(slit.section))?' Finish each section separately at a slit so the trim stays clear of the opening.':'';
     const fittedPaths={
       waist:'Mark and measure the waist reference on the fitted sample, using the marked waist join when present.',
       waistband:'Mark and measure the finished waistband top on the fitted sample. Leave the casing opening, eyelets or fastener clear.',
@@ -996,6 +1112,9 @@ const studioDesign = (() => {
     const stitchSteps=stitchInstructions(design);
     const laceSteps=laceInstructions(design);
     const attachmentSteps=attachmentSeamInstructions(design);
+    const slitSteps=slitInstructions(design);
+    const notch=notchedNeckInstruction(design);
+    const necklineHoles=keyholes(design);
     const continuous=onePiece(design);
     const upper = isBodice(design.model);
     const strapless=upper && selectedSupport(design)==='Strapless';
@@ -1031,8 +1150,12 @@ const studioDesign = (() => {
     list.push(...layerSteps.draft);
     list.push(...attachmentSteps.filter(step=>step.visual==='designAttachmentSeam'));
     list.push(...stitchSteps.filter(step=>step.prepare));
-    add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.`);
+    const openingMarks=notch||Object.keys(necklineHoles).length?' Transfer the neckline opening marks and keep the fabric inside those marks intact until the facing is sewn.':'';
+    add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.${openingMarks}`);
     list.push(...layerSteps.cut);
+    if (notch) list.push(notch);
+    list.push(...keyholeInstructions(design));
+    list.push(...slitSteps.filter(step=>step.visual==='designSleeveSlit'));
     if (Array.isArray(design.pocketDetails)) {
       list.push(...customPocketInstructions(design));
     } else if (design.pocket==='Patch pockets') {
@@ -1079,7 +1202,7 @@ const studioDesign = (() => {
     if (Number.isFinite(panelZipper)) {
       const foot=closure==='Invisible zipper'?'Use a compatible invisible zipper foot as directed by the pattern.':'Use zipper foot I on the Brother CP2160F and check needle clearance by turning the handwheel before sewing.';
       add('designSinglePanelZipper',`Install the ${closure.toLowerCase()} at ${singleSeamLocation(panelAngle)}. Mark ${panelZipper} cm along the seam from the finished upper edge and leave that opening free. Stabilize the opening if the fabric stretches. Baste each zipper tape to its marked edge and close the zipper to check that the upper edges and any crossing seams line up. ${foot} Sew the tapes in place, close the seam below the bottom stop, and test that the zipper opens fully.`);
-    } else {
+    } else if (!(closure==='Back button and loop' && necklineHoles.back?.bridge==='Button and loop')) {
       const fastenerSteps=typeof garmentFasteners==='undefined'?[]:garmentFasteners.instructions(design);
       if (fastenerSteps.length) list.push(...fastenerSteps);
       else add(...(closureSteps[closure] || closureSteps[closureChoices(design.model)[0]]));
@@ -1093,7 +1216,7 @@ const studioDesign = (() => {
       'Faced hem':'Trace a shaped facing that matches the hem curve. Stitch it to the lower edge, grade the seam, turn it inside and secure the upper edge.',
       'Contrast hem band':'Cut a matching band in contrast fabric. Test the finished band depth on the wearer, then join the band, press the seam and finish its inside edge.'
     };
-    list.push(...slitInstructions(design));
+    list.push(...slitSteps.filter(step=>step.visual==='designSlit'));
     list.push(...attachmentSteps.filter(step=>step.visual==='designAttachmentRuffle'));
     if (hemShape.text) add('finish','Let the hem hang so any bias edges settle. Recheck the finished edge at each marked point on the wearer, and test the finish on a scrap cut at the same angle before trimming. '+hem[design.finish]);
     else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
@@ -1108,7 +1231,7 @@ const studioDesign = (() => {
     const garmentLayers=layers(design);
     design={...design};
     if (Array.isArray(design.pocketDetails)) design.pocketDetails=pocketDetails(design);
-    if (Array.isArray(design.slits)) design.slits=slits(design);
+    if (Array.isArray(design.slits)) design.slits=configuredSlits(design);
     else delete design.slits;
     if (Array.isArray(design.attachmentSeams) && supportsAttachmentSeams(design.model)) design.attachmentSeams=attachmentSeams(design);
     else delete design.attachmentSeams;
@@ -1130,6 +1253,9 @@ const studioDesign = (() => {
     const corners=strapCorners(design);
     if (Object.keys(corners).length) design.strapCorners=corners;
     else delete design.strapCorners;
+    const necklineHoles=keyholes(design);
+    if (Object.keys(necklineHoles).length) design.keyholes=necklineHoles;
+    else delete design.keyholes;
     const shape=isBodice(design.model) && supportsStrapShape(support)?strapShape(design):strapShapeDefaults;
     for (const [key,value] of Object.entries(shape)) {
       if (value===strapShapeDefaults[key]) delete design[key];
@@ -1174,7 +1300,11 @@ const studioDesign = (() => {
     if (details.length) tools.push('foot J','removable fabric marker','hand-basting needle','press cloth');
     if (design.strapCorners) tools.push('foot J','removable fabric marker','small sharp scissors');
     if (design.pocketDetails?.length) tools.push('foot J','removable fabric marker','press cloth');
-    if (design.slits?.length) tools.push('foot J','removable fabric marker','facing and lightweight reinforcement');
+    const activeSlits=slits(design);
+    if (activeSlits.length || Object.keys(necklineHoles).length || notchedNeckInstruction(design)) tools.push('foot J','removable fabric marker','facing and lightweight reinforcement');
+    if (activeSlits.some(slit=>slit.finish==='Bound placket')) tools.push('bias binding');
+    if (activeSlits.some(slit=>slit.finish==='Button-and-loop vent') ||
+        Object.values(necklineHoles).some(shape=>shape.bridge==='Button and loop')) tools.push('button','loop cord','hand-sewing needle');
     const attachmentRuffles=design.attachmentSeams?.some(seam=>seam.ruffle);
     if (attachmentRuffles) tools.push('foot J','hand-basting needle','flexible measuring tape','removable fabric marker');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
@@ -1191,17 +1321,18 @@ const studioDesign = (() => {
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,hemContourLimits,hemContour,hemOffsetAt,tones,backs,rises,
     laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,laceSeamPlacement,seamLaceAlignments,seamLaceTrim,seamLaceCanMatch,effectiveSeamLace,
-    slitLimits,slitSections,slitDetail,slits,newSlit,slitLabel,slitInstructions,
+    slitLimits,slitSections,slitDetail,slits,configuredSlits,activeSlitEntries,newSlit,slitLabel,slitAngleChoices,isSleeveSlit,sleeveSlitFinishes,slitInstructions,
     attachmentSeamLimits,attachmentRuffleDefaults,supportsAttachmentSeams,attachmentSeam,attachmentSeams,newAttachmentSeam,newAttachmentSeamTiers,
     attachmentSeamReference,attachmentSeamInstructions,
     stitchStyles,stitchLimits,maxStitchDetails,stitchPlacements,newStitchDetail,stitchDetail,stitchDetails,stitchFoldDepth,
     layerKinds,layerKindChoices,layerStartsAt,layerIsInner,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,
-    seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,onePieceInstructions,asymmetryLimits,asymmetryKeys,asymmetry,
+    seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,onePieceInstructions,asymmetryLimits,asymmetryKeys,asymmetry,sideFitInstructions,
     centerFrontSeam,panelAngleLimits,panelSeamPaths,panelSeamSnapOffset,singleSeamAngle,singleSeamLocation,singleSeamGuide,
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,straplessSupportChoices,selectedStraplessSupport,
     selectedShoulderSide,supportWidth,supportsStrapShape,strapShapeLimits,strapShapeChoices,strapShape,
     strapCornerStyles,strapCornerSizeLimits,strapCornerDefaultSize,strapCornerChoices,strapCorner,strapCorners,strapCornerInstructions,
-    selectedBack,pocketChoices,pocketChoicesForDesign,pocketSections,pocketLimits,pocketShapes,pocketDetail,pocketDetails,newPocket,hasInseamPocket,pocketPositionLabel,customPocketInstructions,
+    selectedBack,keyholeLimits,keyholeShapes,keyholeBridges,keyholeChoices,keyhole,keyholes,keyholeInstructions,notchedNeckInstruction,
+    pocketChoices,pocketChoicesForDesign,pocketSections,pocketLimits,pocketShapes,pocketDetail,pocketDetails,newPocket,hasInseamPocket,pocketPositionLabel,customPocketInstructions,
     defaults,measurements,straplessInstructions,straplessTools,strapInstructions,sleeveDrafting,laceInstructions,stitchInstructions,instructions,make};
 })();
