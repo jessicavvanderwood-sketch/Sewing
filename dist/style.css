@@ -136,7 +136,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 .design-editor-toolbar .field,.design-editor-footer .field{margin:0}
 .design-editor-toolbar .actions{margin-top:10px}
 .design-panel-tabs{display:flex;margin-bottom:14px}
-.design-panel-tabs button{flex:1;min-width:0;padding-inline:6px}
+.design-panel-tabs button{flex:1 0 auto;max-width:100%;padding-inline:8px}
 .design-panel-tabs button[hidden]{display:none}
 .design-panel-tabs button[aria-pressed=true]{border-color:var(--red);background:#f4e5e9}
 .design-save{padding-top:12px;background:var(--white)}

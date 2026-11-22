@@ -21,6 +21,7 @@ const garmentFit = (() => {
     thigh:['Thigh circumference',18,'Tighter','Looser'],
     leg:['Leg opening circumference',12,'Tighter','Looser'],
     backNeck:['Back neckline depth',12,'Higher','Lower'],
+    backNeckWidth:['Back neckline width',12,'Narrower','Wider'],
     shoulderSlope:['Shoulder slope',4,'Squarer','More sloped'],
     waistHeight:['Waistline position',7,'Lower','Higher'],
     sweep:['Hem sweep circumference',30,'Narrower','Wider'],
@@ -36,7 +37,7 @@ const garmentFit = (() => {
     if (model==='trousers') return ['waist','hip','rise','backRise','crotch','thigh','knee','kneeFlex','leg','length'];
     const skirtFit=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
     if (model==='skirt') return ['waist','hip',...skirtFit,'waistHeight','sweep','length'];
-    return ['waist','hip',...(model==='dress'?skirtFit:[]),'bust','shoulder','shoulderSlope','armhole','neckDepth','neckWidth','backNeck','waistHeight',
+    return ['waist','hip',...(model==='dress'?skirtFit:[]),'bust','shoulder','shoulderSlope','armhole','neckDepth','neckWidth','backNeck','backNeckWidth','waistHeight',
       ...(sleeves ? ['sleeveWidth','sleeveCap','sleeveLength','cuff'] : []),'sweep','length'];
   }
 
@@ -180,6 +181,7 @@ const garmentFit = (() => {
     if (key==='sleeveLength') return ['sleeve',`Mark a new sleeve finish ${n} cm ${smaller?'above':'below'} the old one on both sleeves. Measure with the elbow bent. ${smaller?'Keep a hem allowance before cutting.':'Check the released hem for enough fabric. Add a cuff or extension if needed.'} Remove and reattach any separate cuff before the final press.`];
     if (key==='shoulder') return ['shoulder',`Mark a shoulder point ${n/2} cm ${smaller?'inward':'outward'} on each side. Detach the sleeve if present and check the new armhole curve on a toile. Match the sleeve cap to that curve. ${smaller?'Baste and test arm movement before trimming.':'Check available fabric at the shoulder edge. Use a matching extension or recut the bodice if necessary.'}`];
     if (key==='armhole') return ['armhole',`Mark the underarm point ${n} cm ${smaller?'higher':'lower'} and blend the curve into the original front and back armhole. ${smaller?'A higher opening may need an underarm gusset or a recut panel.':'A lower opening removes fabric. Baste a toile and check coverage before cutting.'} Refit the sleeve cap or finish the sleeveless edge after testing arm movement.`];
+    if (key==='backNeckWidth') return ['backNeckWidth',`Change the back neckline width by ${n} cm total. Move each back neck-to-shoulder point ${n/2} cm ${smaller?'toward':'away from'} the center back, holding the finished depth in place. Trace both halves, smooth the new edge, and true the back facing or binding against it. Baste and check shoulder coverage before cutting.`];
     if (key==='neckDepth'||key==='neckWidth'||key==='backNeck') {
       const depth = key!=='neckWidth';
       const site = depth ? (key==='backNeck'?'center-back neckline':'center-front neckline') : 'two neck-to-shoulder points';

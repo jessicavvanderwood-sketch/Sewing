@@ -13,12 +13,14 @@ const studioDesign = (() => {
   const fabrics = ['Cotton poplin','Linen blend','Medium-weight twill','Fluid woven crepe'];
   const closures = ['Invisible zipper','Back button and loop','Front buttons','Elastic waistband','Side zipper','Zip fly',
     'Button fly','Wrap ties','Separating zipper','Back lacing','Front busk','Drawstring waistband'];
-  const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back'];
+  const backs = ['Classic back','Low scoop back','V-back','Square back','Racerback','Open back','Boat back','Soft V-back','Deep U-back'];
   const supports = ['Integrated shoulders','Wide straps','Narrow straps','Spaghetti straps','Halter strap','One-shoulder','Strapless'];
   const strapShapeLimits = {strapFrontCurve:[-5,5],strapBackCurve:[-5,5],strapFrontTaper:[25,250],strapBackTaper:[25,250],
-    strapFrontJoin:[0,6],strapBackJoin:[0,6],strapFrontAngle:[-35,35],strapBackAngle:[-35,35]};
+    strapFrontJoin:[0,6],strapBackJoin:[0,6],strapFrontAngle:[-35,35],strapBackAngle:[-35,35],
+    strapBackSpacing:[-6,6],strapBackShift:[-5,5]};
   const strapShapeDefaults = {strapFrontCurve:0,strapBackCurve:0,strapFrontTaper:100,strapBackTaper:100,
-    strapFrontJoin:0,strapBackJoin:0,strapFrontAngle:0,strapBackAngle:0};
+    strapFrontJoin:0,strapBackJoin:0,strapFrontAngle:0,strapBackAngle:0,strapBackSpacing:0,strapBackShift:0};
+  const rearBodiceStrapKeys=['strapBackJoin','strapBackAngle','strapBackSpacing','strapBackShift'];
   const strapShapeChoices = {
     Straight:{...strapShapeDefaults},
     'Curved into neckline':{...strapShapeDefaults,strapFrontCurve:2.5,strapBackCurve:1.5},
@@ -98,8 +100,9 @@ const studioDesign = (() => {
   const selectedSupport = design=>design.support || (design.model==='corset'?'Strapless':supports[0]);
   const supportsStrapShape = support=>supports.includes(support) && support!=='Integrated shoulders' && support!=='Strapless';
   const strapShape = design=>Object.fromEntries(Object.entries(strapShapeLimits).map(([key,limits])=>{
-    const collar=design?.support==='Halter strap' && (key==='strapBackJoin'||key==='strapBackAngle');
-    return [key,collar?0:numeric(design,key,strapShapeDefaults[key],limits)];
+    const collar=design?.support==='Halter strap' && rearBodiceStrapKeys.includes(key);
+    const single=design?.support==='One-shoulder' && key==='strapBackSpacing';
+    return [key,collar||single?0:numeric(design,key,strapShapeDefaults[key],limits)];
   }));
   function straplessSupportChoices(model='dress') {
     if (model==='corset') return ['Structured bodice'];
@@ -112,7 +115,7 @@ const studioDesign = (() => {
   }
   const selectedShoulderSide = design=>design?.shoulderSide==='right'?'right':'left';
   const supportWidth = style=>({'Integrated shoulders':6.5,'Wide straps':4.5,'Narrow straps':2.2,'Spaghetti straps':.8,'Halter strap':2.5,'One-shoulder':4.5})[style];
-  const selectedBack = design=>design.back || backs[0];
+  const selectedBack = design=>backs.includes(design?.back)?design.back:backs[0];
   const pocketChoices = model => model==='corset' ? pockets.slice(0,1) : model==='top' ? pockets.slice(0,2) : pockets;
   const isContrast = design => design.finish===finishes[2] || design.tone===tones[1];
   const isSleeved = design => isBodice(design.model) && design.model!=='corset' && selectedSupport(design)===supports[0] && design.sleeve!==sleeves[0];
@@ -305,7 +308,7 @@ const studioDesign = (() => {
     return bounded(attachment+layerSideOffset(layer,theta,'leftAttachment','rightAttachment'),limits);
   }
 
-  function asymmetryKeys(design) {
+  function asymmetryKeys(design,configured=false) {
     const model=design?.model;
     if (!Object.hasOwn(silhouettes,model)) return [];
     const keys=['waist','hip','length'];
@@ -316,12 +319,12 @@ const studioDesign = (() => {
       if (selectedSupport(design)!=='Strapless') keys.push('shoulder','armhole');
       if (isSleeved(design)) keys.push('sleeveWidth','sleeveLength','cuff');
     }
-    if (Number.isFinite(seams(design).panelSeam)) keys.push('panelSeam');
+    if (Number.isFinite((configured?configuredSeams(design):seams(design)).panelSeam)) keys.push('panelSeam');
     return keys;
   }
 
-  function asymmetry(design) {
-    const keys=asymmetryKeys(design);
+  function asymmetry(design,configured=false) {
+    const keys=asymmetryKeys(design,configured);
     return Object.fromEntries(['left','right'].map(side=>[side,Object.fromEntries(keys.flatMap(key=>{
       const value=numeric(design.asymmetry?.[side],key,0,asymmetryLimits[key]);
       return value?[[key,value]]:[];
@@ -353,6 +356,39 @@ const studioDesign = (() => {
       delete settings.panelAngle;
     }
     return settings;
+  }
+
+  function onePieceInstructions(design) {
+    const continuous=onePiece(design);
+    if (!Object.keys(continuous).length) return [];
+    const settings=configuredSeams(design);
+    const result=[];
+    const support=selectedSupport(design);
+    const width=design.strapWidth??supportWidth(support);
+    const shape=strapShape(design);
+    for (const [flag,side] of [['strapFront','Front'],['strapBack','Back']]) {
+      if (!continuous[flag]) continue;
+      const lower=side.toLowerCase();
+      const endWidth=Number.isFinite(width)?` Keep the tested transition ${Number((width*shape[`strap${side}Taper`]/100).toFixed(3))} cm wide on the finished lines.`:'';
+      const halter=support==='Halter strap';
+      const remaining=halter?'Retain the neck fastening or the collar join from the fitted pattern.'
+        :continuous.strapFront && continuous.strapBack?'Retain the joining line where the two extended panels meet over the shoulder.'
+          :`Retain the strap’s attachment to the ${side==='Front'?'back':'front'} panel.`;
+      result.push({visual:`designOnePieceStrap${side}`,text:`Cut the ${lower} strap and ${lower} bodice as one piece. On the fitted paper pattern, mark both ends and the center of the old joining line. Place the strap and bodice together with those marks aligned at the finished seam line. Overlap or fold away the old seam allowances at this join. Trace one continuous outer outline through the neckline and into the strap. Keep the inner and outer curves smooth.${endWidth} Carry over the grainline and any ${lower} fitting darts. ${remaining} Add the pattern’s allowances only at retained seams and finished edges. Trace a matching facing or lining. Baste a sample and check coverage and support while reaching before cutting the final fabric.`});
+    }
+    if (continuous.waist) {
+      const amount=settings.waistSeam||0;
+      const waist=amount?` Use the former join at ${Math.abs(amount)} cm ${amount<0?'above':'below'} the pattern waist as the alignment reference.`:' Use the fitted waistline as the alignment reference.';
+      result.push({visual:'designOnePieceWaist',text:`Cut each bodice and matching skirt panel as one continuous piece.${waist} Draw the old waist stitching lines on both pieces. Match center front, center back, and the side references at each matching join on paper. Align each pair at the stitching line and fold away the old waist allowances. If the shapes leave a wedge, mark the finished waist width on the sample and rotate that shaping into a dart or a retained seam. Redraw the side and grain lines and preserve the closure opening. Trace the whole panel from upper edge to hem, add allowances to the remaining edges, and test the waist and hip fit in a toile.`});
+    }
+    if (continuous.panel) {
+      const location=settings.panelSeam===centerFrontSeam?` at ${singleSeamLocation(settings.panelAngle)}`:'';
+      result.push({visual:'designOnePiecePanel',text:`Replace the optional panel seam${location} with a continuous panel. Mark matching levels at the old seam on the fitted sample. Trace the adjoining paper pieces using their stitch lines and align the marks. Fold away the allowances along the former join and trace one outline. Transfer any shaping the seam supplied into a dart or a retained seam, then verify the same finished bust, waist or hip widths on the toile. Carry over the grainline, required opening and outer allowances. Trace left and right pieces separately where their shapes differ.`});
+    }
+    if (continuous.legOutseam) {
+      result.push({visual:'designOnePieceLegOutseam',text:'Draft one continuous piece for each trouser leg. Mark the front and back outer-leg stitch lines and match the knee and hem levels on paper. If the pieces cannot meet smoothly with a straight, balanced grainline, start from a fitted no-outseam trouser block and transfer the desired leg shape to it. Move required waist shaping into darts or the waistband. Trace around the combined leg and keep the inseam, front and back rise, crotch curve, waistband marks and closure opening. Add the pattern’s allowances to those remaining edges and the hem. Cut one left and one right leg as mirrored pieces, or use separate left and right paper patterns for an asymmetrical fit. Check hip and thigh room, knee position and stride in a toile.'});
+    }
+    return result;
   }
 
   function panelSeamSnapOffset(model,y,halfWidthCm) {
@@ -487,7 +523,7 @@ const studioDesign = (() => {
     const startsAt=layerStartsAt(design.model).toLowerCase();
     const paired=design.model==='trousers';
     const referenceLine=startsAt==='waist'?'waistline':startsAt==='upper leg'?'upper-leg reference':'upper-edge reference';
-    const referencePoints=paired?'the front, back, inseam and outseam of each leg':'center front, center back and both sides';
+    const referencePoints=paired?(onePiece(design).legOutseam?'the front, back, inseam and outer-leg reference of each leg':'the front, back, inseam and outseam of each leg'):'center front, center back and both sides';
     layers(design).forEach((layer,index)=>{
       const number=index+1;
       const name=`Layer ${number} · ${layer.kind}`;
@@ -558,19 +594,27 @@ const studioDesign = (() => {
     const width=design.strapWidth??supportWidth(support);
     const base=halter?'reference strap width':'shoulder width';
     const shape=strapShape(design);
+    const continuous=onePiece(design);
     const placement=design.strapPlacement?` Move the attachment ${Math.abs(design.strapPlacement)} cm ${design.strapPlacement<0?'inward':'outward'} from the starting shoulder mark.`:'';
     const route=halter?'Fit the strap around the neck from the front attachment points.':support==='One-shoulder'
       ?`Fit from the front bodice to the back bodice over the wearer’s ${selectedShoulderSide(design)} shoulder.`:'Fit from the front bodice to the back bodice over each shoulder.';
     const joins=shape.strapFrontJoin || shape.strapFrontAngle || !halter && (shape.strapBackJoin || shape.strapBackAngle);
-    const ends=supportsStrapShape(support)?[['Front attachment',shape.strapFrontCurve,shape.strapFrontTaper,shape.strapFrontJoin,shape.strapFrontAngle],
-      [halter?'Back collar segment':'Back attachment',shape.strapBackCurve,shape.strapBackTaper,shape.strapBackJoin,shape.strapBackAngle]].map(([name,curve,taper,depth,angle])=>{
+    const ends=supportsStrapShape(support)?[[continuous.strapFront?'Front blend':'Front attachment',shape.strapFrontCurve,shape.strapFrontTaper,shape.strapFrontJoin,shape.strapFrontAngle,continuous.strapFront],
+      [halter?'Back collar segment':continuous.strapBack?'Back blend':'Back attachment',shape.strapBackCurve,shape.strapBackTaper,shape.strapBackJoin,shape.strapBackAngle,continuous.strapBack]].map(([name,curve,taper,depth,angle,blend])=>{
       const shift=curve?`Move its centerline ${Math.abs(curve)} cm ${curve>0?'toward the neckline':'away from the neckline'} from the starting mark.`:'Keep its starting centerline.';
       const endWidth=Number.isFinite(width)?` (${Number((width*taper/100).toFixed(3))} cm finished)`:'';
-      const join=joins && name!=='Back collar segment'?` At the midpoint, measure ${depth?`${depth} cm down the fabric from the starting attachment edge`:'from the starting edge, with no overlap added'}. ${angle?`Tilt the joining line ${Math.abs(angle)}° from the crosswise line, with the ${angle>0?'neckline':'outer'} side extending farther.`:'Keep the joining line crosswise.'}`:'';
+      const from=depth?`${depth} cm down the fabric from the starting attachment edge`:blend?'from the starting attachment edge':'from the starting edge, with no overlap added';
+      const join=joins && name!=='Back collar segment'?` At the midpoint, measure ${from}. ${angle?`Tilt the ${blend?'blend reference':'joining line'} ${Math.abs(angle)}° from the crosswise line, with the ${angle>0?'neckline':'outer'} side extending farther.`:`Keep the ${blend?'blend reference':'joining line'} crosswise.`}`:'';
       return `${name} uses ${taper}% of the ${base}${endWidth}. ${shift}${join}`;
     }).join(' '):'';
-    const joinCheck=joins?' Transfer the complete joining lines to the matching pieces. Check that the two ends of each join sit on fabric at the fitted edge before adding the joining allowance.':'';
-    return {visual:'strap',text:`Fit the ${support.toLowerCase()} ${Number.isFinite(width)?`at ${width} cm wide, finished, at the ${halter?'neck reference':'shoulder'}.`:'and mark its tested width.'} ${route}${placement}${ends?` ${ends} Blend each edge into the marked reference width.`:''}${joinCheck} Mark the worn length and add the pattern’s attachment and edge allowances. Baste, check reach and support, then reinforce the ends.`};
+    const backSpacing=supportsStrapShape(support)?shape.strapBackSpacing:0;
+    const backShift=supportsStrapShape(support)?shape.strapBackShift:0;
+    const spacing=backSpacing?` Change the distance between the back attachment centers by ${Math.abs(backSpacing)} cm total. Move each mark ${Math.abs(backSpacing)/2} cm ${backSpacing>0?'out':'in'} from its original position.`:'';
+    const shift=backShift?` Shift the back attachment ${support==='One-shoulder'?'mark':'marks'} ${Math.abs(backShift)} cm toward the wearer’s ${backShift>0?'left':'right'}.`:'';
+    const integral=continuous.strapFront||continuous.strapBack;
+    const joinCheck=joins?(integral?' Transfer the blend reference to the continuous panel. Add a joining allowance wherever two separate pieces still meet.':' Transfer the complete joining lines to the matching pieces. Check that the two ends of each join sit on fabric at the fitted edge before adding the joining allowance.'):'';
+    const allowances=integral?' Add the pattern’s allowance to the retained joins, neckline and armhole edges. Baste the remaining assembly and check reach and support.':' Add the pattern’s attachment and edge allowances. Baste, check reach and support, then reinforce the ends.';
+    return {visual:'strap',text:`Fit the ${support.toLowerCase()} ${Number.isFinite(width)?`at ${width} cm wide, finished, at the ${halter?'neck reference':'shoulder'}.`:'and mark its tested width.'} ${route}${placement}${ends?` ${ends} Blend each edge into the marked reference width.`:''}${spacing}${shift}${joinCheck} Mark the worn length.${allowances}`};
   }
 
   function sleeveDrafting(style) {
@@ -659,6 +703,7 @@ const studioDesign = (() => {
     const layerSteps=layerInstructions(design);
     const stitchSteps=stitchInstructions(design);
     const laceSteps=laceInstructions(design);
+    const continuous=onePiece(design);
     const upper = isBodice(design.model);
     const strapless=upper && selectedSupport(design)==='Strapless';
     const upperEdge=strapless?straplessInstructions(design):[];
@@ -682,11 +727,13 @@ const studioDesign = (() => {
       if (!strapless && (strap!==supports[0] || design.strapWidth || design.strapPlacement)) list.push(strapInstructions(design));
       if (isSleeved(design)) add('sleeve',`Trace a sleeve for the matching armhole. Mark the ${design.sleeve.toLowerCase()} sleeve shape and finished length. ${sleeveDrafting(design.sleeve)} Baste it into the test garment and check reach before cutting the final fabric.`);
     } else if (design.model==='trousers') {
-      add('rise',`Mark the ${(design.rise||rises[1]).toLowerCase()} on the toile and mark the ${style} silhouette at the thigh, knee and leg opening. Change the knee and hem widths gradually on the front and back, keeping the grainline straight. Check sitting and stride, then walk the inseams and outseams before cutting.`);
+      const edges=continuous.legOutseam?'check the outer-leg balance and walk the inseam and rise stitching lines':'walk the inseams and outseams';
+      add('rise',`Mark the ${(design.rise||rises[1]).toLowerCase()} on the toile and mark the ${style} silhouette at the thigh, knee and leg opening. Change the knee and hem widths gradually on the front and back, keeping the grainline straight. Check sitting and stride, then ${edges} before cutting.`);
     }
     if (design.tone===tones[1]) {
       add('colorBlock','Mark a lower-panel seam on the traced pieces at the same height wherever panels meet. Split the pattern there, add matching seam allowances to both new edges and copy the grainline. Sew the contrast lower panels to their matching upper pieces before joining the garment seams.');
     }
+    list.push(...onePieceInstructions(design));
     list.push(...layerSteps.draft);
     list.push(...stitchSteps.filter(step=>step.prepare));
     add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.`);
@@ -703,11 +750,18 @@ const studioDesign = (() => {
       if (strapless) {
         add('seam','Join the fitted bodice panels and preserve the marked upper edge. Baste the intended closure at its marks for the trial fitting, leaving the opening accessible for final construction.');
         list.push(...upperEdge.slice(1,-1));
+      } else if (continuous.strapFront||continuous.strapBack) {
+        const support=selectedSupport(design);
+        const rest=support==='Halter strap'?'Baste the fitted collar join or halter fastening.'
+          :continuous.strapFront&&continuous.strapBack?'Match the extended ends of the front and back panels at the remaining shoulder seams and baste.'
+            :`Baste the separate attachment of the strap to the ${continuous.strapFront?'back':'front'} panel.`;
+        add('facing',`${rest} Baste the other body seams and test ease and coverage. Finish the retained joins as fitted. Trace and attach the matching facing or binding along the full continuous edge. Understitch or secure its inner edge as appropriate.`);
       } else add('shoulder','Sew and press the shoulder seams. Baste body seams and confirm ease and balance. Attach the facing or binding and understitch or secure its inner edge as appropriate.');
       if (isSleeved(design)) add('armhole','Match each sleeve’s marked notches to its own armhole and baste it. Try on the garment and check movement and the intended fit on both sides, then attach and finish the sleeves.');
     } else {
       add(design.model==='trousers'?'rise':'seam',design.model==='trousers'
-        ? 'Baste the inseams, side seams and crotch seam and check the rise and stride. Stitch and finish confirmed seams, leaving the opening required for the closure.'
+        ? continuous.legOutseam?'Fold each continuous leg right sides together. Bring its two inseam edges together and match the knee and hem marks. Baste the inseams and the crotch seam, leaving the closure opening. Check rise and stride. On stable woven fabric, test Brother CP2160F straight stitch 01 with foot J at 2.5 mm on matching scrap. Stitch and finish the remaining seams.'
+          :'Baste the inseams, side seams and crotch seam and check the rise and stride. Stitch and finish confirmed seams, leaving the opening required for the closure.'
         : 'Baste the skirt seams and check walking ease. Stitch and finish the seams, leaving the planned closure opening.');
     }
     const closureSteps = {
@@ -755,13 +809,16 @@ const studioDesign = (() => {
     const spec = silhouettes[design.model];
     const garmentLayers=layers(design);
     design={...design};
-    const seamSettings=seams(design);
+    const continuous=onePiece(design);
+    if (Object.keys(continuous).length) design.onePiece=continuous;
+    else delete design.onePiece;
+    const seamSettings=configuredSeams(design);
     if (Object.keys(seamSettings).length) design.seams=seamSettings;
     else delete design.seams;
     if (hasSkirt(design.model) || Array.isArray(design.layers)) design.layers=garmentLayers;
     else delete design.layers;
     Object.assign(design,hemContour(hasSkirt(design.model)?design:undefined));
-    const sideSettings=asymmetry(design);
+    const sideSettings=asymmetry(design,true);
     if (Object.values(sideSettings).some(side=>Object.keys(side).length)) design.asymmetry=sideSettings;
     else delete design.asymmetry;
     const support=selectedSupport(design);
@@ -823,7 +880,7 @@ const studioDesign = (() => {
     laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,laceSeamPlacement,
     stitchStyles,stitchLimits,maxStitchDetails,stitchPlacements,newStitchDetail,stitchDetail,stitchDetails,stitchFoldDepth,
     layerKinds,layerKindChoices,layerStartsAt,layerIsInner,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,
-    seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,asymmetryLimits,asymmetryKeys,asymmetry,
+    seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,onePieceInstructions,asymmetryLimits,asymmetryKeys,asymmetry,
     centerFrontSeam,panelAngleLimits,panelSeamPaths,panelSeamSnapOffset,singleSeamAngle,singleSeamLocation,singleSeamGuide,
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,straplessSupportChoices,selectedStraplessSupport,

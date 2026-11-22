@@ -13,6 +13,7 @@ const fitHandles = (() => {
     neckDepth:{label:'Front neckline depth',axis:'y',y:-.74,x:0,neck:true},
     neckWidth:{label:'Neckline width',axis:'x',y:-.74,x:.56,neck:true},
     backNeck:{label:'Back neckline depth',axis:'y',y:-.74,x:0,neck:true,back:true},
+    backNeckWidth:{label:'Back neckline width',axis:'x',y:-.75,x:.6,neck:true,back:true},
     waistHeight:{label:'Waistline height',axis:'y',y:-.25,x:0},
     length:{label:'Garment length',axis:'y',end:true,x:0},
     sweep:{label:'Hem width',axis:'x',end:true},
@@ -29,7 +30,7 @@ const fitHandles = (() => {
   const groups = {
     body:{label:'Body width',keys:['bust','waist','hip','shoulder']},
     neckline:{label:'Front neckline',keys:['neckDepth','neckWidth']},
-    back:{label:'Back neckline',keys:['backNeck']},
+    back:{label:'Back neckline',keys:['backNeck','backNeckWidth']},
     shoulder:{label:'Shoulder and armhole',keys:['shoulder','shoulderSlope','armhole']},
     sleeves:{label:'Sleeves',keys:['sleeveWidth','sleeveCap','sleeveLength','cuff']},
     length:{label:'Hem and length',keys:['sweep','length','waistHeight']},

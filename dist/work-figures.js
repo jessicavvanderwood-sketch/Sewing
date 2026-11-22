@@ -200,6 +200,7 @@ const workFigures = (() => {
   }
   function forStep(step,id,order,pattern) {
     const allowance=order.allowances||{};
+    if (isBackNeckStep(step,id,pattern.design) && !combinedNeckStep(step,id)) return backNeckPanels(step,id,order,pattern.design)[0];
     const movement=moveFigure(step,id);
     if (movement) return movement;
     if (Object.hasOwn(seatedRegions,id)) return seatedPanels(step,id,order,pattern.measurements)[0];
@@ -232,6 +233,76 @@ const workFigures = (() => {
       return `<details class="wf-optional"><summary>See a double-fold hem example</summary>${hemFold(allowance,'double')}</details>`;
     }
     return '';
+  }
+
+  const combinedNeckStep=(step,id)=>id==='neck'&&/^Draw the .* front edge and /i.test(step);
+  function isBackNeckStep(step,id,design) {
+    return id==='backNeck'||id==='backNeckWidth'||['neck','neckFill'].includes(id) &&
+      (/\bcenter-back neckline\b/i.test(step)||Boolean(design?.back)&&combinedNeckStep(step,id));
+  }
+
+  function backCut(style,left,right,tip) {
+    const top=54,center=(left+right)/2;
+    if (style==='V-back') return `M${left} ${top}L${center} ${tip}L${right} ${top}`;
+    if (style==='Soft V-back') {
+      return `M${left} ${top}Q${left+12} ${top+19} ${center} ${tip}Q${right-12} ${top+19} ${right} ${top}`;
+    }
+    if (style==='Square back') return `M${left} ${top}L${left+4} ${tip}H${right-4}L${right} ${top}`;
+    if (style==='Deep U-back') {
+      return `M${left} ${top}Q${left+4} ${tip} ${center} ${tip}Q${right-4} ${tip} ${right} ${top}`;
+    }
+    if (style==='Boat back') return `M${left} ${top}Q${center} ${2*tip-top} ${right} ${top}`;
+    return `M${left} ${top}C${left+13} ${tip} ${center-14} ${tip} ${center} ${tip}S${right-13} ${tip} ${right} ${top}`;
+  }
+
+  function backNeckPanels(step,id,order,design) {
+    const written=studioDesign.backs.find(name=>step.toLowerCase().startsWith(`trace the ${name.toLowerCase()} `));
+    const style=written||design?.back||'Classic back';
+    const fit=design?.fitAdjustments||{};
+    const plan=order.plan||{};
+    const widthText=step.match(/back neckline width by ([−-]?\d+(?:\.\d+)?) cm total/i)?.[1];
+    const depthText=step.match(/center-back neckline (up|down) by (\d+(?:\.\d+)?) cm/i);
+    const widthAdjustment=id==='backNeckWidth'||Boolean(widthText);
+    const narrower=/narrow|inward|toward (?:the )?center back/i.test(step)||/^[−-]/.test(widthText||'');
+    const totalWidth=widthText?Math.abs(Number(widthText.replace('−','-')))*(narrower?-1:1):fit.backNeckWidth||0;
+    const depthAdjustment=Boolean(depthText);
+    const depth=depthText?Number(depthText[2])*(depthText[1].toLowerCase()==='up'?-1:1):fit.backNeck||0;
+    const baseHalf=({'Boat back':72,'Open back':65,'Racerback':43,'Deep U-back':45})[style]||53;
+    const baseDepth=({'Boat back':67,'Classic back':69,'Open back':116,'Racerback':75,'Deep U-back':111,'Soft V-back':101,'V-back':100,'Square back':93,'Low scoop back':94})[style]||69;
+    const center=141;
+    const bounds=half=>[center-half,center+half];
+    const following=baseHalf+Math.sign(totalWidth)*Math.min(19,Math.abs(totalWidth)*2.4);
+    const [left,right]=bounds(following);
+    const end=Math.min(127,Math.max(59,baseDepth+depth*1.8));
+    const cut=backCut(style,left,right,end);
+    const body=`${cut}L${right+26} 48L251 78L227 101L215 141H67L56 101L31 78L${left-26} 48Z`;
+    const cloth=path(body,'wf-cloth')+guide(center,end,center,139)+label(center,155,'Center back','middle');
+    const datum=guide(left,54,right,54)+label(232,45,'Across endpoints');
+    const width=format(plan.finishedBackNeckWidth)||'Back opening width';
+    const measuredDrop=format(plan.finishedBackNeckDepth)||'Back drop';
+    const facing=format(order.allowances?.neck??order.allowances?.seam)||'Pattern allowance';
+    const overview=panel(`${style} · Measure the neckline from the back`,cloth+path(cut,'wf-dimension')+datum+
+      guide(left,54,left,34)+guide(right,54,right,34)+span(left,right,34,width)+
+      leader(center,end,251,end)+leader(right,54,251,54)+tick(247,54,end,measuredDrop),
+      'On the fitted back, mark where the neckline meets the shoulder or strap on each side. Measure the width straight across those marks. Measure the depth vertically from the line between them down to the center-back neckline. Check coverage and closure access before tracing the facing or binding.');
+    const widthFigure=totalWidth||widthAdjustment?panel('Move both back neckline endpoints',
+      path(body,'wf-cloth')+path(backCut(style,...bounds(baseHalf),end),'wf-guide')+path(cut,'wf-stitch')+
+      guide(center-baseHalf,54,center-baseHalf,31)+guide(center+baseHalf,54,center+baseHalf,31)+guide(left,54,left,47)+guide(right,54,right,47)+
+      span(Math.min(left,center-baseHalf),Math.max(left,center-baseHalf),40,totalWidth?format(Math.abs(totalWidth)/2):'Per side')+
+      span(Math.min(right,center+baseHalf),Math.max(right,center+baseHalf),40,'')+guide(center,57,center,130)+
+      label(center,154,totalWidth?`${format(Math.abs(totalWidth))} ${totalWidth>0?'wider':'narrower'} across the back`:'Recheck the width across both marks','middle'),
+      `Preserve the center-back mark. ${totalWidth?`Move each point ${format(Math.abs(totalWidth)/2)} ${totalWidth>0?'outward':'inward'}. `:''}Draw the edge through the new shoulder or strap marks and keep the planned center-back depth. Check that the two matching seam lengths still agree.`):null;
+    const depthFigure=depth||depthAdjustment?panel('Move the center-back depth vertically',
+      cloth+path(backCut(style,left,right,baseDepth),'wf-guide')+path(cut,'wf-stitch')+datum+
+      leader(center,baseDepth,254,baseDepth)+leader(center,end,254,end)+tick(252,Math.min(end,baseDepth),Math.max(end,baseDepth),format(Math.abs(depth)))+
+      label(230,143,depth>0?'Lower the center':'Raise the center'),
+      `Hold both outer neck marks fixed. ${depth?`Mark the new center-back line ${format(Math.abs(depth))} ${depth>0?'below':'above'} its starting position. `:''}Blend the new shape out to the existing outer marks and test the opening on the wearer.`):null;
+    const finish=panel('Trace a facing to the new back edge',
+      path('M43 55H209V139H43Z','wf-cloth')+path('M43 75Q125 141 209 75','wf-guide')+path('M43 61Q125 127 209 61','wf-stitch')+
+      tick(227,61,75,facing)+label(124,42,'Back neck facing or binding','middle')+label(124,154,'Match center-back and shoulder marks','middle'),
+      'Trace the checked back neckline onto the facing or binding pattern. Mark center back and both ends. Match the joined edges, add the applicable allowance and baste the finish on the toile. Recheck head clearance and the closure before sewing.');
+    return [...(widthAdjustment&&widthFigure?[widthFigure]:depthAdjustment&&depthFigure?[depthFigure]:[]),overview,
+      ...(!widthAdjustment&&widthFigure?[widthFigure]:[]),...(!depthAdjustment&&depthFigure?[depthFigure]:[]),finish];
   }
 
   const seatedRegions={
@@ -337,6 +408,10 @@ const workFigures = (() => {
     const shaped=studioDesign.supportsStrapShape(design?.support)||/Front attachment uses \d+%/.test(step)||
       shape.strapFrontCurve || shape.strapBackCurve || shape.strapFrontTaper!==100 || shape.strapBackTaper!==100;
     const joins=shape.strapFrontJoin || shape.strapFrontAngle || !halter && (shape.strapBackJoin || shape.strapBackAngle);
+    const rearSpacing=step.match(/back attachment centers by (\d+(?:\.\d+)?) cm total\. Move each mark \d+(?:\.\d+)? cm (in|out)/i);
+    const rearShift=step.match(/Shift the back attachment marks? (\d+(?:\.\d+)?) cm toward the wearer['’]s (left|right)/i);
+    const spacing=single||halter?0:rearSpacing?Number(rearSpacing[1])*(rearSpacing[2].toLowerCase()==='in'?-1:1):shape.strapBackSpacing;
+    const shift=halter?0:rearShift?Number(rearShift[1])*(rearShift[2].toLowerCase()==='right'?-1:1):shape.strapBackShift;
     return [
       panel(halter?'Mark front anchors for the halter':single?'Mark one shoulder on the front and back':'Locate both strap anchors on front and back',
         front+backing+connectors+offset+label(84,126,'Front','middle')+label(234,126,halter?'Back · no anchors':'Back','middle'),
@@ -347,6 +422,7 @@ const workFigures = (() => {
       ...(shaped?strapShapePanels(shape,measuredWidth,halter):[]),
       ...(joins?[strapJoinPanel('Front',shape.strapFrontJoin,shape.strapFrontAngle),
         ...(halter?[]:[strapJoinPanel('Back',shape.strapBackJoin,shape.strapBackAngle)])]:[]),
+      ...(spacing||shift?rearStrapPanels(spacing,shift,single?shoulderSide:null):[]),
       panel('Measure between the attachment lines',
         plannedStrip+label(58,119,'Front mark')+label(170,119,halter?'Neck mark':'Back mark')+
         (pad?span(outerLeft,start,145,pad):''),
@@ -356,6 +432,28 @@ const workFigures = (() => {
         path('M116 66H169M131 85H154','wf-stitch')+guide(155,85,193,85)+label(198,89,'Baste here')+
         (width?span(130,155,123,width):''),
         `Keep each strap flat and untwisted. Baste it at the marks and try on the garment. Check reach, ${single?'balance':'symmetry'}, and coverage before permanently sewing and reinforcing the attachment as the pattern directs.`)
+    ];
+  }
+
+  function rearStrapPanels(spacing,shift,oneShoulder) {
+    const body=path('M54 71L99 66Q153 97 207 66L253 71L239 136H68Z','wf-cloth')+
+      guide(153,81,153,128)+label(153,128,'Center back','middle')+
+      label(100,26,'Wearer’s left','middle')+label(207,26,'Wearer’s right','middle');
+    const initial=oneShoulder?[oneShoulder==='left'?103:203]:[103,203];
+    const delta=(Number(spacing)||0)*3;
+    const spaced=initial.map((x,i)=>x+delta*(i===0?-1:1));
+    const dots=(marks,kind,y)=>marks.map(x=>path(`M${x-5} ${y}h10m-5 -5v10`,kind)).join('');
+    const distances=(old,next,y,text)=>old.map((x,i)=>guide(x,66,x,y)+guide(next[i],77,next[i],y)+
+      span(Math.min(x,next[i]),Math.max(x,next[i]),y,i===0?text:'')).join('');
+    const both=oneShoulder?'the mark':'both marks';
+    return [
+      ...(spacing?[panel('Reset the back strap spacing',body+dots(initial,'wf-guide',66)+dots(spaced,'wf-stitch',77)+
+        distances(initial,spaced,56,format(Math.abs(spacing)/2))+span(spaced[0],spaced[1],149,`${format(Math.abs(spacing))} ${spacing>0?'wider':'narrower'} total`),
+        `Work from the back. From the two original centers, move each center ${format(Math.abs(spacing)/2)} ${spacing>0?'outward':'inward'}. Measure straight across the new marks to check the total change. Keep the same midpoint for this spacing adjustment.`)]:[]),
+      ...(shift?[panel('Shift the back strap placement',body+dots(spaced,'wf-guide',66)+dots(spaced.map(x=>x-shift*5),'wf-stitch',77)+
+        distances(spaced,spaced.map(x=>x-shift*5),56,format(Math.abs(shift)))+
+        label(153,152,`Toward the wearer’s ${shift>0?'left':'right'}`,'middle'),
+        `${spacing?'After setting the spacing, move':'Move'} ${both} ${format(Math.abs(shift))} toward the wearer’s ${shift>0?'left':'right'}. Hold the other measurements while shifting. Check the strap lies flat and that its anchor is supported by the back fabric, then mark the corresponding positions on the paper.`)]:[])
     ];
   }
 
@@ -1536,6 +1634,7 @@ const workFigures = (() => {
   };
   function illustratedActions(step,id,index,order={},measurements,design) {
     scenes ??= createScenes();
+    if (isBackNeckStep(step,id,design)) return `<details class="wo-how wo-storyboard" open><summary>Mark the back neckline in pictures</summary><div class="wf-grid">${backNeckPanels(step,id,order,design).slice(combinedNeckStep(step,id)?0:1).join('')}</div></details>`;
     if (id==='asymmetricFit') {
       const panels=asymmetricPanels(step,order,design).slice(1);
       return panels.length?`<details class="wo-how wo-storyboard" open><summary>Check the paper pieces</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';

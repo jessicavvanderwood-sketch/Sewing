@@ -46,6 +46,10 @@ Open **Pattern Library → New custom piece** to combine a silhouette, length, n
 
 Choose **Strapless** for a dress or top with an elastic top edge or a structured bodice. Corsets use structured support. Open **Strap curve and taper** or select a strap in the preview. The front and back groups set their own curve, width, depth along the bodice, and join angle. Halter straps have a rear collar that uses curve and width controls. Sleeve choices include Flutter, Bishop, and Tapered, alongside the width, length, cap, and cuff sliders.
 
+Choose a back style, including Boat back, Soft V-back, and Deep U-back. **Back neckline fit** gives the rear opening its own width and depth. In **Strap curve and taper**, change the distance between the rear anchors or shift them toward the wearer’s left or right.
+
+Select **Cut the front strap and bodice in one piece** or the equivalent back option where available. **One-piece construction** in **Seams** also offers continuous dress waists, panels, and trouser legs. The options account for closures, pockets, and contrast panels that need a seam. The work order shows the combined pattern outline and the edges that still need seam allowances.
+
 Open **Trims & details** to add lace to the upper edge, sleeve openings, hems, pocket openings, trouser waistbands or seams. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem. Choose **Stitched details** for a gathered ruffle, knife, box or inverted pleats, or pintucks. Set the placement and depth, then the spacing or gathering ratio.
 
 Choose a button closure to edit the button count, diameter, spacing and first position. **Wrap ties** offers length, width and placement. **Drawstring waistband** is available for trousers and skirts and includes cord dimensions, casing depth and exit placement. Illustrated work orders show the selected measurements.
