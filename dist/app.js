@@ -79,8 +79,8 @@ const view = document.querySelector('#view');
 const modal = document.querySelector('#modal');
 const notice = document.querySelector('#notice');
 studioUnits.watch(document.querySelector('#length-units'),view,modal);
-const titles = {overview:'Overview',design:'New custom piece',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'3D Fitting Room',models:'Model Library',basics:'Sewing Basics'};
-const features = [['design','✧','Create an original garment or start from a reference photo.'],['library','▤','Browse garment styles, cuts and construction guides.'],['fitting','◇','Preview fit changes and plan your alterations.']];
+const titles = {overview:'Overview',design:'New custom piece',brand:'Brand Kit',library:'Pattern Library',fabrics:'Fabric Library',orders:'Work Orders',fitting:'Fit and revise garment',models:'Model Library',basics:'Sewing Basics'};
+const features = [['design','✧','Create an original garment or start from a reference photo.'],['library','▤','Browse patterns, try on garments in 3D, and revisit saved revisions.']];
 const escape = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 const allPatterns = () => [...patterns, ...state.custom];
 const getPattern = id => allPatterns().find(pattern => pattern.id === id);
@@ -92,11 +92,70 @@ const activeChoices = (items,key,selected) => items.filter(item=>item.id===selec
 const modelOptions = selected => activeChoices(allModels(),'models',selected).map(model=>option(model.id,model.name+(isArchived('models',model.id)?' · Archived':''),selected)).join('');
 const stockFabrics=Object.entries(fabricFit.fabrics).map(([name,material])=>({name,...material,category:fabricFit.categoryOf(name)}));
 const allFabrics=()=>[...state.fabrics,...stockFabrics];
-const getFabric=name=>state.fabrics.find(item=>item.name===name) || fabricFit.fabrics[name] || fabricFit.fabrics['Cotton poplin'];
+const getFabric=name=>state.fabrics.find(item=>item.name===name) ||
+  (Object.hasOwn(fabricFit.fabrics,name)?fabricFit.fabrics[name]:fabricFit.fabrics['Cotton poplin']);
 const fabricOptions=selected=>Object.keys(fabricFit.materialGroups).map(category=>{
   const group=allFabrics().filter(item=>item.category===category && (item.name===selected||!isArchived('fabrics',item.name)));
   return group.length?`<optgroup label="${escape(category)}">${group.map(item=>option(item.name,item.name,selected)).join('')}</optgroup>`:'';
 }).join('');
+const fitBendPresets=[['.2','Fluid'],['.42','Balanced'],['.65','Structured']];
+const stretchPercent=value=>Math.round(value*1000)/10;
+function fitBendOptions(bend) {
+  const matches=fitBendPresets.some(([value])=>Number(value)===bend);
+  const category=bend<.31?'Fluid':bend<.55?'Balanced':'Structured';
+  const choices=matches?fitBendPresets:[[String(bend),`Fabric setting (${category.toLowerCase()})`],...fitBendPresets];
+  const selected=choices.find(([value])=>Number(value)===bend)[0];
+  return choices.map(([value,label])=>option(value,label,selected)).join('');
+}
+function fitFabricValues(name,settings) {
+  const preset=getFabric(name);
+  const baseline=fabricFit.fabrics['Cotton poplin'];
+  const limit=(key,min,max)=>{
+    const estimate=Number.isFinite(preset[key])?preset[key]:baseline[key];
+    return fabricFit.clamp(Number.isFinite(settings?.[key])?settings[key]:estimate,min,max);
+  };
+  return {power:preset.power??baseline.power,gsm:limit('gsm',45,900),cross:limit('cross',0,1),length:limit('length',0,1),bend:limit('bend',0,1)};
+}
+function fitFabricFields(name,settings,{open=false}={}) {
+  const {gsm,cross,length,bend}=fitFabricValues(name,settings);
+  const found=allFabrics().some(item=>item.name===name && Object.hasOwn(fabricFit.materialGroups,item.category));
+  const stored=name&&!found?option(name,name,name):'';
+  return `<div class="fields">
+    <label class="field">Fabric<select name="fabric">${stored}${fabricOptions(name)}</select></label>
+    <label class="field">Fabric weight (g/m²)<input name="fabricWeight" type="number" value="${gsm}" min="45" max="900" step="1" required></label>
+  </div>
+  <details class="design-options" data-fit-fabric-details${open?' open':''}><summary>Fabric stretch and drape</summary>
+    <div class="fields tight">
+      <label class="field">Crosswise stretch (%)<input type="number" name="fabricCross" min="0" max="100" step="0.1" value="${stretchPercent(cross)}" required></label>
+      <label class="field">Lengthwise stretch (%)<input type="number" name="fabricLength" min="0" max="100" step="0.1" value="${stretchPercent(length)}" required></label>
+    </div>
+    <label class="field">Drape firmness<select name="fabricBend">${fitBendOptions(bend)}</select></label>
+    <p>Set stretch to the amount you can pull a swatch before you feel firm resistance.</p>
+  </details>`;
+}
+function readFitFabric(form,name=form.elements.namedItem('fabric').value) {
+  const field=key=>form.elements.namedItem(key);
+  const stretch=key=>Number((field(key).valueAsNumber/100).toFixed(3));
+  return fitFabricValues(name,{gsm:field('fabricWeight').valueAsNumber,cross:stretch('fabricCross'),
+    length:stretch('fabricLength'),bend:field('fabricBend').value===''?NaN:Number(field('fabricBend').value)});
+}
+function setFitFabric(form,settings) {
+  const field=key=>form.elements.namedItem(key);
+  const {gsm,cross,length,bend}=fitFabricValues(field('fabric').value,settings);
+  field('fabricWeight').value=gsm;
+  field('fabricCross').value=stretchPercent(cross);
+  field('fabricLength').value=stretchPercent(length);
+  field('fabricBend').innerHTML=fitBendOptions(bend);
+}
+function revealInvalidFitFabric(event) {
+  const details=event.target.closest('[data-fit-fabric-details]');
+  if (details) details.open=true;
+}
+function patternPreviewFabric(pattern) {
+  const revision=pattern.fit?.fabric;
+  const fabricName=revision?.name || pattern.design?.fabric;
+  return fabricName?{fabricName,material:fitFabricValues(fabricName,revision||pattern.design?.fabricSettings)}:{};
+}
 let showArchivedFabrics=false;
 let preferredFabric='';
 let showArchivedModels=false;
@@ -128,7 +187,7 @@ function shoulderSettings(pattern) {
 function designForFit(design,changes) {
   if (!design) return design;
   const fitAdjustments=Object.fromEntries(Object.entries(changes).filter(([key,value])=>garmentFit.fields[key]&&Number.isFinite(value)&&value!==0));
-  const fitted={...design,fitAdjustments};
+  const fitted={...design,fitAdjustments,neckline:changes.neckline??design.neckline};
   if (!changes.support) return fitted;
   return {...fitted,support:changes.support,strapWidth:changes.strapWidth,strapPlacement:changes.strapPlacement,
     sleeve:changes.hasSleeves?changes.sleeveStyle||design.sleeve:'Sleeveless'};
@@ -246,7 +305,7 @@ function materialLibrary() {
       <div class="fabric-swatch" data-weave="${fabricFit.weave(item.name,item.category)}">${item.photo?`<img src="${escape(item.photo)}" alt="${escape(item.name)} uploaded swatch" loading="lazy">`:''}</div>
       <div class="pattern-body"><span class="badge">${escape(item.category)}</span><h3 class="tight">${escape(item.name)}</h3>
       <p>${item.gsm} g/m² · ${Math.round(item.cross*1000)/10}% crosswise · ${Math.round(item.length*1000)/10}% lengthwise</p>
-      <div class="actions">${showArchivedFabrics?'':`<button data-action="fit-fabric" data-id="${escape(item.name)}">Use in fitting room</button>`}
+      <div class="actions">${showArchivedFabrics?'':`<button data-action="fit-fabric" data-id="${escape(item.name)}">Try this fabric on a garment</button>`}
       <button class="secondary" data-action="archive-fabric" data-id="${escape(item.name)}">${showArchivedFabrics?'Restore':'Archive'}</button></div></div></article>`).join('') || '<p>No fabrics match your search.</p>';
   }
   search.addEventListener('input',drawResults);
@@ -459,7 +518,7 @@ function uploadFabric() {
   });
 }
 function library() {
-  view.innerHTML = heading('Pattern Library','Browse garment cuts and construction guides, or add a style from your own pattern collection.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ New custom piece</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
+  view.innerHTML = heading('Pattern Library','Browse construction guides, fit and revise a garment in 3D, or design a new custom piece.') + `<div class="toolbar"><label class="field">Search patterns<input id="pattern-search" type="search" placeholder="Search by style or cut"></label><label class="field">Garment type<select id="pattern-filter"><option value="">All garments</option>${[...new Set(patterns.map(p=>p.type))].map(type=>option(type,type)).join('')}</select></label><label class="field">Collection<select id="pattern-category"><option value="">All collections</option></select></label><button class="secondary" data-action="toggle-pattern-archive">${showArchivedPatterns?'Show active':'Show archive'}</button><a class="button" href="#design">＋ New custom piece</a><button class="secondary" data-action="add-pattern">Add existing pattern</button></div><p class="muted tight" id="pattern-count"></p><div class="patterns" id="patterns"></div><button class="secondary tight" id="more-patterns" hidden>Show more garments</button>`;
   const search = document.querySelector('#pattern-search');
   const filter = document.querySelector('#pattern-filter');
   const container = document.querySelector('#patterns');
@@ -479,8 +538,12 @@ function library() {
       .sort((a,b)=>Number(state.custom.includes(b))-Number(state.custom.includes(a)));
     document.querySelector('#pattern-count').textContent=`${matches.length} garments`;
     more.hidden=matches.length<=limit;
-    container.innerHTML = matches.length ? matches.slice(0,limit).map(p=>`<article class="card pattern"><div class="pattern-art">${!canTryOn(p)?`<span class="pattern-source">${escape(p.external.publisher)}<small>Free pattern</small></span>`:`<canvas width="360" height="155" data-pattern="${escape(p.id)}" role="img" aria-label="${escape(p.cut)} illustration"></canvas>`}</div><div class="pattern-body"><span class="badge">${escape(p.type)} · ${escape(patternCategory(p))}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${p.revision?'Revision '+p.revision:escape(p.level)}</p><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">View ${p.fit?'tailoring guide':'construction guide'}</button> ${canTryOn(p)?`<button class="secondary" data-action="fit" data-id="${escape(p.id)}">${p.external?'Try on in 3D':p.fit?'Revise fit':'Alter garment'}</button>`:''}</div></article>`).join('') : '<p>No styles match your search.</p>';
-    for (const canvas of container.querySelectorAll('canvas')) drawModel(canvas,getPattern(canvas.dataset.pattern),-.35,getPattern(canvas.dataset.pattern).fit?.changes || {hasSleeves:hasSleeves(getPattern(canvas.dataset.pattern))}, {},true,{pose:fabricFit.poses.stand,show:false,redraw:results});
+    container.innerHTML = matches.length ? matches.slice(0,limit).map(p=>`<article class="card pattern"><div class="pattern-art">${!canTryOn(p)?`<span class="pattern-source">${escape(p.external.publisher)}<small>Free pattern</small></span>`:`<canvas width="360" height="155" data-pattern="${escape(p.id)}" role="img" aria-label="${escape(p.cut)} illustration"></canvas>`}</div><div class="pattern-body"><span class="badge">${escape(p.type)} · ${escape(patternCategory(p))}</span><h3 class="tight">${escape(p.name)}</h3><p>${escape(p.cut)} · ${p.revision?'Revision '+p.revision:escape(p.level)}</p><button class="secondary" data-action="pattern" data-id="${escape(p.id)}">${p.family?'View guide and revisions':'View construction guide'}</button> ${canTryOn(p)?`<button class="secondary" data-action="fit" data-id="${escape(p.id)}">${p.external?'Try on in 3D':'Fit and revise'}</button>`:''}</div></article>`).join('') : '<p>No styles match your search.</p>';
+    for (const canvas of container.querySelectorAll('canvas')) {
+      const item=getPattern(canvas.dataset.pattern);
+      drawModel(canvas,item,-.35,item.fit?.changes||{hasSleeves:hasSleeves(item)}, {},true,
+        {pose:fabricFit.poses.stand,show:false,...patternPreviewFabric(item),redraw:results});
+    }
   }
   const filterResults=()=>{limit=24;results();};
   search.addEventListener('input',filterResults);
@@ -513,7 +576,7 @@ function drawOrderPreviews(root) {
     const item=getPattern(canvas.dataset.orderPreview);
     if (!item) continue;
     drawModel(canvas,item,-.27,item.fit?.changes||{hasSleeves:hasSleeves(item)},item.fit?.modelMeasurements||(canvas.dataset.orderModel||item.design?.fitModelId?getModel(canvas.dataset.orderModel||item.design.fitModelId):{}),true,
-      {pose:fabricFit.poses.stand,show:false,fabricName:item.fit?.fabric?.name || item.design?.fabric,redraw:()=>drawOrderPreviews(root)});
+      {pose:fabricFit.poses.stand,show:false,...patternPreviewFabric(item),redraw:()=>drawOrderPreviews(root)});
   }
 }
 
@@ -562,7 +625,7 @@ const referenceLinks=pattern=>pattern?.external?`<div class="actions tight"><a h
 function patternDetails(pattern) {
   const revisions = pattern.family ? allPatterns().filter(p=>p.family===pattern.family && isArchived('patterns',p.id)===isArchived('patterns',pattern.id)).sort((a,b)=>b.revision-a.revision) : [];
   const revisionPicker = revisions.length ? `<label class="field">Revision<select id="revision-picker">${revisions.map(p=>option(p.id,'Revision '+p.revision,p.id===pattern.id?p.id:null)).join('')}</select></label>` : '';
-  showDialog(pattern.name,`${revisionPicker}${referenceLinks(pattern)}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button>${canTryOn(pattern)?`<button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">${pattern.external?'Try on in 3D':pattern.revision?'Revise this fit':'Open fitting room'}</button>`:''}${pattern.design && !pattern.external?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}<button class="secondary" data-action="archive-pattern" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore':pattern.revision?'Archive this revision':'Archive garment'}</button>${revisions.length>1?`<button class="secondary" data-action="archive-family" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore all revisions':'Archive all revisions'}</button>`:''}</div>`);
+  showDialog(pattern.name,`${revisionPicker}${referenceLinks(pattern)}${pattern.reference?.startsWith('data:image/jpeg;base64,')?`<figure class="design-reference"><img src="${escape(pattern.reference)}" alt="Uploaded garment reference"><figcaption>Reference photo</figcaption></figure>`:''}<p>${escape(pattern.cut)} · ${escape(pattern.level)}</p><p class="tight"><strong>Suggested fabric</strong> ${escape(pattern.fabric)}</p><p class="tight"><strong>Tools and notions</strong> ${escape(pattern.tools)}</p>${sewingVisuals.tools(pattern.tools)}${sewingVisuals.steps(pattern.steps, pattern.visuals || sewingVisuals.patterns[pattern.id])}<div class="actions"><button data-action="new" data-id="${escape(pattern.id)}">${pattern.revision?'Make this revision again':'Create work order'}</button>${canTryOn(pattern)?`<button class="secondary" data-action="fit" data-id="${escape(pattern.id)}">${pattern.external?'Try on in 3D':'Fit and revise'}</button>`:''}${pattern.design && !pattern.external?`<button class="secondary" data-action="copy-design" data-id="${escape(pattern.id)}">Customize design copy</button>`:''}<button class="secondary" data-action="archive-pattern" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore':pattern.revision?'Archive this revision':'Archive garment'}</button>${revisions.length>1?`<button class="secondary" data-action="archive-family" data-id="${escape(pattern.id)}">${isArchived('patterns',pattern.id)?'Restore all revisions':'Archive all revisions'}</button>`:''}</div>`);
   modal.querySelector('#revision-picker')?.addEventListener('change',event=>patternDetails(getPattern(event.target.value)));
 }
 function addPattern() {
@@ -934,7 +997,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const contrastPanel = detail && design && fabricBody && (design.tone==='Contrast lower panel' && ring>=Math.floor(rings.length*.54) || design.finish==='Contrast hem band' && ring===rings.length-2);
         const ribbed=design?.ribbing && (part==='sleeve'||part==='shell') && (band>rings.at(-1)[0]-.06
           || part==='shell' && design.neckline==='Crew' && ring===0 && Math.abs(Math.cos(theta-angle))<.58);
-        const level = regions && part ? fabricFit.levelAt(regions,band,theta-angle,part) : 0;
+        const level = regions && part ? fabricFit.levelAt(regions,band,theta-angle,part,(ring+.5)/(rings.length-1)) : 0;
         const swatch=part && detail && !contrastPanel?fabricFit.sample(selectedSwatch?.photo,i/segments*3,band*2.5,analysis?.redraw):null;
         const grain=part && detail?(weave==='twill'?Math.sin(theta*11+band*40)*.015:
           weave==='knit'?Math.cos(theta*13)*Math.sin(band*36)*.012:
@@ -1363,6 +1426,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const entries=garmentLayers.map((layer,index)=>({layer,index}));
     const ordered=[...entries.filter(({layer})=>layer.kind==='Underskirt'),...entries.filter(({layer})=>layer.kind!=='Underskirt')];
     const stack=[];
+    // Keep most of the main garment's color visible even through a full stack.
+    const mapOpacity=regions?1-.68**(1/garmentLayers.length):1;
     for (const {layer,index} of ordered) {
       const under=layer.kind==='Underskirt';
       const tier=layer.kind==='Tier';
@@ -1373,7 +1438,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const gap=under?-.012:.008;
       const cloth=getFabric(layer.fabric);
       const weave=fabricFit.weave(layer.fabric,cloth.category);
-      const opacity=layer.opacity/100;
+      const opacity=Math.min(layer.opacity/100,mapOpacity);
       const channels=color(layer.color).slice(1).match(/../g).map(n=>parseInt(n,16));
       const sweep=unit*layer.sweep/(2*Math.PI);
       const length=Math.max(.042,endFor(frontHem)-attachment);
@@ -1427,6 +1492,16 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         return {start,end,vertices,points:vertices.map(project),hidden};
       });
       stack.push(section);
+      if (regions && section.some(column=>!column.hidden)) {
+        const near=Math.PI/2-angle;
+        const edgeTint=channels.map(channel=>Math.round(channel*.60+52));
+        const style='rgba('+edgeTint.join(',')+',.68)';
+        for (const row of joined?[0,rows]:[rows]) {
+          const edge=section.map(column=>column.points[row]);
+          const points=Array.from({length:segments/2},(_,i)=>aroundAt(near+Math.PI*(i/(segments/2-1)-.5),edge));
+          markings.push({points,style});
+        }
+      }
       if (analysis?.editor?.layerIndex===index) {
         const near=Math.PI/2-angle;
         const first=section.map(column=>column.points[0]);
@@ -1889,6 +1964,178 @@ function fitSlider(key,value,label=garmentFit.fields[key][0]) {
   const [,max,minus,plus]=garmentFit.fields[key];
   return `<label class="field adjustment"><span>${label} <output id="${key}-value">${adjustmentText(value)}</output></span><input data-fit-slider name="${key}" type="range" min="-${max}" max="${max}" step="0.5" value="${value}"><span class="adjustment-ends"><span>${minus}</span><span>${plus}</span></span></label>`;
 }
+function fitSlidersMarkup(keys,values,neckline) {
+  const slider=key=>fitSlider(key,values[key]||0,
+    key==='neckDepth'?`${neckline} depth`:key==='neckWidth'?`${neckline} width`:garmentFit.fields[key][0]);
+  const seated=keys.filter(key=>garmentFit.seatedKeys.includes(key));
+  return (seated.length?`<fieldset class="wo-path"><legend>Seated fit</legend>${seated.map(slider).join('')}</fieldset>`:'')+
+    keys.filter(key=>!garmentFit.seatedKeys.includes(key)).map(slider).join('');
+}
+function fitAnalysisId(prefix,key) {
+  const legacy=['motion-controls','play-motion','motion-progress','motion-speed'];
+  return prefix==='fit' && legacy.includes(key)?key:`${prefix}-${key}`;
+}
+const fitEaseLabels={
+  stand:'Add standing ease',sit:'Add sitting ease',reach:'Add ease for reaching forward',raise:'Add ease with arms raised',
+  walk:'Add walking ease',lift:'Add ease for arm motion',reachCycle:'Add ease for reaching and returning',sitCycle:'Add ease for sitting and standing'
+};
+function fitEaseControls(prefix) {
+  const legacyPrefix=prefix==='fit'?'':`${prefix}-`;
+  const hintId=prefix==='fit'?'seat-fit-hint':`${prefix}-seat-hint`;
+  return `<div class="seat-fit" id="${prefix}-seat-fit">
+    <div class="actions tight"><button type="button" class="secondary" id="${legacyPrefix}add-seat-ease" data-current-fit-ease="${prefix}">${fitEaseLabels.stand}</button>
+      <button type="button" class="secondary" id="${legacyPrefix}add-all-ease">Add ease for all movements</button></div>
+    <p id="${hintId}" class="fit-reading">Uses the selected fabric and available fit sliders to ease tight areas.</p>
+    <p id="${prefix}-ease-status" class="fit-reading" role="status" hidden></p>
+  </div>`;
+}
+function bindFitEase(prefix,analysis,solve) {
+  const idPrefix=prefix==='fit'?'':`${prefix}-`;
+  const status=document.getElementById(`${prefix}-ease-status`);
+  function run(all) {
+    const changed=solve(analysis.easePoses(all));
+    const names=changed.map(key=>garmentFit.fields[key][0]);
+    const remaining=names.length>4?` and ${names.length-4} more`:'';
+    status.textContent=names.length?`Updated ${names.slice(0,4).join(', ').toLowerCase()}${remaining}.`:'No further slider changes were suggested.';
+    status.hidden=false;
+  }
+  document.getElementById(`${idPrefix}add-seat-ease`).onclick=()=>run(false);
+  document.getElementById(`${idPrefix}add-all-ease`).onclick=()=>run(true);
+}
+function fitAnalysisControls(prefix,extra='') {
+  const id=key=>fitAnalysisId(prefix,key);
+  return `<div class="fit-preview-controls">
+    <label class="field">Movement<select id="${id('pose')}"><optgroup label="Poses">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</optgroup><optgroup label="Motion loops">${Object.entries(fabricFit.motions).map(([key,value])=>option(key,value.name)).join('')}</optgroup></select></label>
+    <label class="fit-map-toggle"><input type="checkbox" id="${id('map')}" checked> Show tightness</label>
+    <div class="fit-motion-controls" id="${id('motion-controls')}" hidden>
+      <button type="button" class="secondary" id="${id('play-motion')}">Play motion</button>
+      <label class="field">Motion progress<input id="${id('motion-progress')}" type="range" min="0" max="100" step=".1" value="0"></label>
+      <label class="field">Speed<select id="${id('motion-speed')}"><option value=".5">Half speed</option><option value="1" selected>Normal</option><option value="1.5">1.5×</option></select></label>
+    </div>
+    ${extra}
+    <div class="fit-legend" id="${id('legend')}"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
+    <p id="${id('reading')}" class="fit-reading" aria-live="polite"></p>
+  </div>`;
+}
+function bindFitAnalysis(prefix,{draw,estimate}) {
+  const get=key=>document.getElementById(fitAnalysisId(prefix,key));
+  const poseField=get('pose');
+  const motionControls=get('motion-controls');
+  const playButton=get('play-motion');
+  const timeline=get('motion-progress');
+  const speed=get('motion-speed');
+  const map=get('map');
+  const legend=get('legend');
+  const reading=get('reading');
+  const currentEase=document.querySelector(`[data-current-fit-ease="${prefix}"]`);
+  let pose={...fabricFit.poses.stand};
+  let animation=0;
+  let playing=false;
+  let progress=0;
+
+  function report() {
+    const regions=estimate(pose);
+    const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level||(b.load??0)-(a.load??0));
+    if (peak) {
+      const level=peak.level>.66?'Restricted':peak.level>.26?'Snug':'Room to move';
+      const demand=(100*Math.max(peak.cross,peak.length)).toFixed(1);
+      reading.textContent=`${level} · ${peak.label} · ${demand}% estimated stretch demand`;
+    } else reading.textContent='';
+  }
+
+  function pause() {
+    cancelAnimationFrame(animation);
+    playing=false;
+    playButton.textContent='Play motion';
+    reading.setAttribute('aria-live','polite');
+  }
+
+  function scrub(next) {
+    progress=next;
+    pose=fabricFit.motionAt(poseField.value,next);
+    timeline.value=(next*100).toFixed(1);
+    draw();
+  }
+
+  playButton.addEventListener('click',()=>{
+    if (playing) {
+      pause();
+      report();
+      return;
+    }
+    const motion=fabricFit.motions[poseField.value];
+    if (!motion) return;
+    playing=true;
+    playButton.textContent='Pause motion';
+    reading.setAttribute('aria-live','off');
+    let last=performance.now(),lastRead=0;
+    function frame(now) {
+      if (!playing || !poseField.isConnected) return;
+      const elapsed=now-last;
+      if (elapsed>=40) {
+        scrub((progress+Math.min(elapsed,110)*Number(speed.value)/motion.duration)%1);
+        last=now;
+        if (now-lastRead>=160) {
+          report();
+          lastRead=now;
+        }
+      }
+      animation=requestAnimationFrame(frame);
+    }
+    animation=requestAnimationFrame(frame);
+  });
+
+  timeline.addEventListener('input',()=>{
+    pause();
+    scrub(Number(timeline.value)/100);
+    report();
+  });
+
+  map.addEventListener('change',()=>{
+    legend.hidden=!map.checked;
+    draw();
+  });
+
+  poseField.addEventListener('change',()=>{
+    pause();
+    const looping=Object.hasOwn(fabricFit.motions,poseField.value);
+    if (currentEase) currentEase.textContent=fitEaseLabels[poseField.value]||'Add ease for this movement';
+    motionControls.hidden=!looping;
+    if (looping) {
+      scrub(0);
+      report();
+      return;
+    }
+    const target=fabricFit.poses[poseField.value];
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      pose={...target};
+      draw();
+      report();
+      return;
+    }
+    const previous=pose,start=performance.now();
+    function transition(now) {
+      const t=fabricFit.clamp((now-start)/580,0,1);
+      const blend=t*t*(3-2*t);
+      pose=Object.fromEntries(['sit','arm','reach'].map(key=>[key,fabricFit.mix(previous[key],target[key],blend)]));
+      draw();
+      if (t<1) animation=requestAnimationFrame(transition);
+      else report();
+    }
+    animation=requestAnimationFrame(transition);
+  });
+
+  function easePoses(all=false) {
+    const selected=poseField.value;
+    if (!all && Object.hasOwn(fabricFit.poses,selected)) return [fabricFit.poses[selected]];
+    const loops=all?Object.keys(fabricFit.motions):[selected];
+    const samples=loops.flatMap(loop=>Array.from({length:8},(_,index)=>fabricFit.motionAt(loop,index/8)));
+    if (Object.hasOwn(fabricFit.motions,selected) && !Number.isInteger(progress*8)) samples.push(pose);
+    return all?[...Object.values(fabricFit.poses),...samples]:samples;
+  }
+
+  return {pose:()=>pose,show:()=>map.checked,report,easePoses,cleanup:pause};
+}
 function guide(pattern,changes,body) {
   const {waist,hip,length} = changes;
   const model = basePattern(pattern).id;
@@ -2063,46 +2310,25 @@ function fitting() {
   const sleeveEligible = ['dress','top'].includes(modelType);
   const fabricName=preferredFabric || fitRevision?.fabric?.name || pattern.design?.fabric ||
     (/denim/i.test(pattern.fabric)?'Rigid denim':/twill|suiting/i.test(pattern.fabric)?'Medium-weight twill':'Cotton poplin');
+  const startingFabric=preferredFabric?undefined:fitRevision?.fabric || pattern.design?.fabricSettings;
   preferredFabric='';
-  const initialMaterial=getFabric(fabricName);
-  const initialWeight=fitRevision?.fabric?.gsm || initialMaterial.gsm;
   const siblings=pattern.family?allPatterns().filter(item=>item.family===pattern.family && item.id!==pattern.id && !isArchived('patterns',item.id)):[];
   const startingNeck=fitRevision?.changes.neckline || pattern.design?.neckline || 'Scoop';
   const startingFit=fitRevision?.changes || pattern.design?.fitAdjustments || {};
   const shoulders=shoulderSettings(pattern);
   const supportStyles=studioDesign.supportChoices(pattern.design?.model || modelType);
   const canHaveSleeves=shoulders.support==='Integrated shoulders';
-  view.innerHTML = heading('3D Fitting Room','Choose a model and garment, preview your fit changes, then create an illustrated work order.') + `<div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>    <div class="fit-preview-controls">
-      <label class="field">Movement<select id="fit-pose"><optgroup label="Poses">${Object.entries(fabricFit.poses).map(([key,value])=>option(key,value.name,'stand')).join('')}</optgroup><optgroup label="Motion loops">${Object.entries(fabricFit.motions).map(([key,value])=>option(key,value.name)).join('')}</optgroup></select></label>
-      <div id="motion-controls" hidden>
-        <button type="button" class="secondary" id="play-motion">Play motion</button>
-        <label class="field">Motion progress<input id="motion-progress" type="range" min="0" max="100" step=".1" value="0"></label>
-        <label class="field">Speed<select id="motion-speed"><option value=".5">Half speed</option><option value="1" selected>Normal</option><option value="1.5">1.5×</option></select></label>
-      </div>
-      <label class="fit-map-toggle"><input type="checkbox" id="fit-map" checked> Show tightness</label>
-      <label class="field">Sculpt with handles<select id="fit-handle-group"><option value="">Off</option></select></label><button type="button" class="secondary" id="fit-undo" disabled>Undo drag</button>
-      <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
-      <div id="fit-legend"><div class="fit-legend-gradient" aria-hidden="true"></div><div class="fit-legend-labels"><span>Ease</span><span>Snug</span><span>Restricted</span></div></div>
-      <p id="fit-reading" class="fit-reading" aria-live="polite"></p>
-      ${['trousers','dress','skirt'].includes(modelType)?'<div class="seat-fit"><button type="button" class="secondary" id="add-seat-ease">Add sitting ease</button><p id="seat-fit-hint" class="fit-reading"></p></div>':''}
-    </div>
+  const fitTools=`<label class="field">Sculpt with handles<select id="fit-handle-group"><option value="">Off</option></select></label><button type="button" class="secondary" id="fit-undo" disabled>Undo drag</button>
+    <p id="fit-handle-help" class="fit-handle-help" hidden>Drag horizontally for width or vertically for length. Arrow keys adjust a focused handle. Use Shift for larger steps.</p>
+    ${fitEaseControls('fit')}
+    ${studioDesign.layers(pattern.design).length?'<p id="fit-layer-map-note" class="fit-reading muted">The map shows tightness on the main garment. Layers are faded in this view.</p>':''}`;
+  view.innerHTML = `<div class="page-title"><p class="model-link"><a href="#library">Back to Pattern Library</a></p><h1>${publisher?'Try on garment':titles.fitting}</h1><p>${publisher?'Choose a model to preview this pattern in 3D.':'Preview the fit on a model, then save a revision or create an illustrated work order.'}</p></div><div class="split"><section class="panel viewer fitting-viewer"><div class="fit-canvas"><canvas id="model" tabindex="0" role="img" aria-label="Rotatable three-dimensional garment preview. Use left and right keys to turn the garment."></canvas><div id="fit-handles" hidden></div></div><div class="viewer-footer"><span class="muted">Drag or use left and right keys to rotate</span><button class="secondary" id="reset-view">Front view</button></div>${fitAnalysisControls('fit',fitTools)}
 </section><section class="panel fitting-controls"><h2>Fit adjustments</h2><form id="fitting-form">
     <label class="field">3D model<select name="model">${modelOptions(fitModel)}</select></label>
     <p class="model-link"><a href="#models">Open Model Library</a></p>
     <label class="field">Garment<select name="pattern">${options(fitPattern,true)}</select></label>
     ${publisher?'<p class="fit-baseline muted">This style preview estimates the silhouette. Use the publisher’s draft for cutting dimensions.</p>':''}
-    <div class="fields">
-      <label class="field">Fabric<select name="fabric">${fabricOptions(fabricName)}</select></label>
-      <label class="field">Fabric weight (g/m²)<input name="fabricWeight" type="number" value="${initialWeight}" min="45" max="900" step="1" required></label>
-    </div>
-    <details class="design-options"><summary>Fabric stretch and drape</summary>
-      <div class="fields tight">
-        <label class="field">Crosswise stretch (%)<input type="number" name="fabricCross" min="0" max="100" step="0.1" value="${Math.round((fitRevision?.fabric?.cross ?? initialMaterial.cross)*1000)/10}" required></label>
-        <label class="field">Lengthwise stretch (%)<input type="number" name="fabricLength" min="0" max="100" step="0.1" value="${Math.round((fitRevision?.fabric?.length ?? initialMaterial.length)*1000)/10}" required></label>
-      </div>
-      <label class="field">Drape firmness<select name="fabricBend">${[['.2','Fluid'],['.42','Balanced'],['.65','Structured']].map(([value,label])=>option(value,label,String((fitRevision?.fabric?.bend ?? initialMaterial.bend)<.31?'.2':(fitRevision?.fabric?.bend ?? initialMaterial.bend)<.55?'.42':'.65'))).join('')}</select></label>
-      <p>Set stretch to the amount you can pull a swatch before you feel firm resistance.</p>
-    </details>
+    ${fitFabricFields(fabricName,startingFabric)}
     ${sleeveEligible?`<label class="field">Neckline style<select name="neckline">${studioDesign.necklines.map(name=>option(name,name,startingNeck)).join('')}</select></label>
       <fieldset class="wo-path"><legend>Shoulders and sleeves</legend>
         <label class="field">Shoulder support<select name="support">${supportStyles.map(name=>option(name,name,shoulders.support)).join('')}</select></label>
@@ -2130,17 +2356,6 @@ function fitting() {
   const sliders = document.querySelector('#fit-sliders');
   let angle = 0;
   let pointer;
-  let pose={...fabricFit.poses.stand};
-  let animation=0;
-  let playing=false;
-  let motionProgress=0;
-  const poseField=document.querySelector('#fit-pose');
-  const motionControls=document.querySelector('#motion-controls');
-  const playMotion=document.querySelector('#play-motion');
-  const timeline=document.querySelector('#motion-progress');
-  const speed=document.querySelector('#motion-speed');
-  const mapField=document.querySelector('#fit-map');
-  const reading=document.querySelector('#fit-reading');
   const overlay=document.querySelector('#fit-handles');
   const handleGroup=document.querySelector('#fit-handle-group');
   const undoButton=document.querySelector('#fit-undo');
@@ -2150,17 +2365,7 @@ function fitting() {
   let drag;
   let groups={};
   const pickedFabric=()=>form.elements.namedItem('fabric').value;
-  const gsm=()=>fabricFit.clamp(Number(form.elements.namedItem('fabricWeight').value)||initialWeight,45,900);
-  const stretchInput=key=>fabricFit.clamp(Number(form.elements.namedItem(key).value)/100,0,1);
-  const material=()=>({power:getFabric(pickedFabric()).power,gsm:gsm(),
-    cross:stretchInput('fabricCross'),length:stretchInput('fabricLength'),
-    bend:Number(form.elements.namedItem('fabricBend').value)});
-  function setFabricDefaults(preset,weight=preset.gsm) {
-    form.elements.namedItem('fabricWeight').value=weight;
-    form.elements.namedItem('fabricCross').value=Math.round(preset.cross*1000)/10;
-    form.elements.namedItem('fabricLength').value=Math.round(preset.length*1000)/10;
-    form.elements.namedItem('fabricBend').value=preset.bend<.31?'.2':preset.bend<.55?'.42':'.65';
-  }
+  const material=()=>readFitFabric(form,pickedFabric());
   const neckline=()=>form.elements.namedItem('neckline')?.value || startingNeck;
   const supportField=form.elements.namedItem('support');
   const sleeveToggle=form.elements.namedItem('sleeves');
@@ -2195,16 +2400,7 @@ function fitting() {
   };
   const body = () => getModel(fitModel);
   function drawControls(values={}) {
-    const seatedKeys=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
-    const slider=key=>{
-      const [defaultLabel] = garmentFit.fields[key];
-      const label=key==='neckDepth'?`${neckline()} depth`:key==='neckWidth'?`${neckline()} width`:defaultLabel;
-      const n = values[key] || 0;
-      return fitSlider(key,n,label);
-    };
-    const seated=keys().filter(key=>seatedKeys.includes(key));
-    sliders.innerHTML = (seated.length?`<fieldset class="wo-path"><legend>Seated fit</legend>${seated.map(slider).join('')}</fieldset>`:'')+
-      keys().filter(key=>!seatedKeys.includes(key)).map(slider).join('');
+    sliders.innerHTML=fitSlidersMarkup(keys(),values,neckline());
   }
   drawControls();
   function refreshGroups() {
@@ -2280,52 +2476,21 @@ function fitting() {
     if (action) edit(action.key,action.before);
     undoButton.disabled=!history.length;
   };
-  const easeButton=document.querySelector('#add-seat-ease');
-  const seatHint=document.querySelector('#seat-fit-hint');
-  const seatControls=modelType==='trousers'?{waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
-    leg:['leg'],rise:['rise'],backRise:['backRise'],crotch:['crotch']}:
-    {waist:['waist'],upperHip:['upperHip'],hip:['hip'],seat:['seatDepth'],lap:['lapEase'],skirtKnee:['kneeEase'],sittingLength:['sittingLength']};
-  if (easeButton) easeButton.onclick=()=>{
-    const values=adjustments();
-    const seated=fabricFit.poses.sit;
-    const estimate=()=>fabricFit.estimate(pattern,modelType,body(),values,seated,material());
+  const layerMapNote=document.querySelector('#fit-layer-map-note');
+  const analysis=bindFitAnalysis('fit',{
+    draw,
+    estimate:pose=>fabricFit.estimate(pattern,modelType,body(),adjustments(),pose,material())
+  });
+  bindFitEase('fit',analysis,poses=>{
     const draft=changes();
-    for (const [region,controls] of Object.entries(seatControls)) {
-      const details=estimate()[region];
-      if (!details) continue;
-      const ordered=region==='knee' && details.length>details.cross?controls.slice().reverse():controls;
-      for (const key of ordered) {
-        const input=form.elements.namedItem(key);
-        if (!input) continue;
-        // Crosswise and lengthwise room can be solved independently.
-        const component=key==='knee'?'cross':key==='kneeFlex'?'length':null;
-        const needsRoom=current=>component?current[component]>0:current.level>(modelType==='trousers'?.24:.01);
-        while (draft[key]<Number(input.max) && needsRoom(estimate()[region])) {
-          draft[key]+=.5;
-          values[key]=(values[key]||0)+.5;
-        }
-      }
+    const next=garmentFit.suggestEase(pattern,modelType,body(),draft,adjustments(),material(),poses);
+    const changed=Object.keys(next).filter(key=>next[key]!==draft[key]);
+    if (changed.length) {
+      drawControls(next);
+      form.dispatchEvent(new Event('input'));
     }
-    drawControls(draft);
-    form.dispatchEvent(new Event('input'));
-    if (poseField.value!=='sit') {
-      poseField.value='sit';
-      poseField.dispatchEvent(new Event('change'));
-    }
-  };
-  function reportFit() {
-    const regions=fabricFit.estimate(pattern,modelType,body(),adjustments(),pose,material());
-    const [peak]=Object.values(regions).sort((a,b)=>b.level-a.level);
-    const state=peak.level>.66?'Restricted':peak.level>.26?'Snug':'Room to move';
-    reading.textContent=`${state} · ${peak.label} · ${(100*Math.max(peak.cross,peak.length)).toFixed(1)}% estimated stretch demand`;
-    if (seatHint) {
-      const [region,seatedPeak]=Object.entries(regions).filter(([key])=>seatControls[key])
-        .sort((a,b)=>b[1].level-a[1].level)[0]||[];
-      seatHint.textContent=pose.sit<=.6?'Adds room where the seated fit needs it using the selected fabric.':
-        seatedPeak?.level>.26?`For sitting, check ${seatControls[region].map(key=>garmentFit.fields[key][0].toLowerCase()).join(' and ')}.`:
-          'The seated fit estimate shows room around the hips and knees. Check on a sewn sample.';
-    }
-  }
+    return changed;
+  });
   function draw() {
     if (!canvas.isConnected) return;
     const ratio = Math.min(window.devicePixelRatio||1,2);
@@ -2333,7 +2498,8 @@ function fitting() {
     if (canvas.width!==width) canvas.width=width;
     if (canvas.height!==height) canvas.height=height;
     const anchors=drawModel(canvas,pattern,angle,adjustments(),body(),false,
-      {pose,material:material(),show:mapField.checked,handleKeys:activeHandles,fabricName:pickedFabric(),redraw:draw});
+      {pose:analysis.pose(),material:material(),show:analysis.show(),handleKeys:activeHandles,fabricName:pickedFabric(),redraw:draw});
+    if (layerMapNote) layerMapNote.hidden=!analysis.show();
     const values=activeHandles.length?changes():{};
     for (const button of overlay.querySelectorAll('button')) {
       const anchor=anchors[button.dataset.key];
@@ -2349,87 +2515,11 @@ function fitting() {
   }
   const size = new ResizeObserver(draw);
   size.observe(canvas);
-  function pauseMotion() {
-    cancelAnimationFrame(animation);
-    playing=false;
-    playMotion.textContent='Play motion';
-    reading.setAttribute('aria-live','polite');
-  }
-  function setMotion(progress) {
-    motionProgress=progress;
-    pose=fabricFit.motionAt(poseField.value,progress);
-    timeline.value=(progress*100).toFixed(1);
-    draw();
-  }
-  playMotion.onclick=()=>{
-    if (playing) {
-      pauseMotion();
-      reportFit();
-      return;
-    }
-    const motion=fabricFit.motions[poseField.value];
-    if (!motion) return;
-    playing=true;
-    playMotion.textContent='Pause motion';
-    reading.setAttribute('aria-live','off');
-    let last=performance.now(), lastRead=0;
-    function frame(now) {
-      if (!playing || !canvas.isConnected) return;
-      const elapsed=now-last;
-      if (elapsed>=40) {
-        setMotion((motionProgress+Math.min(elapsed,110)*Number(speed.value)/motion.duration)%1);
-        last=now;
-        if (now-lastRead>=160) {
-          reportFit();
-          lastRead=now;
-        }
-      }
-      animation=requestAnimationFrame(frame);
-    }
-    animation=requestAnimationFrame(frame);
-  };
-  timeline.addEventListener('input',()=>{
-    const progress=Number(timeline.value)/100;
-    pauseMotion();
-    setMotion(progress);
-    reportFit();
-  });
-  fitCleanup = () => {size.disconnect();pauseMotion();};
-  mapField.addEventListener('change',()=>{
-    document.querySelector('#fit-legend').hidden=!mapField.checked;
-    draw();
-  });
-  poseField.addEventListener('change',()=>{
-    pauseMotion();
-    const isMotion=Object.hasOwn(fabricFit.motions,poseField.value);
-    motionControls.hidden=!isMotion;
-    if (isMotion) {
-      setMotion(0);
-      reportFit();
-      return;
-    }
-    const target=fabricFit.poses[poseField.value];
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      pose={...target};
-      draw();
-      reportFit();
-      return;
-    }
-    const previous={...pose},start=performance.now();
-    function step(now) {
-      const t=fabricFit.clamp((now-start)/580,0,1);
-      const transition=t*t*(3-2*t);
-      pose=Object.fromEntries(['sit','arm','reach'].map(key=>[key,fabricFit.mix(previous[key],target[key],transition)]));
-      draw();
-      if (t<1) animation=requestAnimationFrame(step);
-      else reportFit();
-    }
-    animation=requestAnimationFrame(step);
-  });
+  fitCleanup = () => {size.disconnect();analysis.cleanup();};
   form.addEventListener('input',event=>{
     if (event.target.name==='pattern') { startFit(event.target.value); return; }
     if (event.target.name==='model') fitModel = event.target.value;
-    if (event.target.name==='fabric') setFabricDefaults(getFabric(pickedFabric()));
+    if (event.target.name==='fabric') setFitFabric(form);
     if (event.target===supportField) {
       studioUnits.writeLength(strapWidth,studioDesign.supportWidth(supportField.value));
     }
@@ -2442,8 +2532,9 @@ function fitting() {
     fittingDraft = undefined;
     fitGuide.hidden = true;
     draw();
-    reportFit();
+    analysis.report();
   });
+  form.addEventListener('invalid',revealInvalidFitFabric,true);
   form.addEventListener('reset',event=>{
     event.preventDefault();
     if (sleeveEligible) {
@@ -2456,7 +2547,7 @@ function fitting() {
       refreshShoulders();
     }
     form.elements.namedItem('fabric').value=fabricName;
-    setFabricDefaults({...initialMaterial,...fitRevision?.fabric},initialWeight);
+    setFitFabric(form,startingFabric);
     drawControls();
     refreshGroups();
     history.length=0;
@@ -2537,7 +2628,7 @@ function fitting() {
     fitGuide.scrollIntoView({block:'nearest'});
   });
   draw();
-  reportFit();
+  analysis.report();
 }
 function saveFit(name) {
   if (!fittingDraft) return;
@@ -2559,8 +2650,14 @@ function saveFit(name) {
   const garmentVisuals = garment.visuals || sewingVisuals.patterns[garment.id] || garment.steps.map(sewingVisuals.identify);
   const rebuildSteps = make?steps:[...(garment.rebuildSteps || garment.steps),...steps];
   const rebuildVisuals = make?visuals:[...(garment.rebuildVisuals || garmentVisuals),...visuals];
+  const design=designForFit(garment.design,changes);
+  if (design) {
+    const {name,gsm,cross,length,bend}=fabric;
+    design.fabric=name;
+    design.fabricSettings={gsm,cross,length,bend};
+  }
   const plan = {id,family,revision,name,type:garment.type,level:'Intermediate',cut:garment.cut,
-    model:base.id,color:garment.color,design:designForFit(garment.design,changes),reference:garment.reference,fabric:materials,
+    model:base.id,color:garment.color,design,reference:garment.reference,fabric:materials,
     tools,steps,visuals,rebuildSteps,rebuildVisuals,measurements,
     buildFabric:make?materials:garment.buildFabric || garment.fabric,buildTools:make?tools:[garment.buildTools || garment.tools,tools].filter(Boolean).join(' · '),
     fit:{modelId,modelMeasurements,changes,fabric,source:garment.id}};
@@ -2586,7 +2683,7 @@ function designStudio() {
           <label class="field">Edit on garment<select id="design-edit-mode"><option value="fit">Shape and fit</option><option value="seams">Seam placement</option><option value="layers">Layers and ruffles</option><option value="view">View only</option></select></label>
           <label class="field" id="design-target-field"><span>Controls</span><select id="design-edit-target"></select></label>
         </div>
-        <div class="actions tight"><button type="button" class="secondary" id="design-undo" disabled>Undo</button><button type="button" class="secondary" id="design-redo" disabled>Redo</button>
+        <div class="actions tight"><button type="button" class="secondary" id="design-open-fit" aria-controls="design-fit-panel">Fit sliders</button><button type="button" class="secondary" id="design-undo" disabled>Undo</button><button type="button" class="secondary" id="design-redo" disabled>Redo</button>
           <button type="button" class="secondary" id="design-quick-layer" hidden>＋ Add layer</button><button type="button" class="secondary" id="add-design-ruffle" hidden>＋ Add ruffle</button></div>
       </div>
       <div class="fit-canvas design-canvas"><canvas id="design-model" role="img" tabindex="0" aria-label="Three-dimensional design preview"></canvas><div id="design-handles" aria-label="Garment editing handles"></div></div>
@@ -2597,6 +2694,8 @@ function designStudio() {
           <label class="field">Zoom<input type="range" id="design-zoom" min="70" max="145" value="100"></label></div>
         <button type="button" class="secondary" id="design-front-view">Front view</button>
       </div>
+      ${fitAnalysisControls('design',`${fitEaseControls('design')}
+        <p id="design-layer-map-note" class="fit-reading muted" hidden>The map shows tightness on the main garment. Layers are faded in this view.</p>`)}
     </div><div class="panel"><form id="design-form">
       <label class="field">Fit to model<select name="fitModelId">${modelOptions(designDraft.fitModelId)}</select></label>
       <p class="model-link"><a href="#models">Open Model Library</a></p><p id="design-measurements" class="fit-baseline"></p>
@@ -2619,6 +2718,11 @@ function designStudio() {
       <label class="field">Garment name<input name="name" required maxlength="100" value="${escape(designDraft.name)}" placeholder="e.g. Plum bell-sleeve dress"></label>
       <label class="field">Garment type<select name="model">${Object.entries(studioDesign.silhouettes).map(([id,entry])=>option(id,entry.label,designDraft.model)).join('')}</select></label>
       <div id="design-settings"></div>
+      <details class="design-options" id="design-fit-panel"><summary>Fit adjustments</summary>
+        <p class="muted tight">Adjust the starting shape and use Show tightness to check the fit in different poses.</p>
+        <div id="design-fit-sliders"></div>
+        <button type="button" class="secondary" id="reset-design-fit">Reset fit adjustments</button>
+      </details>
       <details class="design-options" id="design-seams"><summary>Seam placement</summary><div id="design-seam-fields"></div></details>
       <details class="design-options" id="design-layers">
         <summary>Fabric layers</summary>
@@ -2626,15 +2730,11 @@ function designStudio() {
         <div id="design-layer-list"></div>
         <button type="button" class="secondary" id="add-design-layer">＋ Add layer</button>
       </details>
-      <details class="design-options"><summary>Fine-tune fit</summary>
-        <p class="muted tight">Adjust the garment from its starting shape.</p>
-        <div id="design-fit-sliders"></div>
-        <button type="button" class="secondary" id="reset-design-fit">Reset fit adjustments</button>
-      </details>
       <div class="actions"><button name="save" value="library">Save to Pattern Library</button><button class="secondary" name="save" value="order">Save and create work order</button></div>
     </form></div></div>
     <details class="panel instructions" id="design-guide"><summary>Preview illustrated construction plan</summary><div id="design-guide-content"></div></details>`;
   const form = document.querySelector('#design-form');
+  form.addEventListener('invalid',revealInvalidFitFabric,true);
   const canvas = document.querySelector('#design-model');
   const angle = document.querySelector('#design-angle');
   const zoom = document.querySelector('#design-zoom');
@@ -2648,6 +2748,8 @@ function designStudio() {
   const handleReadout = document.querySelector('#design-handle-value');
   const settings = document.querySelector('#design-settings');
   const fitSliders = document.querySelector('#design-fit-sliders');
+  const fitPanel = document.querySelector('#design-fit-panel');
+  const layerMapNote = document.querySelector('#design-layer-map-note');
   const seamPanel = document.querySelector('#design-seams');
   const seamFields = document.querySelector('#design-seam-fields');
   const layerPanel = document.querySelector('#design-layers');
@@ -2671,11 +2773,27 @@ function designStudio() {
   let editedSupport=Boolean(designDraft.reference || designDraft.name);
   const measurementSummary = document.querySelector('#design-measurements');
   const body = () => getModel(designDraft.fitModelId);
-  const fitKeys=()=>garmentFit.keys(studioDesign.baseModel(designDraft.model),studioDesign.isSleeved(designDraft));
+  const modelType=()=>studioDesign.baseModel(designDraft.model);
+  const fitKeys=()=>garmentFit.keys(modelType(),studioDesign.isSleeved(designDraft));
   const activeDesignFit=()=>Object.fromEntries(fitKeys().flatMap(key=>{
     const value=designDraft.fitAdjustments?.[key];
     return Number.isFinite(value)&&value!==0 ? [[key,value]] : [];
   }));
+  const draftPattern=()=>({model:modelType(),design:designDraft,color:designDraft.primary});
+  const adjustments=()=>({...activeDesignFit(),hasSleeves:studioDesign.isSleeved(designDraft)});
+  const material=()=>readFitFabric(form,designDraft.fabric);
+  function fabricSettings() {
+    const {gsm,cross,length,bend}=material();
+    return {gsm,cross,length,bend};
+  }
+  const fitAnalysis=bindFitAnalysis('design',{
+    draw:preview,
+    estimate:pose=>fabricFit.estimate(draftPattern(),modelType(),body(),adjustments(),pose,material())
+  });
+  function refreshFitPreview() {
+    preview();
+    fitAnalysis.report();
+  }
   const seamNames={waistSeam:'Waist join seam',panelSeam:'Front panel seams'};
   const layerHandles={layerAttachment:['attachment','Attachment height','y','%'],
     layerHem:['hemOffset','Layer hem','y','cm'],layerSweep:['sweep','Layer fullness','x','cm']};
@@ -2789,7 +2907,7 @@ function designStudio() {
       showMeasurements();
     }
     refreshEditor();
-    if (!editFrame) editFrame=requestAnimationFrame(()=>{editFrame=0;preview();});
+    if (!editFrame) editFrame=requestAnimationFrame(()=>{editFrame=0;refreshFitPreview();});
     clearTimeout(guideTimer);
     if (guide.open) guideTimer=setTimeout(updateGuide,120);
   }
@@ -2804,7 +2922,7 @@ function designStudio() {
     drawLayers();
     refreshEditor();
     showMeasurements();
-    preview();
+    refreshFitPreview();
     updateGuide();
   }
   function showMeasurements() {
@@ -2814,9 +2932,7 @@ function designStudio() {
     measurementSummary.textContent = `Bust ${model.bust} cm · Waist ${model.waist} cm · Hip ${model.hip} cm · Shoulders ${model.shoulder} cm. Finished ${target[0]} target ${finished} cm.`;
   }
   function drawFitSliders() {
-    const neckline=designDraft.neckline;
-    fitSliders.innerHTML=fitKeys().map(key=>fitSlider(key,designDraft.fitAdjustments?.[key]||0,
-      key==='neckDepth'?`${neckline} depth`:key==='neckWidth'?`${neckline} width`:garmentFit.fields[key][0])).join('');
+    fitSliders.innerHTML=fitSlidersMarkup(fitKeys(),activeDesignFit(),designDraft.neckline);
     studioUnits.refresh(fitSliders);
   }
   function refreshDesignStraps(resetWidth=false) {
@@ -2881,7 +2997,8 @@ function designStudio() {
       ${['dress','skirt'].includes(model)?`<div class="fields">${select('hemStyle','Hem shape',studioDesign.hemStyles)}<div data-hem-drop${studioDesign.hasFairyHem(designDraft)?'':' hidden'}>
         <label class="field">High-to-low hem drop (cm)<input type="number" data-length-input name="hemDrop" min="2" max="35" step="0.5" value="${studioDesign.hemDrop(designDraft)}" required${studioDesign.hasFairyHem(designDraft)?'':' disabled'}></label></div></div>`:''}
       <div class="fields">${select('closure','Closure',studioDesign.closureChoices(model))}${model==='trousers'?select('rise','Waist rise',studioDesign.rises):''}</div>
-      <div class="fields"><label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label><label class="field">Fabric<select name="fabric">${fabricOptions(designDraft.fabric)}</select></label></div>
+      <label class="field">Main color<input type="color" name="primary" value="${color(designDraft.primary)}"></label>
+      ${fitFabricFields(designDraft.fabric,designDraft.fabricSettings)}
       <details class="design-options"${open?' open':''}><summary>Finishes, pockets and fit</summary>
         <div class="fields tight">${select('pocket','Pockets',studioDesign.pocketChoices(model))}${select('finish','Hem finish',studioDesign.finishes)}${select('tone','Color layout',studioDesign.tones)}
         <label class="field">Contrast color<input type="color" name="accent" value="${color(designDraft.accent)}"></label>
@@ -2925,13 +3042,13 @@ function designStudio() {
     const width=Math.round(canvas.clientWidth*ratio),height=Math.round(canvas.clientHeight*ratio);
     if (canvas.width!==width) canvas.width=width;
     if (canvas.height!==height) canvas.height=height;
-    const item = {model:studioDesign.baseModel(designDraft.model),design:designDraft,color:designDraft.primary};
-    const anchors=drawModel(canvas,item,Number(angle.value)*Math.PI/180,{hasSleeves:studioDesign.isSleeved(designDraft)},body(),false,
-      {pose:fabricFit.poses.stand,show:false,material:getFabric(designDraft.fabric),redraw:preview,
+    const anchors=drawModel(canvas,draftPattern(),Number(angle.value)*Math.PI/180,adjustments(),body(),false,
+      {pose:fitAnalysis.pose(),show:fitAnalysis.show(),material:material(),fabricName:designDraft.fabric,redraw:preview,
         handleKeys:mode.value==='fit'?editorControls.map(control=>control.key):[],
         editor:{layerIndex:mode.value==='layers'?layerTarget:null,showSeams:mode.value==='seams',zoom:Number(zoom.value)/100}});
     editor.position(anchors);
     showActiveHandle();
+    layerMapNote.hidden=!fitAnalysis.show()||!studioDesign.layers(designDraft).length;
   }
   function updateGuide() {
     if (!guide.open) return;
@@ -2965,7 +3082,27 @@ function designStudio() {
   showMeasurements();
   const size = new ResizeObserver(preview);
   size.observe(canvas);
-  fitCleanup = () => {size.disconnect();cancelAnimationFrame(editFrame);clearTimeout(guideTimer);stopCamera();};
+  fitCleanup = () => {size.disconnect();fitAnalysis.cleanup();cancelAnimationFrame(editFrame);clearTimeout(guideTimer);stopCamera();};
+  document.querySelector('#design-open-fit').onclick=()=>{
+    fitPanel.open=true;
+    fitPanel.querySelector('summary').focus({preventScroll:true});
+    fitPanel.scrollIntoView({block:'start'});
+  };
+  bindFitEase('design',fitAnalysis,poses=>{
+    const draft=Object.fromEntries(fitKeys().map(key=>[key,designDraft.fitAdjustments?.[key]||0]));
+    const next=garmentFit.suggestEase(draftPattern(),modelType(),body(),draft,adjustments(),material(),poses);
+    const changed=Object.keys(next).filter(key=>next[key]!==draft[key]);
+    if (changed.length) {
+      editor.checkpoint();
+      designDraft.fitAdjustments={...designDraft.fitAdjustments,...next};
+      drawFitSliders();
+      refreshEditor();
+      showMeasurements();
+      refreshFitPreview();
+      updateGuide();
+    }
+    return changed;
+  });
   angle.addEventListener('input',preview);
   zoom.addEventListener('input',preview);
   document.querySelector('#design-front-view').onclick=()=>{angle.value=0;preview();};
@@ -3048,7 +3185,7 @@ function designStudio() {
     drawFitSliders();
     refreshEditor();
     showMeasurements();
-    preview();
+    refreshFitPreview();
     updateGuide();
   };
   form.addEventListener('input',event=>{
@@ -3094,6 +3231,13 @@ function designStudio() {
     if (!field.name || field.type==='file') return;
     const oldSupport=studioDesign.selectedSupport(designDraft);
     if (field.name==='model') changeModel(field.value);
+    else if (field.name==='fabric') {
+      designDraft.fabric=field.value;
+      setFitFabric(form);
+      designDraft.fabricSettings=fabricSettings();
+    } else if (['fabricWeight','fabricCross','fabricLength','fabricBend'].includes(field.name)) {
+      designDraft.fabricSettings=fabricSettings();
+    }
     else if (field.hasAttribute('data-fit-slider')) {
       const value=Number(field.value);
       designDraft.fitAdjustments={...designDraft.fitAdjustments,[field.name]:value};
@@ -3122,7 +3266,7 @@ function designStudio() {
     if (['support','sleeve','neckline'].includes(field.name)) drawFitSliders();
     refreshEditor();
     showMeasurements();
-    preview();
+    refreshFitPreview();
     updateGuide();
   });
   function stopCamera() {
@@ -3235,7 +3379,7 @@ function designStudio() {
     photoStatus.textContent=result.model
       ? `Starting shape suggested${features.length?' · '+features.join(' · '):''}. ${review[result.model] || 'Review the style'}, then confirm measurements using your garment or pattern.`
       : 'Photo saved. The outline was unclear. Use the custom fields to choose the silhouette, straps and hem shape.';
-    preview();
+    refreshFitPreview();
     updateGuide();
   }
   async function readReference(read) {
@@ -3279,7 +3423,8 @@ function designStudio() {
     }
     stopCamera();
     const {name:_,reference,...draft} = designDraft;
-    const design={...draft,layers:studioDesign.layers(designDraft),seams:studioDesign.seams(designDraft),fitAdjustments:activeDesignFit()};
+    const design={...draft,fabricSettings:fabricSettings(),layers:studioDesign.layers(designDraft),
+      seams:studioDesign.seams(designDraft),fitAdjustments:activeDesignFit()};
     const item = {id:'design-'+createId(),...applyDesignFit(studioDesign.make(design,name,body()),body()),reference};
     item.measurements=designMeasurementSheet(item);
     state.custom.push(item);
@@ -3292,7 +3437,7 @@ function designStudio() {
     designDraft = {...studioDesign.defaults(),name:'',reference:'',fitModelId:design.fitModelId};
     location.hash=event.submitter?.value==='order'?'orders':'library';
   });
-  preview();
+  refreshFitPreview();
 }
 
 const basicLessons = [
@@ -3487,7 +3632,7 @@ function render() {
   fitCleanup = undefined;
   const route = location.hash.slice(1);
   const page = Object.hasOwn(titles,route)?route:'overview';
-  const section=page==='design'?'library':page;
+  const section=page==='design'||page==='fitting'?'library':page;
   document.querySelector('#page-name').textContent = titles[section];
   for (const link of document.querySelectorAll('nav a')) {
     if (link.hash === '#'+section) link.setAttribute('aria-current','page');
@@ -3530,7 +3675,14 @@ document.addEventListener('click',event=>{
     case 'choose-model': startFit(fitPattern,id); break;
     case 'copy-design': {
       const source = getPattern(id);
-      designDraft = {...studioDesign.defaults(source.design.model),...source.design,fitModelId:source.fit?.modelId || source.design.fitModelId || 'studio-form',name:source.name+' variation',reference:source.reference || ''};
+      const design=source.fit?.changes?designForFit(source.design,source.fit.changes):source.design;
+      const {fabricName,material}=patternPreviewFabric(source);
+      designDraft = {...studioDesign.defaults(design.model),...design,fitModelId:source.fit?.modelId || design.fitModelId || 'studio-form',name:source.name+' variation',reference:source.reference || ''};
+      if (fabricName) {
+        const {gsm,cross,length,bend}=material;
+        designDraft.fabric=fabricName;
+        designDraft.fabricSettings={gsm,cross,length,bend};
+      }
       modal.close();
       location.hash='design';
       break;

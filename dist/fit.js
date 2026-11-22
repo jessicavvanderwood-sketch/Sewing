@@ -40,6 +40,91 @@ const garmentFit = (() => {
       ...(sleeves ? ['sleeveWidth','sleeveCap','sleeveLength','cuff'] : []),'sweep','length'];
   }
 
+  const seatedKeys=['upperHip','seatDepth','lapEase','kneeEase','sittingLength'];
+  function seatedRegions(model) {
+    if (model==='trousers') return {waist:['waist'],hip:['hip'],thigh:['thigh'],knee:['knee','kneeFlex'],
+      leg:['leg'],rise:['rise'],backRise:['backRise'],crotch:['crotch']};
+    if (model==='dress' || model==='skirt') return {waist:['waist'],upperHip:['upperHip'],hip:['hip'],seat:['seatDepth'],
+      lap:['lapEase'],skirtKnee:['kneeEase'],sittingLength:['sittingLength']};
+    return {};
+  }
+
+  function easeControls(model) {
+    const seated=seatedRegions(model);
+    if (model!=='dress' && model!=='top') return seated;
+    return {
+      bust:['bust'],shoulder:['shoulder','sleeveCap'],armhole:['armhole','sleeveWidth','sleeveCap','shoulder'],
+      sleeve:['sleeveWidth','sleeveCap','sleeveLength'],cuff:['cuff','sleeveLength'],
+      waist:['waist'],hip:['hip'],...seated
+    };
+  }
+
+  function solveEase(pattern,model,body,draft,adjustments,material,poses,controls) {
+    const result={...draft};
+    let total={...adjustments};
+    const requested=[].concat(poses||fabricFit.poses.sit).filter(Boolean);
+    const samples=new Map();
+    for (const frame of requested.length?requested:[fabricFit.poses.sit]) {
+      const pose={...fabricFit.poses.stand,...frame,stride:Math.abs(frame.stride||0)};
+      samples.set([pose.sit,pose.arm,pose.reach,pose.stride].join(','),pose);
+    }
+    const samplePoses=[...samples.values()];
+    const sitting=samplePoses.every(pose=>pose.sit>.92);
+    const seated=seatedRegions(model);
+    const targetLoad=level=>-Math.log1p(-level)/.85;
+    const threshold=targetLoad(.24);
+    function tolerance(region) {
+      if (!sitting || !Object.hasOwn(seated,region)) return threshold;
+      if (model!=='trousers') return targetLoad(.01);
+      return region==='knee'?0:threshold;
+    }
+    const targets=Object.fromEntries(Object.keys(controls).map(region=>[region,tolerance(region)]));
+    const estimate=changes=>samplePoses.map(pose=>fabricFit.estimate(pattern,model,body,changes,pose,material));
+    const significant=1e-7;
+    function restriction(fits) {
+      const excess={};
+      for (const [region,target] of Object.entries(targets)) {
+        excess[region]=Math.max(0,...fits.map(fit=>(fit[region]?.load||0)-target));
+      }
+      return {excess,penalty:Object.values(excess).reduce((sum,load)=>sum+Math.log1p(load),0)};
+    }
+    let before=estimate(total);
+    let current=restriction(before);
+    while (current.penalty>significant) {
+      const candidates=new Set(Object.keys(current.excess).filter(region=>current.excess[region]>significant)
+        .flatMap(region=>controls[region]));
+      let best;
+      for (const key of candidates) {
+        if (!Object.hasOwn(result,key) || !Number.isFinite(result[key])) continue;
+        const limit=fields[key][1];
+        for (const direction of key==='armhole'?[1,-1]:[1]) {
+          const value=fabricFit.clamp(result[key]+.5*direction,-limit,limit);
+          if (value===result[key]) continue;
+          const trial={...total,[key]:(total[key]||0)+value-result[key]};
+          const after=estimate(trial);
+          const stats=restriction(after);
+          const improvement=current.penalty-stats.penalty;
+          if (improvement<=(best?.improvement||0)+significant) continue;
+          // Leave already restricted regions at least as comfortable in
+          // every sampled pose, including motion in the opposite direction.
+          const worsens=after.some((fit,index)=>Object.entries(fit).some(([region,data])=>
+            data.load>(targets[region]??threshold)+significant && data.load>(before[index][region]?.load||0)+significant));
+          if (!worsens) best={key,value,trial,after,stats,improvement};
+        }
+      }
+      if (!best) break;
+      result[best.key]=best.value;
+      total=best.trial;
+      before=best.after;
+      current=best.stats;
+    }
+    return result;
+  }
+
+  function suggestEase(pattern,model,body,draft,adjustments,material,poses) {
+    return solveEase(pattern,model,body,draft,adjustments,material,poses,easeControls(model));
+  }
+
   function directions(key,delta) {
     const n = Math.abs(delta);
     const label = fields[key][0].toLowerCase();
@@ -74,5 +159,5 @@ const garmentFit = (() => {
     return ['taper',`Change the ${label} by ${n} cm on each leg. If inseam and outseam share the change equally, move each seam line ${n/4} cm on both layers ${smaller?'toward the leg body':'toward the raw edge'}. Blend into the unchanged leg, preserve the grainline, and baste both legs. Check sitting room and that the foot passes through the finished opening.`];
   }
 
-  return {fields,keys,directions};
+  return {fields,keys,seatedKeys,suggestEase,directions};
 })();

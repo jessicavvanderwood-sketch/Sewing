@@ -231,15 +231,17 @@ const fabricFit = (() => {
     return [x+Math.cos(theta)*ripple,y+Math.sin(phase+theta)*.016*wave,z+Math.sin(theta)*ripple+Math.sin(phase)*.025*wave];
   }
   const stretch = (needed,available) => Math.max(0,needed/Math.max(available,1)-1);
-  const response = (fabric,cross,length) => 1-Math.exp(-.85*Math.hypot(
-    (cross/Math.max(.001,fabric.cross))**fabric.power,(length/Math.max(.001,fabric.length))**fabric.power));
+  const stretchLoad = (fabric,cross,length) => Math.hypot(
+    (cross/Math.max(.001,fabric.cross))**fabric.power,(length/Math.max(.001,fabric.length))**fabric.power);
 
   function estimate(pattern,model,body,changes,pose,material) {
     const ease = pattern.design?.ease;
     const bodice=model==='top'||model==='dress';
     const legs=model==='trousers';
     const skirt=model==='dress'||model==='skirt';
-    const around = (measure,extra,delta,demand=0) => stretch(measure*(1+demand),measure+extra+(changes[delta]||0));
+    const c=key=>changes[key]||0;
+    const around = (measure,extra,delta,demand=0) => stretch(measure*(1+demand),measure+extra+c(delta));
+    const along = (length,demand,allowance) => stretch(length*(1+demand),length+allowance);
     const regions = {};
     const hangingLength = model==='dress'||model==='trousers'?1:model==='skirt'?.58:.33;
     const gravity = clamp((material.gsm-85)/420,0,1.35)*hangingLength*.009*(1-material.bend);
@@ -247,16 +249,40 @@ const fabricFit = (() => {
     // Seated arm IK targets the lap. Fade the raised and reaching load
     // with that same transition instead of counting it again while seated.
     const arm=pose.arm*(1-pose.sit), reach=pose.reach*(1-pose.sit);
+    const raise=Math.max(0,arm-.45*reach);
     function add(key,label,cross,length=0) {
-      regions[key]={label,cross,length,level:response(material,cross,length)};
+      const load=stretchLoad(material,cross,length);
+      regions[key]={label,cross,length,load,level:-Math.expm1(-.85*load)};
     }
     if (bodice) {
-      add('bust','Chest / bust',around(body.bust||92,ease??5,'bust',.042*reach+.022*arm),.009*reach);
-      add('shoulder','Shoulders / upper back',around(body.shoulder||39,1.3,'shoulder',.07*reach+.036*arm+.024*step),.032*reach+.025*arm+.012*step);
-      add('armhole','Armhole',around(38,2.2,'armhole',.035*reach+.095*arm),.05*arm);
+      const bust=body.bust||92, shoulder=body.shoulder||39;
+      const upperArm=body.upperArm||bust*.32;
+      const sideLength=(body.shoulderToWaist||(body.height||168)*.23)*.61;
+      const armhole=c('armhole');
+      const cap=changes.hasSleeves?c('sleeveCap'):0;
+      const sleeveWidth=changes.hasSleeves?c('sleeveWidth'):0;
+      const shoulderRoom=c('shoulder');
+      add('bust','Chest / bust',around(bust,ease??5,'bust',.042*reach+.022*arm),
+        along(bust*.27,.012*reach,.12+Math.max(0,c('bust'))*.15));
+      add('shoulder','Shoulders / upper back',around(shoulder,1.3,'shoulder',.07*reach+.036*arm+.024*step),
+        along(shoulder,.032*reach+.025*arm+.012*step,.40+.55*shoulderRoom+.24*cap));
+      // A deeper armhole adds room around the opening. A higher underarm
+      // lifts with the arm more easily. Both effects matter for set-in sleeves.
+      const opening=upperArm+8.5;
+      add('armhole','Armhole',along(opening,.035*reach+.095*arm,2.2+.7*armhole+.22*shoulderRoom+.28*sleeveWidth+.22*cap),
+        along(sideLength,.056*raise+.026*reach,.52-.48*armhole+.17*shoulderRoom+.24*cap+.10*sleeveWidth));
       if (changes.hasSleeves) {
-        add('sleeve','Upper sleeve',around(body.upperArm||(body.bust||92)*.32,3.5,'sleeveWidth',.060*arm+.035*reach),.021*arm+.022*reach);
-        add('cuff','Sleeve opening',around(body.wrist||(body.bust||92)*.20,3.5,'cuff',.022*arm));
+        const style=changes.sleeveStyle||pattern.design?.sleeve||'Short';
+        const long=style==='Long'||style==='Bell';
+        const portion=({Cap:.23,Short:.40,Elbow:.59,Puff:.48,Long:1,Bell:1})[style]||.40;
+        const sleeveSpan=Math.max(10,(body.arm||(body.height||168)*.33)*portion);
+        const cuffMeasure=long?body.wrist||bust*.20:style==='Elbow'?body.forearm||upperArm*.82:upperArm*.91;
+        const motion=Math.min(1,arm+reach);
+        const extraLength=c('sleeveLength')*motion;
+        add('sleeve','Upper sleeve',around(upperArm,3.5+.33*cap,'sleeveWidth',.060*arm+.035*reach),
+          along(sleeveSpan,.021*arm+.022*reach,.26+extraLength*.56+.20*cap+.10*sleeveWidth));
+        add('cuff','Sleeve opening',around(cuffMeasure,3.5,'cuff',.022*arm),
+          long?along(sleeveSpan,.012*raise+.020*reach,.35+extraLength*.61+.12*c('cuff')):0);
       }
     }
     add('waist','Waist',around(body.waist||74,bodice?ease??5:2.7,'waist',.045*pose.sit+.014*step),
@@ -273,7 +299,6 @@ const fabricFit = (() => {
       const lap=Math.max(hip*.87,(body.thigh||hip*.54)*1.57);
       const bothKnees=Math.max(hip*.69,(body.knee||hip*.37)*1.65);
       const backLength=(body.waistToHip||((body.height||168)*.125))+5;
-      const c=key=>changes[key]||0;
       const room=ease??5;
       const cut=pattern.design?.cut||pattern.cut||'';
       const flare=/full skirt|circle|flared/i.test(cut)?2:/a-line/i.test(cut)?1:0;
@@ -290,7 +315,6 @@ const fabricFit = (() => {
         backLength+.9+c('sittingLength')+c('seatDepth')*.14));
     }
     if (legs) {
-      const c=key=>changes[key]||0;
       const longitudinal=(base,demand,ease)=>stretch(base+demand*pose.sit,base+ease);
       add('thigh','Upper thigh',around(body.thigh||(body.hip||98)*.54,5,'thigh',.10*pose.sit+.057*step));
       add('knee','Bent knee',around(body.knee||36,2,'knee',.09*pose.sit+.073*step),stretch(20+2.9*pose.sit+1.6*step,21+c('kneeFlex')));
@@ -302,8 +326,14 @@ const fabricFit = (() => {
     return regions;
   }
 
-  function levelAt(regions,y,theta,part) {
+  function levelAt(regions,y,theta,part,progress) {
     const band=(key,center,width)=> (regions[key]?.level||0)*Math.max(0,1-Math.abs(y-center)/width);
+    if (part==='sleeve' && Number.isFinite(progress)) {
+      const armhole=(regions.armhole?.level||0)*Math.max(0,1-progress/.28);
+      const sleeve=(regions.sleeve?.level||0)*Math.max(0,1-Math.abs(progress-.34)/.57);
+      const cuff=(regions.cuff?.level||0)*Math.max(0,(progress-.57)/.43);
+      return Math.max(armhole,sleeve,cuff);
+    }
     if (part==='sleeve') return Math.max(band('sleeve',-.61,.47),band('cuff',-.35,.38),band('armhole',-.68,.12));
     if (part==='leg') return Math.max(band('thigh',.38,.27),band('leg',.92,.31),band('knee',.65,.21),band('crotch',.23,.17));
     const side = Math.abs(Math.cos(theta));

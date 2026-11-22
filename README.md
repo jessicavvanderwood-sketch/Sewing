@@ -1,6 +1,6 @@
 # Jessica’s Sewing Dashboard
 
-A browser-based sewing studio with an editable brand kit, a garment style and cut library, work orders, a 3D fitting room, and beginner sewing lessons.
+A browser-based sewing studio with an editable brand kit, a pattern library with 3D design and fitting, illustrated work orders, and beginner sewing lessons.
 
 ## Run
 
@@ -15,10 +15,8 @@ Then open http://localhost:8000. The project uses plain HTML, CSS and JavaScript
 ## Studio workflow
 
 - **Brand Kit** stores a name, tagline, logo, color palette and guidelines.
-- **Pattern Library** starts with five construction guides and accepts custom styles and instructions. Use a matching sewing pattern for cutting templates and seam allowances.
+- **Pattern Library** holds construction guides, custom designs, and garment revisions. Choose **Fit and revise** to adjust a saved garment on a model or **New custom piece** to start a design.
 - **Work Orders** copies the fabric, tools and construction checklist from a style. Check off steps to update progress.
-- **3D Fitting Room** rotates a simplified garment on a dress form. Set the form waist and hip and adjust the garment waist, hip or hem length. Generate a tailoring guide and save it as a work order.
-
 - **Sewing Basics** shows Brother CP2160F setup, cutting-board layout, straight seams, and a fabric coaster project. Each illustrated lesson breaks the work into actions and checks. The video library shows seams, neckline finishes, and sleeve construction.
 
 Data is stored in the current browser for the current site origin. Different browsers and devices have separate data. The 3D model provides a visual approximation. Confirm ease, available seam allowances and the final fit on the physical garment.
@@ -30,19 +28,21 @@ Open [Jessica’s Sewing Dashboard](https://jessicavvanderwood-sketch.github.io/
 ## Fit a model and keep garment revisions
 
 1. Open **Model Library** and choose a preset form or create one from measurements. A custom model can also include an upright, low-poly OBJ torso under 1 MB with Y pointing up and the front toward +Z. Enter actual measurements separately.
-2. Pick a garment in the **3D Fitting Room**. The controls depend on its cut. Dresses and shirts can show sleeve controls. Pants offer waist, seat, thigh, leg opening, rise and length adjustments.
-3. Generate the illustrated tailoring steps, name the garment and save its revision and work order together.
-4. Open that garment in **Pattern Library** to choose a saved revision. **Revise this fit** creates another revision. **Make this revision again** copies the selected revision’s construction and alteration sequence into a fresh work order.
+2. In **Pattern Library**, select **Fit and revise** on a garment. Choose the model and fabric, then adjust the fit. The controls follow the garment’s cut and features.
+3. Choose **Tailor between revisions** to compare changes against the starting garment or use a saved revision as the target. Choose **Make a new garment** to save the fit as a separate design with a construction work order.
+4. Use **View guide and revisions** to select an earlier version. Choose **Fit and revise** to start from it or **Make this revision again** to copy its construction and alteration sequence into a fresh work order.
 
-Tool photos show representative examples. The Brother machine photo links to the accompanying official resources in Sewing Basics. The garment preview uses simplified geometry and does not simulate cloth drape or validate pattern pieces.
+Tool photos show representative examples. The Brother machine photo links to the accompanying official resources in Sewing Basics. Use a sewing sample to check the preview’s estimated drape and fit.
 
 ## Design a garment or use a reference photo
 
 Open **Pattern Library → New custom piece** to combine a silhouette, length, neckline, sleeves, color, and fabric in the design editor. Optional settings add pockets, a closure, target ease, and finish details. The 3D preview shows the main shape and color, and the illustrated construction plan covers sewing details such as pockets and closures. Save to the Pattern Library, or save and create a work order immediately.
 
+Select **Fit sliders** to open the **Fit adjustments** panel. Both workflows use the same sliders, fabric weight, stretch and drape settings, poses, motion playback, and tightness map. Saved designs keep their fabric and fit settings for revisions and construction work orders.
+
 Use **Edit on garment** to choose shape and fit, seam placement, or layers and ruffles. Drag a handle to change the selected dimension, or focus it and use the arrow keys. Drag the canvas to rotate and use the zoom control to inspect a detail. Undo and redo apply to viewport edits. Waist join and front panel seams add measured guides on the garment and construction figures.
 
-For a dress or skirt, **Fabric layers** adds up to five overskirts, underskirts, tiers, or gathered ruffles. Set each layer’s fabric, color, opacity, and fullness. Move tier or ruffle attachments along the skirt, adjust a layer’s hem offset, or set a ruffle’s finished depth. The preview and saved garment carry those settings into the Fitting Room. The construction plan shows layer measurements and how to cut, attach, and hem each layer.
+For a dress or skirt, **Fabric layers** adds up to five overskirts, underskirts, tiers, or gathered ruffles. Set each layer’s fabric, color, opacity, and fullness. Move tier or ruffle attachments along the skirt, adjust a layer’s hem offset, or set a ruffle’s finished depth. Saved garments keep these settings when opened for a revision. The construction plan shows layer measurements and how to cut, attach, and hem each layer.
 
 Select **Fit to model** to use a saved model’s chest, waist, hip and shoulder measurements in the preview and work order. The construction plan adds your selected wearing ease to the applicable finished measurement. A front-view JPG, PNG, or WebP can suggest a garment type, silhouette, sleeve presence and color from visible pixels. Use a well-lit, flat garment on a plain contrasting background. The analysis and thumbnail stay in your browser. Review the suggested design and provide details the photo cannot establish. Use a compatible base pattern and a test garment to establish sizing and cutting shapes.
 
@@ -56,15 +56,15 @@ In **Model Library**, add a model and enter your measurements. Height, inseam, a
 
 The Brand Kit includes the approved condensed Vanderwood wordmark and a charcoal and mushroom palette. Use **Use Vanderwood identity** to apply it in a browser that already has a customized brand kit.
 
-Choose a fabric preset and adjust its mass per area in g/m² in the fitting room. The shading compares estimated crosswise and lengthwise stretch demand against an illustrative nonlinear response for that fabric. Weight affects hang and adds an approximate gravity contribution. **Movement** transitions the full-body form between Standing, Sitting, Reach Forward, and Raise Arms. Depth and width of the front neckline are independent controls, and the back neckline has its own depth control. The Pattern Library includes 27 starter garments.
+Choose a fabric preset and enter its weight in g/m². Under **Fabric stretch and drape**, set crosswise stretch, lengthwise stretch, and drape firmness. The tightness map compares estimated stretch demand against an illustrative nonlinear response for the fabric. **Movement** includes static poses and playable motions. Neckline controls adjust the front depth, front width, and back depth independently.
 
-The preview is a garment fitting aid. It uses procedural body and garment meshes, estimated ease and movement demand, and illustrative material parameters. It does not solve cloth contact, pressure, seam forces, or measured drape. The approach to displaying a deformed shape and color contours was informed by [Ansys Contour Results](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/motion_ug/motion_ug_using_postproc_contour.html) and [Ansys material nonlinearity documentation](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/ans_thry/thy_undmat.html).
+Choose a pose or motion and use its **Add ease** button to adjust room for that movement. **Add ease for all movements** checks the available poses and motion loops and proposes one set of changes. The preview uses estimated ease, simplified garment contact, and illustrative material parameters. Verify movement and fit on a sewing sample. The shape and color contours draw on [Ansys Contour Results](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/motion_ug/motion_ug_using_postproc_contour.html) and [Ansys material nonlinearity documentation](https://ansyshelp.ansys.com/public/Views/Secured/corp/v252/en/ans_thry/thy_undmat.html).
 
 Use **Sculpt with handles** to select a part of the garment. Drag the on-model handles to edit widths, depths, and lengths or use the arrow keys on a focused handle. Adjustments stay synchronized with the sliders and tailoring work order. **Undo drag** reverses the last handle adjustment.
 
-In **3D Fitting Room**, choose **Make a new garment** to save the current design and a construction work order. **Tailor between revisions** can compare the current fit against the source garment or use a saved revision as the destination. Fitting-room work orders include a measurement sheet, fabric, tools, and ordered illustrated steps. Cut-piece dimensions and seam allowances come from the selected sewing pattern.
+Work orders generated from a 3D fit include a measurement sheet, fabric, tools, and illustrated steps. Cut-piece dimensions and seam allowances come from the selected sewing pattern.
 
-The Model Library has six starter forms, including male and female profiles. Optional torso and limb measurements affect the shape and can be saved with fitting revisions. The avatars remain measurement-driven fitting forms. Design Studio and the fitting room share 39 fabric choices with illustrative presets.
+The Model Library has six starter forms, including male and female profiles. Optional torso and limb measurements affect the shape and can be saved with fitting revisions.
 
 ## Categorized garment and fabric libraries
 
@@ -92,7 +92,7 @@ Modeling references include the [ISO 8559-1 apparel measurement definitions](htt
 
 ### Detailed human preview
 
-The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, three-quarter, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Optional torso depth and height, arm segment length, forearm girth, and leg and foot measurements refine the shape. Smooth interpolation follows the measured landmarks without stepping abruptly from one section to the next. The Fitting Room uses the selected avatar and has static poses plus playable and scrubbable walk, sit-to-stand, and arm-motion loops. The stretch map and drape use the selected fabric settings to estimate movement.
+The Model Library renders a continuous standing body mesh with female and male starting profiles, anatomical surface geometry, measurement-driven proportions, and GPU lighting where WebGL is available. Front, three-quarter, side, and back views are available in the model editor. An optional camera outline adjusts torso aspect ratio. Optional torso depth and height, arm segment length, forearm girth, and leg and foot measurements refine the shape. Smooth interpolation follows the measured landmarks. The garment preview uses the selected avatar in static poses and playable, scrubbable walk, sit-to-stand, and arm-motion loops.
 
 The model editor estimates blank landmark heights using adult references and the measurements you enter. As a starting point, crotch height is about 48% of stature, kneecap height is about 57–58% of crotch height, shoulder height is about 82% of stature, and the fullest part of the seat is about 50–51% of stature. These estimates draw on medians from the adult US Army ANSUR II sample. The waist, chest, and intermediate surface landmarks also use the fitting mesh and sewing measurement locations. An entered barefoot body inseam, natural-waist height, or other compatible landmark takes precedence. See [ANSUR II data and measurement manual](https://mreed.umtri.umich.edu/mreed/downloads.html) and [ISO apparel measurement landmarks](https://gso-sims-preview-doc-aws.s3-eu-west-1.amazonaws.com/iso-8559-1989-en.html).
 
@@ -102,14 +102,12 @@ In **Design Studio**, use **Custom fields** to build from a garment type or **Ph
 
 ### Posing and cloth contact
 
-The Fitting Room uses MakeHuman/MPFB’s [CC0 game-engine skin weights](https://github.com/makehumancommunity/mpfb2/blob/master/src/mpfb/data/rigs/standard/weights.game_engine.json). Shoulder, elbow, hip and knee joints preserve segment lengths. Blended rigid joint transforms retain volume around bends, following the approach described by [Blender’s Armature Preserve Volume documentation](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html).
+The garment preview uses MakeHuman/MPFB’s CC0 game-engine skin weights. Shoulder, elbow, hip and knee joints preserve segment lengths. Blended rigid joint transforms retain volume around bends. [MPFB game-engine skin weights](https://github.com/makehumancommunity/mpfb2/blob/master/src/mpfb/data/rigs/standard/weights.game_engine.json) · [Blender Armature Preserve Volume](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html)
 
 The browser projects bodice and skirt points outside cross-sections of the posed avatar, with a small clearance. Stretch and bending settings influence how the surface settles between its attachment points and moving edges. This takes cues from [Blender’s cloth collision settings](https://docs.blender.org/manual/en/5.3/physics/cloth/settings/collisions.html) and [Position Based Dynamics](https://doi.org/10.2312/PE/vriphys/vriphys06/071-080). It is a preview with simplified contact and material behavior. Use a sewing sample to verify the actual drape, movement and fit.
 
 Use **Reanalyze photo** on an attached garment reference to update the suggested features. Confirm the straps and **Hem shape** in the design fields. The fairy hem has an editable high-to-low drop. Set the drop from your design or fitting sample. Work orders and the fitting preview label recorded dimensions on drawings, with reference marks for recognizable photo features.
 
-In the **3D Fitting Room**, open **Shoulders and sleeves** to choose a shoulder construction, set the finished width and placement, and add cap, short, elbow, long, puff or bell sleeves to integrated shoulders. Strapless is an explicit choice. Fitting changes carry into the saved revision and the work-order figures.
+In **Fit and revise**, open **Shoulders and sleeves** to choose a shoulder construction, set the finished width and placement, and add cap, short, elbow, long, puff or bell sleeves to integrated shoulders. For a strapless garment, select **Strapless**. These changes carry into the saved revision and the work-order figures.
 
-For dresses and skirts, **Seated fit** adjusts upper-hip circumference, back seat depth, front lap room, knee room and extra center-back length. **Add sitting ease** estimates a starting set of changes and opens the seated view. Confirm those changes on a seated fitting sample before cutting the final fabric.
-
-Use **Pattern Library → New custom piece** to open Design Studio. Its **Fine-tune fit** section uses the same garment adjustments as the Fitting Room. Saved designs carry these settings into try-on and construction work orders.
+For dresses and skirts, **Seated fit** adjusts upper-hip circumference, back seat depth, front lap room, knee room and extra center-back length. View **Sitting** to use **Add sitting ease**. Confirm those changes on a seated fitting sample before cutting the final fabric.
