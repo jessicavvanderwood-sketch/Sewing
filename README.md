@@ -52,9 +52,13 @@ Choose a back style, including Boat back, Soft V-back, and Deep U-back. **Back n
 
 Select **Cut the front strap and bodice in one piece** or the equivalent back option where available. **One-piece construction** in **Seams** also offers continuous dress waists, panels, and trouser legs. The options account for closures, pockets, and contrast panels that need a seam. The work order shows the combined pattern outline and the edges that still need seam allowances.
 
+In the front and back strap join controls, set the neckline and armhole corners independently to **Sharp**, **Chamfer**, or **Round**. The setback measures along each edge from the original corner. Use the same setting when tracing the lining or facing. The work order includes the selected setback and a drawing of the new edge.
+
 Open **Trims & details** to add lace to the upper edge, sleeve openings, hems, pocket openings, trouser waistbands or seams. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem. Choose **Stitched details** for a gathered ruffle, knife, box or inverted pleats, or pintucks. Set the placement and depth, then the spacing or gathering ratio.
 
 Under **Seam overlay**, place lace centered, left, or right of the seam. Centered trim can use the same style, width, and color as an in-seam pocket it meets. Keep the pocket mouth free when stitching the trim.
+
+Open **Seams → Ruffle attachment seams** in New custom piece, or open **Ruffle attachment seams** in Fit and revise. Add a seam and choose how far down it sits from the upper edge at the side to the main hem. Add a gathered ruffle and set its finished drop and fullness, or start with **Add ruffle tiers**. Select a seam or tier in the preview to reach its controls. Work orders show where to mark each row, how to calculate strip length, and how to sew the tiers from the bottom up.
 
 Open **Slits** under **Trims & details** or in **Fit and revise**. Set the position, length from the finished hem, and opening width for each slit. Choose the left or right leg for trousers and shorts. Set the width to zero for edges that meet at rest. The work order marks each top stop and shows how to finish and reinforce the opening.
 

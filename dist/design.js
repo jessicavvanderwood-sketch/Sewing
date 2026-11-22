@@ -27,6 +27,13 @@ const studioDesign = (() => {
     Tapered:{...strapShapeDefaults,strapFrontTaper:60,strapBackTaper:75},
     'Flared at neckline':{...strapShapeDefaults,strapFrontTaper:145,strapBackTaper:125}
   };
+  const strapCornerStyles = ['Sharp','Chamfer','Round'];
+  const strapCornerSizeLimits = [.25,5];
+  const strapCornerDefaultSize = 1.25;
+  const strapCornerLabels = {
+    frontInner:'Front neckline corner',frontOuter:'Front armhole corner',
+    backInner:'Back neckline corner',backOuter:'Back armhole corner'
+  };
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
   const pocketTypes = {patch:'Patch pocket',inseam:'In-seam pocket'};
@@ -43,6 +50,9 @@ const studioDesign = (() => {
   const stitchStyles = ['Gathered ruffle','Knife pleats','Box pleats','Inverted pleats','Pintucks'];
   const maxStitchDetails = 6;
   const stitchLimits = {depth:[.5,28],spacing:[.5,25],fullness:[1.25,3.5]};
+  const attachmentSeamLimits = {height:[0,100],depth:[1,65],fullness:stitchLimits.fullness};
+  const attachmentRuffleDefaults = {depth:12,fullness:2};
+  const attachmentSeamHeights = [55,72,38,85,25,92,12,64,45];
   const stitchDefaults = {
     'Gathered ruffle':{depth:7,fullness:2},
     'Knife pleats':{depth:9,spacing:3},
@@ -111,6 +121,28 @@ const studioDesign = (() => {
     const single=design?.support==='One-shoulder' && key==='strapBackSpacing';
     return [key,collar||single?0:numeric(design,key,strapShapeDefaults[key],limits)];
   }));
+  function strapCornerChoices(design) {
+    if (!isBodice(design?.model)) return {};
+    const support=selectedSupport(design);
+    if (!supportsStrapShape(support)) return {};
+    if (support==='Halter strap') return {frontInner:strapCornerLabels.frontInner,frontOuter:strapCornerLabels.frontOuter};
+    return {...strapCornerLabels};
+  }
+
+  function strapCorner(value) {
+    const style=strapCornerStyles.includes(value?.style)?value.style:strapCornerStyles[0];
+    const size=style==='Sharp'?0:numeric(value,'size',strapCornerDefaultSize,strapCornerSizeLimits);
+    return {style,size};
+  }
+
+  function strapCorners(design) {
+    if (!design?.strapCorners) return {};
+    return Object.fromEntries(Object.keys(strapCornerChoices(design)).flatMap(key=>{
+      const corner=strapCorner(design.strapCorners[key]);
+      return corner.style==='Sharp'?[]:[[key,corner]];
+    }));
+  }
+
   function straplessSupportChoices(model='dress') {
     if (model==='corset') return ['Structured bodice'];
     return isBodice(model)?['Elastic top edge','Structured bodice']:[];
@@ -246,6 +278,44 @@ const studioDesign = (() => {
   }
 
   const slitLabel = slit=>sectionAngleLabel(slit);
+
+  const supportsAttachmentSeams = model=>hasSkirt(model)||model==='top'||model==='corset';
+
+  function attachmentSeam(value,design) {
+    if (!supportsAttachmentSeams(design?.model) || !value || typeof value!=='object' || Array.isArray(value)) return null;
+    const height=numeric(value,'height',attachmentSeamHeights[0],attachmentSeamLimits.height);
+    const ruffle=value.ruffle;
+    if (!ruffle || typeof ruffle!=='object' || Array.isArray(ruffle)) return {height};
+    const depth=numeric(ruffle,'depth',attachmentRuffleDefaults.depth,attachmentSeamLimits.depth);
+    const fullness=numeric(ruffle,'fullness',attachmentRuffleDefaults.fullness,attachmentSeamLimits.fullness);
+    return {height,ruffle:{depth,fullness}};
+  }
+
+  function attachmentSeams(design) {
+    if (!Array.isArray(design?.attachmentSeams) || !supportsAttachmentSeams(design.model)) return [];
+    return design.attachmentSeams.map(seam=>attachmentSeam(seam,design)).filter(Boolean);
+  }
+
+  const attachmentSeamReference = design=>design?.model==='skirt'?'Waistband upper edge':'Upper edge at the side seam';
+
+  function newAttachmentSeam(design,overrides={}) {
+    const count=attachmentSeams(design).length;
+    return attachmentSeam({height:attachmentSeamHeights[count%attachmentSeamHeights.length],...overrides},design);
+  }
+
+  function newAttachmentSeamTiers(design) {
+    const model=design?.model;
+    if (!supportsAttachmentSeams(model)) return [];
+    const tall=hasSkirt(model);
+    const approximateSideLengths={dress:[68,90,116],skirt:[43,64,89],top:[26,39,49],corset:[20,27,36]};
+    const lengthIndex=silhouettes[model].lengths.indexOf(design.length);
+    const estimate=approximateSideLengths[model][lengthIndex<0?1:lengthIndex];
+    // Overlap adjacent tiers slightly using provisional side-seam lengths.
+    // The actual mounted drop is checked on the fitted garment.
+    const depth=Math.round(estimate*(tall?.25:.28));
+    const heights=tall?[12,34,56,78]:[45,69];
+    return heights.map(height=>attachmentSeam({height,ruffle:{depth,fullness:attachmentRuffleDefaults.fullness}},design));
+  }
 
   function onePieceChoices(design) {
     const model=design?.model;
@@ -759,6 +829,22 @@ const studioDesign = (() => {
     return {visual:'strap',text:`Fit the ${support.toLowerCase()} ${Number.isFinite(width)?`at ${width} cm wide, finished, at the ${halter?'neck reference':'shoulder'}.`:'and mark its tested width.'} ${route}${placement}${ends?` ${ends} Blend each edge into the marked reference width.`:''}${spacing}${shift}${joinCheck} Mark the worn length.${allowances}`};
   }
 
+  function strapCornerInstructions(design) {
+    const corners=strapCorners(design);
+    const labels=strapCornerChoices(design);
+    const machine='On the Brother CP2160F, test centered straight stitch 01 with foot J at 2.5 mm on the planned woven layers. If the edge must stretch, test a compatible stretch stitch first.';
+    return Object.entries(corners).map(([key,{style,size}])=>{
+      const chamfer=style==='Chamfer';
+      const shape=chamfer?'Use a ruler to join the two marks with a straight diagonal. Keep the marks as the ends of the diagonal.'
+        :'Draw a smooth arc between the two marks. At each mark, blend the new curve into the direction of the existing edge.';
+      const stitch=chamfer?'Sew to the first mark. Stop with the needle down, lift the presser foot, pivot to the diagonal and lower the foot. Stitch to the second mark, then pivot again to follow the next edge.'
+        :'Stitch the curve slowly. For a tight curve, test a shorter stitch length and turn the fabric gradually with the needle down whenever you need to reposition it.';
+      const trim=chamfer?'Trim excess allowance at outward points and clip inward angles toward the stitching. Keep the stitches intact.'
+        :'Clip the allowance of an inward curve or notch excess allowance along an outward curve. Stop short of the stitches.';
+      return {key,visual:'designStrapCorner',text:`${labels[key]} · ${style} · ${size} cm. On the fitted paper pattern, extend the two finished edge lines until they meet. Measure ${size} cm away from that point along each edge and mark both points. ${shape} Check the remaining strap width on a sample and try it on while reaching. Trace a matching facing or lining. Add the pattern’s seam allowance outside the new stitch line on both pieces before cutting. ${machine} ${stitch} ${trim} Turn, press and check that the new edge lies flat.`};
+    });
+  }
+
   function sleeveDrafting(style) {
     return ({
       Puff:'Slash and spread the sleeve pattern for fullness, then gather the excess into the tested sleeve cap or cuff.',
@@ -844,6 +930,26 @@ const studioDesign = (() => {
     });
   }
 
+  function attachmentSeamInstructions(design) {
+    const rows=attachmentSeams(design).map((seam,index)=>({...seam,index}));
+    const reference=attachmentSeamReference(design).toLowerCase();
+    const seams=rows.map(({height,ruffle,index})=>{
+      const fraction=Number((height/100).toFixed(4));
+      const border=height===0||height===100;
+      const draft=ruffle
+        ?'Transfer the line and its center front, center back and side marks to the main garment. Use this line for mounting and keep the main fabric continuous there.'
+        :border
+          ?'Transfer the line to the upper-edge or hem finish at this boundary. Use the existing finished edge and keep the adjacent pattern piece whole.'
+          :'If an existing seam follows this line, use that seam. For a new sewn join, trace the upper and lower portions of each paper piece. Copy their grainlines and matching marks, add the pattern’s seam allowance to both edges of the new cut, then cut and baste the matching sections together. Press and finish the join as the fabric requires.';
+      return {index,visual:'designAttachmentSeam',text:`Attachment seam ${index+1} · ${height}% down. On the fitted sample, measure straight down from the ${reference} to the main finished hem at each side. Multiply each vertical distance by ${fraction} and mark that amount down from its upper reference. If the two marks are at different heights, use a level halfway between them. Use the same level around the shell and check that there is fabric at each planned attachment point. ${draft} Keep zipper teeth, button openings, pocket mouths and slits clear.`};
+    });
+    const ruffles=rows.filter(row=>row.ruffle).sort((a,b)=>b.height-a.height).map(({height,ruffle,index})=>{
+      const {depth,fullness}=ruffle;
+      return {index,visual:'designAttachmentRuffle',text:`Attachment ruffle ${index+1} · ${depth} cm drop at ${fullness}× fullness. Fit and baste the main shell first. Measure each available section of the ${height}% attachment line with a flexible tape. Leave separate ends at openings. Multiply that length by ${fullness} to get the flat strip length before allowances. Add seam and end allowances to both ends of each strip as needed. Mark the ${depth} cm drop from the mounting stitch line to the finished free edge, then add the top seam and bottom finishing allowances. Cut the strips and join any lengths. Finish the free edges before gathering. Mark quarters on each strip and on its attachment section. For stable woven fabric, on the Brother CP2160F, use straight stitch 01 with foot J at 4–5 mm for two parallel gathering rows within the top allowance. Leave long tails without locking the ends. Pull the bobbin threads evenly and match the quarter marks before clipping in between. Start with the lowest ruffle and work upward. With right sides together at the attachment line and the ruffle pointing up, baste each gathered section to the outer garment, keeping the lining and openings free. Test straight stitch 01 at 2.5 mm on the actual layers or a compatible stretch stitch if the seam needs to give. Stitch the mounting line, flip the ruffle down, press, and remove visible basting. Check the drop, overlap and clearance while the garment is worn.`};
+    });
+    return [...seams,...ruffles];
+  }
+
   const stitchVisuals = {
     'Gathered ruffle':'designGatheredRuffle','Knife pleats':'designKnifePleats','Box pleats':'designBoxPleats',
     'Inverted pleats':'designInvertedPleats',Pintucks:'designPintucks'
@@ -889,6 +995,7 @@ const studioDesign = (() => {
     const layerSteps=layerInstructions(design);
     const stitchSteps=stitchInstructions(design);
     const laceSteps=laceInstructions(design);
+    const attachmentSteps=attachmentSeamInstructions(design);
     const continuous=onePiece(design);
     const upper = isBodice(design.model);
     const strapless=upper && selectedSupport(design)==='Strapless';
@@ -911,6 +1018,7 @@ const studioDesign = (() => {
       else add('neck',`Draw the ${design.neckline.toLowerCase()} front edge and ${selectedBack(design).toLowerCase()} on the toile. Mark center front, center back and matching points. Check coverage and closure access, then trace matching facings or binding before cutting.`);
       const strap=selectedSupport(design);
       if (!strapless && (strap!==supports[0] || design.strapWidth || design.strapPlacement)) list.push(strapInstructions(design));
+      list.push(...strapCornerInstructions(design));
       if (isSleeved(design)) add('sleeve',`Trace a sleeve for the matching armhole. Mark the ${design.sleeve.toLowerCase()} sleeve shape and finished length. ${sleeveDrafting(design.sleeve)} Baste it into the test garment and check reach before cutting the final fabric.`);
     } else if (design.model==='trousers') {
       const edges=continuous.legOutseam?'check the outer-leg balance and walk the inseam and rise stitching lines':'walk the inseams and outseams';
@@ -921,6 +1029,7 @@ const studioDesign = (() => {
     }
     list.push(...onePieceInstructions(design));
     list.push(...layerSteps.draft);
+    list.push(...attachmentSteps.filter(step=>step.visual==='designAttachmentSeam'));
     list.push(...stitchSteps.filter(step=>step.prepare));
     add('grain',`Prewash the ${design.fabric.toLowerCase()} as appropriate, press it flat and lay out the trued pieces on grain. Measure your final layout against the fabric width before buying or cutting. Cut all pieces and transfer matching marks, pocket positions and closure marks.`);
     list.push(...layerSteps.cut);
@@ -985,6 +1094,7 @@ const studioDesign = (() => {
       'Contrast hem band':'Cut a matching band in contrast fabric. Test the finished band depth on the wearer, then join the band, press the seam and finish its inside edge.'
     };
     list.push(...slitInstructions(design));
+    list.push(...attachmentSteps.filter(step=>step.visual==='designAttachmentRuffle'));
     if (hemShape.text) add('finish','Let the hem hang so any bias edges settle. Recheck the finished edge at each marked point on the wearer, and test the finish on a scrap cut at the same angle before trimming. '+hem[design.finish]);
     else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
     list.push(...layerSteps.hem);
@@ -1000,6 +1110,8 @@ const studioDesign = (() => {
     if (Array.isArray(design.pocketDetails)) design.pocketDetails=pocketDetails(design);
     if (Array.isArray(design.slits)) design.slits=slits(design);
     else delete design.slits;
+    if (Array.isArray(design.attachmentSeams) && supportsAttachmentSeams(design.model)) design.attachmentSeams=attachmentSeams(design);
+    else delete design.attachmentSeams;
     const continuous=onePiece(design);
     if (Object.keys(continuous).length) design.onePiece=continuous;
     else delete design.onePiece;
@@ -1015,6 +1127,9 @@ const studioDesign = (() => {
     const support=selectedSupport(design);
     if (support==='One-shoulder') design.shoulderSide=selectedShoulderSide(design);
     else delete design.shoulderSide;
+    const corners=strapCorners(design);
+    if (Object.keys(corners).length) design.strapCorners=corners;
+    else delete design.strapCorners;
     const shape=isBodice(design.model) && supportsStrapShape(support)?strapShape(design):strapShapeDefaults;
     for (const [key,value] of Object.entries(shape)) {
       if (value===strapShapeDefaults[key]) delete design[key];
@@ -1057,22 +1172,28 @@ const studioDesign = (() => {
     const trimTargets=laceTrimTargets(design);
     if (trimTargets.length) tools.push('foot J','hand-basting needle','compatible needle','flexible measuring tape');
     if (details.length) tools.push('foot J','removable fabric marker','hand-basting needle','press cloth');
+    if (design.strapCorners) tools.push('foot J','removable fabric marker','small sharp scissors');
     if (design.pocketDetails?.length) tools.push('foot J','removable fabric marker','press cloth');
     if (design.slits?.length) tools.push('foot J','removable fabric marker','facing and lightweight reinforcement');
+    const attachmentRuffles=design.attachmentSeams?.some(seam=>seam.ruffle);
+    if (attachmentRuffles) tools.push('foot J','hand-basting needle','flexible measuring tape','removable fabric marker');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
     const trimMaterials=trimTargets.length?' '+trimTargets.map(({label,trim})=>`Use ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}) for ${label.toLowerCase()}.`).join(' ')+' Measure each finished edge and allow spare for motif matching, joins and a test piece.':'';
     const detailMaterials=details.length?' Allow fabric for the selected ruffle fullness, folded bands or pintuck take-up. Measure the fitted attachment paths and add seam and hem allowances before finalizing the layout.':'';
     const pocketMaterials=Array.isArray(design.pocketDetails) && hasInseamPocket(design)?' Allow lightweight pocketing and opening reinforcement for each in-seam pocket.':'';
+    const attachmentMaterials=attachmentRuffles?' Allow fabric for the attached ruffles. Measure the fitted paths and multiply each by its chosen fullness before adding joining and hem allowances.':'';
     return {name,model:baseModel(design.model),sleeves:isSleeved(design),type:spec.type,
       cut:design.cut+' '+spec.label.toLowerCase()+' · '+design.length.toLowerCase()+(hasFairyHem(design)?' · fairy hem':''),
       level:'Intermediate',color:design.primary,design,
-      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+trimMaterials+detailMaterials+pocketMaterials+' Confirm yardage after laying out your drafted pieces.',
+      fabric:design.fabric+(isContrast(design)?' and coordinating contrast fabric':'')+'.'+layerFabrics+trimMaterials+detailMaterials+pocketMaterials+attachmentMaterials+' Confirm yardage after laying out your drafted pieces.',
       tools:[...new Set(tools)].join(', '),steps:list.map(entry=>entry.text),visuals:list.map(entry=>entry.visual)};
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,hemContourLimits,hemContour,hemOffsetAt,tones,backs,rises,
     laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,laceSeamPlacement,seamLaceAlignments,seamLaceTrim,seamLaceCanMatch,effectiveSeamLace,
     slitLimits,slitSections,slitDetail,slits,newSlit,slitLabel,slitInstructions,
+    attachmentSeamLimits,attachmentRuffleDefaults,supportsAttachmentSeams,attachmentSeam,attachmentSeams,newAttachmentSeam,newAttachmentSeamTiers,
+    attachmentSeamReference,attachmentSeamInstructions,
     stitchStyles,stitchLimits,maxStitchDetails,stitchPlacements,newStitchDetail,stitchDetail,stitchDetails,stitchFoldDepth,
     layerKinds,layerKindChoices,layerStartsAt,layerIsInner,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,
     seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,onePieceInstructions,asymmetryLimits,asymmetryKeys,asymmetry,
@@ -1080,6 +1201,7 @@ const studioDesign = (() => {
     panelZipperLimits,panelZipperDefault,panelZipperKinds,panelZipperEligible,panelZipperStyle,effectiveClosure,
     baseModel,isBodice,isContrast,isSleeved,closureChoices,supportChoices,selectedSupport,straplessSupportChoices,selectedStraplessSupport,
     selectedShoulderSide,supportWidth,supportsStrapShape,strapShapeLimits,strapShapeChoices,strapShape,
+    strapCornerStyles,strapCornerSizeLimits,strapCornerDefaultSize,strapCornerChoices,strapCorner,strapCorners,strapCornerInstructions,
     selectedBack,pocketChoices,pocketChoicesForDesign,pocketSections,pocketLimits,pocketShapes,pocketDetail,pocketDetails,newPocket,hasInseamPocket,pocketPositionLabel,customPocketInstructions,
     defaults,measurements,straplessInstructions,straplessTools,strapInstructions,sleeveDrafting,laceInstructions,stitchInstructions,instructions,make};
 })();

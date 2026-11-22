@@ -205,9 +205,11 @@ const workFigures = (() => {
     if (movement) return movement;
     if (Object.hasOwn(seatedRegions,id)) return seatedPanels(step,id,order,pattern.measurements)[0];
     if (id==='strap') return strapPanels(step,order,pattern.design)[0];
+    if (id==='designStrapCorner') return strapCornerPanels(step,order)[0];
     if (id==='sleeve' && sleeveStylePattern.test(step)) return sleeveStylePanels(step,order,pattern.measurements)[0];
     if (id==='designLaceTrim') return laceTrimPanels(step,order,pattern.design)[0];
     if (id==='designSlit') return slitPanels(step,order,pattern.design)[0];
+    if (attachmentSeamVisuals.includes(id)) return attachmentSeamPanels(step,id,order,pattern.design)[0];
     if (customPocketVisuals.includes(id)) return customPocketPanels(step,order,pattern.design)[0];
     if (stitchDetailVisuals.includes(id)) return stitchDetailPanels(step,id,order,pattern.design)[0];
     if (fastenerVisuals.includes(id)) return fastenerPanels(id,order,pattern.design)[0];
@@ -509,6 +511,38 @@ const workFigures = (() => {
       path(`M129 28H197V${outerY}L129 ${innerY}Z`,'wf-right')+baseline+depthMark+join+angleMark+
       label(163,17,`${end} strap midpoint`,'middle'),
       `Measure ${depth?`${format(depth)} down the fabric`:'at the starting edge'} at the strap midpoint and sketch the crosswise line. ${angle?`Mark the join at ${Math.abs(angle)}° to that line, with the ${angle>0?'neckline':'outer'} side extending farther along the fabric.`:'Keep the marked join crosswise.'} Mark both endpoints on the strap and its matching garment piece. Check clearance and baste the seam before sewing.`);
+  }
+
+  function strapCornerPanels(step,order) {
+    const corner=step.match(/^((?:Front|Back) (neckline|armhole) corner) · (Chamfer|Round) · (\d+(?:\.\d+)?) cm\./);
+    if (!corner) return [];
+    const [,name,edge,style,size]=corner;
+    const round=style==='Round';
+    const amount=format(Number(size));
+    const allowance=order.allowances||{};
+    const seam=format((edge==='armhole'?allowance.armhole:allowance.neck)??allowance.seam)||'Pattern allowance';
+    const x=117,y=96,setback=Math.min(34,17+Number(size)*4);
+    const graphic=(x,y)=>`M${x} 24V${y-setback}${round?`Q${x} ${y} ${x-setback} ${y}`:`L${x-setback} ${y}`}H59`;
+    const original=path(`M${x} 25V${y}H59`,'wf-guide');
+    const outline=path(`${graphic(x,y)}V135H219V24Z`,'wf-cloth');
+    const connection=round?'Draw a smooth curve that runs into both marked edges. Check with a French curve or a flexible ruler.':'Connect the setback points with one straight bevel. Mark it with a ruler.';
+    return [
+      panel(`${name} · Mark the ${round?'rounding':'chamfer'}`,
+        outline+original+path(graphic(x,y),'wf-stitch')+
+        leader(x,y-setback,150,y-setback)+leader(x,y,150,y)+tick(148,y-setback,y,amount)+
+        guide(x-setback,y,x-setback,118)+guide(x,y,x,118)+span(x-setback,x,119,amount)+
+        leader(x-3,y-1,192,124)+label(195,128,'Starting corner')+
+        leader(65,96,47,70)+label(31,64,edge==='neckline'?'Neckline edge':'Armhole edge')+
+        label(197,45,'Strap edge','middle')+label(151,152,round?'Smooth curve between the marks':'Straight bevel between the marks','middle'),
+        `On the fitted paper pattern, find the point where the two finished edges would meet at the ${name.toLowerCase()}. Measure ${amount} back from that corner along each edge and mark both points. ${connection} Keep the finished strap width above the change.`),
+      panel('Transfer the corner and restore the cut allowance',
+        path(`${graphic(x-12,y-12)}V133H220V24Z`,'wf-cloth')+path(graphic(x,y),'wf-stitch')+
+        path('M59 84H48M59 96H48','wf-extension')+tick(46,84,96,seam)+
+        leader(105,41,159,33)+label(167,36,'Solid cut line')+
+        leader(117,56,159,61)+label(167,65,'Dashed finished line')+
+        label(149,153,'Walk the facing against the finished mark','middle'),
+        `Carry the new outline onto the matching bodice, strap, and facing or binding pieces. Walk the finished marks together and transfer the matching points. Add ${seam==='Pattern allowance'?'the edge allowance from the tested pattern':seam} outside the finished line at this edge. Baste the corner on a sample and check coverage before cutting the final fabric.`)
+    ];
   }
   const straplessVisuals=['straplessElasticFit','straplessElasticLength','straplessElasticCasing','straplessElasticFinish',
     'straplessStructuredFit','straplessChannels','straplessStructuredFinish'];
@@ -1200,6 +1234,92 @@ const workFigures = (() => {
     ];
   }
 
+  const attachmentSeamVisuals=['designAttachmentSeam','designAttachmentRuffle'];
+
+  function attachmentSeamPanels(step,id,order,design) {
+    const number=Number(num(step,/^Attachment (?:seam|ruffle) (\d+)/));
+    const attachment=studioDesign.attachmentSeams?.(design)[number-1];
+    if (!attachment) return [];
+    const allowance=order.allowances||{};
+    const seam=format(allowance.seam)||'Pattern allowance';
+    const {height,ruffle}=attachment;
+    const percent=`${Number(height.toFixed(3))}%`;
+    const reference=studioDesign.attachmentSeamReference(design);
+    const top=40,hem=125;
+    const y=top+(hem-top)*height/100;
+    const edge=57+(hem-y)*.45;
+    const panelShape=path('M95 40H188Q194 72 225 125H57Q91 69 95 40Z','wf-cloth');
+    if (id==='designAttachmentSeam') return [
+      panel(`Attachment seam ${number} · Measure down the fitted side`,
+        panelShape+guide(141,43,141,116)+path(`M${edge} ${y}H${283-edge}`,'wf-stitch')+
+        path(`M188 ${top}H235M${283-edge} ${y}H235M225 ${hem}H235`,'wf-extension')+
+        (height?tick(233,top,y,percent):dimText(243,top+4,percent))+guide(235,y,235,hem)+
+        label(231,27,reference,'middle')+label(233,144,'Finished main hem','middle')+label(111,155,'Main garment panel','middle'),
+        `Measure the fitted side-seam distance from the ${reference.toLowerCase()} to the finished hem. Multiply by ${percent} and mark that distance down from the upper reference at each side. If the fitted marks are at different heights, use a level halfway between them for the attachment.`),
+      panel('Carry the same attachment line around the garment',
+        path('M35 30H117Q121 73 145 127H17Q30 68 35 30ZM210 30H292Q296 73 315 127H184Q202 69 210 30Z','wf-cloth')+
+        guide(80,32,80,125)+guide(251,32,251,125)+
+        path('M28 78H133M195 78H304','wf-stitch')+path('M28 72v12m52-12v12m53-12v12M195 72v12m56-12v12m53-12v12','wf-dimension')+
+        label(81,150,'Center front','middle')+label(250,150,'Center back','middle')+label(167,65,'Match sides','middle'),
+        'On the fitted garment, carry the line through the marked sides, center front and center back. Transfer these points to the matching paper panels. Extend the line between the points as drafted and mark where it meets an opening.'),
+      panel('Transfer the attachment marks before assembly',
+        path('M42 38H246V133H42Z','wf-cloth')+path('M43 86H126M154 86H245','wf-stitch')+
+        path('M126 78v16M154 78v16','wf-dimension')+guide(138,49,138,74)+label(141,35,'Opening or planned break','middle')+
+        label(65,109,'Transfer with chalk')+label(177,109,'Keep the gap clear'),
+        'Mark each side, center and intersection on the fabric with a removable marker. Leave breaks at the closure, pocket mouth or slit. Check that front and back matching points meet when the main garment is assembled.'),
+      ...(!ruffle&&height>0&&height<100?[panel('Draft both edges for a sewn horizontal join',
+        path('M60 31H235L230 66H64ZM64 87H230L247 134H48Z','wf-cloth')+
+        path('M62 55H232M62 98H234','wf-stitch')+path('M87 52v14m61-14v14m64-14v14M87 87v14m61-14v14m64-14v14','wf-dimension')+
+        leader(232,55,242,55)+leader(231,66,242,66)+tick(241,55,66,seam==='Pattern allowance'?'Allowance':seam)+
+        label(149,45,'Upper pattern piece','middle')+label(149,123,'Lower pattern piece','middle')+
+        label(150,151,'Match the transferred notches','middle'),
+        'If you are adding a sewn join, trace the upper and lower pieces from the marked sewing line. Copy the grainline and notches. Add the tested allowance to both cut edges, then baste the matching pieces, check the fit, stitch and press the seam.')]:[])
+    ];
+    if (!ruffle) return [];
+    const full=`${Number(ruffle.fullness.toFixed(3))}×`;
+    const depth=format(ruffle.depth);
+    const bothHems=Number.isFinite(allowance.first)&&Number.isFinite(allowance.second)&&design?.finish==='Double-fold hem';
+    const hemAllowance=bothHems?format(allowance.first+allowance.second):'Finish per pattern';
+    return [
+      panel(`Attachment ruffle ${number} · Measure its finished seam run`,
+        panelShape+path(`M${edge} ${y}H${283-edge}`,'wf-dimension')+
+        path(`M117 ${y-5}v10m13-10v10m13-10v10m13-10v10m13-10v10`,'wf-dimension')+
+        leader(206,y,224,79)+label(230,82,percent+' down')+
+        dimText(148,151,`Strip length = run × ${Number(ruffle.fullness.toFixed(3))}`,'middle'),
+        `Guide a flexible tape along the actual ${percent} attachment line on the assembled garment. Measure each run separately between openings. Multiply each measured length by ${Number(ruffle.fullness.toFixed(3))} for the flat strip before adding its joining and end allowances.`),
+      panel('Trace the strip with its drop and allowances',
+        path('M38 41H215V133H38Z','wf-cloth')+path('M41 56H212M41 114H212','wf-stitch')+
+        span(40,214,31,`${full} actual run`)+tick(229,56,114,depth)+tick(224,41,56,seam==='Pattern allowance'?'Top allowance':seam)+
+        guide(212,114,249,114)+guide(215,133,249,133)+tick(247,114,133,'')+
+        label(143,83,'Finished ruffle depth','middle')+label(239,151,hemAllowance,'middle'),
+        `Mark the ${depth} finished drop between the upper joining line and finished lower edge. Add the top joining allowance, the chosen hem allowance and the allowances at any strip joins or ends. Cut on the outer line and finish the lower edge separately.`),
+      panel('Baste two rows and gather between matching marks',
+        path('M36 39H262V129H36Z','wf-right')+path('M38 58H260M38 73H260','wf-stitch')+
+        path('M58 52v28m91-28v28m92-28v28','wf-dimension')+path('M258 58q18 0 35 8M258 73q18 0 35 7','wf-guide')+
+        label(147,24,'Keep long tails','middle')+label(148,109,'Quarter marks','middle')+label(150,148,`${full} fabric before gathering`,'middle'),
+        'Quarter-mark the strip and the matching attachment run. On stable woven scrap, test Brother CP2160F straight stitch 01 with foot J at 4–5 mm for basting. Sew two rows in the joining allowance and leave long tails. Pull the bobbin tails and slide the fabric toward the quarter marks. Match and clip the quarter marks first, then spread the gathers evenly.'),
+      panel('Attach the lowest ruffle first',
+        path('M75 34H210L230 127H51Z','wf-cloth')+path('M62 94H217L231 123Q214 135 197 123T163 123T129 123T94 123T60 123Z','wf-fold')+
+        path('M75 65H217L222 91Q201 102 180 91T138 91T96 91T75 91Z','wf-right')+
+        path('M67 99H216M77 70H215','wf-stitch')+label(242,75,'Next higher')+label(242,102,'Lowest first')+
+        label(144,152,'Baste each strip at its marks','middle'),
+        'Start with the lowest marked attachment line when there is more than one ruffle. Clip that strip to its corresponding marks and baste, then sew the tested join. Work up to the next higher line. Test centered straight stitch 01 at 2.5 mm with foot J on stable woven layers. For stretch layers, test a compatible stitch and check recovery.'),
+      panel('Stitch the ruffle facing up, then turn it down',
+        path('M37 35H128V137H37ZM174 35H261V137H174Z','wf-cloth')+
+        path('M42 82H125V48Q116 35 104 48T83 48T62 48T42 48ZM178 82H258V123Q248 134 238 123T218 123T198 123T178 123Z','wf-fold')+
+        path('M44 81H125M179 81H257','wf-stitch')+path('M135 67Q158 77 156 111m-4-7l4 7 5-6','wf-arrow')+
+        tick(263,82,124,depth)+label(80,151,'Sew with ruffle up','middle')+label(216,151,'Turn and press down','middle'),
+        'Place the gathered strip right sides together with the garment. Point the finished edge up and align the joining marks. Sew across the joining line, then turn the free edge down and press. Remove any temporary gathering stitches visible from the outside.'),
+      panel('Finish the ruffle ends around the opening',
+        path('M36 38H143V134H36ZM160 38H270V134H160Z','wf-cloth')+
+        path('M38 72H139V105H38ZM164 72H267V105H164Z','wf-fold')+
+        path('M40 77H136M167 77H266M136 73V105M168 73V105','wf-stitch')+
+        guide(151,48,151,126)+label(152,26,'Closure, pocket or slit','middle')+
+        label(151,150,'Finish the ends separately','middle'),
+        'End and finish each strip before the opening. Keep the zipper, pocket mouth or slit free while sewing. Remove visible basting and check the ruffle hangs evenly and the opening moves freely on the finished garment.')
+    ];
+  }
+
   const layerPhases=['layerDraft','layerCut','layerFit','layerAttach','layerHem'];
   function layerPanels(step,id,order,design) {
     const number=Number(num(step,/^Layer (\d+)/));
@@ -1845,6 +1965,10 @@ const workFigures = (() => {
       const panels=asymmetricPanels(step,order,design).slice(1);
       return panels.length?`<details class="wo-how wo-storyboard" open><summary>Check the paper pieces</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
     }
+    if (id==='designStrapCorner') {
+      const panels=strapCornerPanels(step,order).slice(1);
+      return panels.length?`<details class="wo-how wo-storyboard" open><summary>Shape the strap corner in pictures</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
+    }
     if (Object.hasOwn(onePieceJoins,id)) return `<details class="wo-how wo-storyboard" open><summary>Trace the combined piece in pictures</summary><div class="wf-grid">${onePiecePanels(id,order,design).slice(1).join('')}</div></details>`;
     if (seamDesignPhases.includes(id)) {
       const figures=designSeamPanels(id,order,design).slice(1);
@@ -1862,6 +1986,10 @@ const workFigures = (() => {
     if (id==='designSlit') {
       const panels=slitPanels(step,order,design).slice(1);
       return panels.length?`<details class="wo-how wo-storyboard" open><summary>Mark and finish this slit in pictures</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
+    }
+    if (attachmentSeamVisuals.includes(id)) {
+      const panels=attachmentSeamPanels(step,id,order,design).slice(1);
+      return panels.length?`<details class="wo-how wo-storyboard" open><summary>Make this attachment in pictures</summary><div class="wf-grid">${panels.join('')}</div></details>`:'';
     }
     if (customPocketVisuals.includes(id)) {
       const panels=customPocketPanels(step,order,design).slice(1);
