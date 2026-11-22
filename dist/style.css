@@ -121,6 +121,7 @@ aside{width:232px;background:var(--white);border-right:1px solid var(--line);pos
 
 [data-strap-sizing][hidden],[data-strapless-note][hidden],[data-sleeve-toggle][hidden],[data-sleeve-style][hidden]{display:none}
 [data-strapless-finish][hidden],[data-strap-shape][hidden]{display:none}
+[data-strap-shape] .field[hidden]{display:none}
 .strapless-choice{margin:0 0 15px}
 [data-choose-strapless][aria-pressed=true]{border-color:var(--red);background:#f4e5e9}
 

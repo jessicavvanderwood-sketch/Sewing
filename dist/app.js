@@ -181,7 +181,7 @@ function shoulderSettings(pattern) {
   const requested=fit.support || studioDesign.selectedSupport({...design,model});
   const support=options.includes(requested)?requested:options[0];
   return {support,straplessSupport:studioDesign.selectedStraplessSupport({...design,model,straplessSupport:fit.straplessSupport??design.straplessSupport}),
-    ...studioDesign.strapShape({...design,...fit}),
+    ...studioDesign.strapShape({...design,...fit,support}),
     strapWidth:support==='Strapless'?undefined:fit.strapWidth??design.strapWidth??studioDesign.supportWidth(support),
     strapPlacement:fit.strapPlacement??design.strapPlacement??0,
     sleeveStyle:fit.sleeveStyle || (design.sleeve==='Sleeveless'?null:design.sleeve) || 'Short'};
@@ -874,7 +874,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   }
   const sideOffset=(key,leftWeight)=>fabricFit.mix(right[key]||0,left[key]||0,leftWeight);
   const fitBand=(y,center,width)=>Math.max(0,1-Math.abs(y-center)/width);
-  const garmentLayers=skirtFit?studioDesign.layers(design):[];
+  const garmentLayers=studioDesign.layers(design);
   const garmentSeams=studioDesign.seams?.(design) || {};
   const garmentLace=studioDesign.laceTrims(design);
   const designClosure=Number.isFinite(garmentSeams.panelZipper)?null:design?.closure;
@@ -1169,6 +1169,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       return geometry[index][column].map((value,axis)=>fabricFit.mix(value,geometry[index][(column+1)%segments][axis],position-column));
     }
     if (part && part!=='torso-skin') surfaces[part]={rings,rest,geometry,opening:neckWidth,sampleRing,side,
+      moveEnd:(point,theta)=>movePoint(point,theta,rings.length-1),
       standingPoint:(theta,index,applyHemContour=true)=>restPoint(rings[index],theta,index,0,applyHemContour),projectPoint:(row,theta,index)=>{
       const point=sampleRing(theta,index);
       if (row!==rings[index]) {
@@ -1485,13 +1486,16 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
 
   function bridgeShoulders() {
     if (!strapWidth || (model!=='dress' && model!=='top') || structured && design.cut==='Underbust') return;
-    const {sampleRing,rings}=surfaces.shell;
+    const {sampleRing,standingPoint,rings}=surfaces.shell;
     const bind=avatar?.joints[0] || [.214+shoulders,-.73,0];
     const rows=changes.hasSleeves?2:1;
     const baseWidth=rings[rows][1];
     const integrated=support==='Integrated shoulders', halter=support==='Halter strap';
     const adjustable=studioDesign.supportsStrapShape(support);
     const strapShape=adjustable ? studioDesign.strapShape({...design,...changes}) : null;
+    const frontJoin=strapShape?.strapFrontJoin||0, backJoin=halter?0:strapShape?.strapBackJoin||0;
+    const frontSkew=Math.tan((strapShape?.strapFrontAngle||0)*Math.PI/180);
+    const backSkew=halter?0:Math.tan((strapShape?.strapBackAngle||0)*Math.PI/180);
     const fitCenter=bind[0]*(integrated?.81:halter?.64:.76)+strapPlacement-(changes.hasSleeves?0:.021*shoulderRaising);
     const shoulderTriangles=[];
     if (posedSkin && humanPreview.topology) {
@@ -1531,16 +1535,18 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       return y;
     }
-    // The upward shoulder ray cannot see the vertical part of the back.
-    // A second ray keeps the descending ribbon on the back of the pose.
-    function behindShoulder([x,y,z]) {
+    // A depth ray clears the parts of the ribbon that descend along the
+    // bodice, where a vertical ray alone cannot see the skin surface.
+    function outsideShoulder([x,y,z],direction) {
       for (const tri of shoulderTriangles) {
-        if (x<tri.x0 || x>tri.x1 || y<tri.y0 || y>tri.y1 || Math.abs(tri.backDeterminant)<1e-8 || tri.z0>=z) continue;
+        if (x<tri.x0 || x>tri.x1 || y<tri.y0 || y>tri.y1 || Math.abs(tri.backDeterminant)<1e-8 ||
+            (direction<0?tri.z0>=z:tri.z1<=z)) continue;
         const dx=x-tri.p[0],dy=y-tri.p[1];
         const a=(dx*tri.vy-dy*tri.vx)/tri.backDeterminant;
         const b=(tri.ux*dy-tri.uy*dx)/tri.backDeterminant;
         if (a<0 || b<0 || a+b>1 || tri.wp+a*tri.wu+b*tri.wv>.70) continue;
-        z=Math.min(z,tri.p[2]+a*tri.uz+b*tri.vz-.008);
+        const skin=tri.p[2]+a*tri.uz+b*tri.vz;
+        z=direction<0?Math.min(z,skin-.008):Math.max(z,skin+.008);
       }
       return z;
     }
@@ -1584,7 +1590,27 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       const frontEnd=attachment(strapShape?.strapFrontCurve,strapShape?.strapFrontTaper);
       const backEnd=attachment(strapShape?.strapBackCurve,strapShape?.strapBackTaper,halter);
-      const shellPoint=(x,front)=>sampleRing((front?1:-1)*Math.acos(fabricFit.clamp(x/width,-.95,.95)),rows);
+      function shellPoint(x,front,depth=0) {
+        const theta=(front?1:-1)*Math.acos(fabricFit.clamp(x/width,-.95,.95));
+        if (!depth) return sampleRing(theta,rows);
+        // Measure down or up the standing cloth, then use the same strip
+        // and fraction on the posed surface. The neckline limits the top.
+        const direction=Math.sign(depth);
+        let distance=Math.abs(depth)*centimeter;
+        let index=rows, a=standingPoint(theta,index);
+        while (index+direction>=0 && index+direction<rings.length) {
+          const next=index+direction, b=standingPoint(theta,next);
+          const length=Math.hypot(a[0]-b[0],proportions.yAt(a[1])-proportions.yAt(b[1]),a[2]-b[2]);
+          if (length>0 && distance<=length) {
+            const start=sampleRing(theta,index), end=sampleRing(theta,next);
+            return start.map((value,axis)=>fabricFit.mix(value,end[axis],distance/length));
+          }
+          distance-=length;
+          index=next;
+          a=b;
+        }
+        return sampleRing(theta,index);
+      }
       const target=Array.from({length:lanes+1},(_,lane)=>{
         const position=lane/lanes*2-1;
         const across=position*halfWidth;
@@ -1593,11 +1619,14 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const back=halter?collarPoint(side*(.044+across*.32),bind[1]-.167):shellPoint(x,false);
         const crown=torsoMove([x,bind[1]-.066,bind[2]]);
         const raise=Math.max(.028,(front[1]+back[1])*.5-crown[1]);
-        const frontDelta=frontEnd && shellPoint(side*(frontEnd.center+position*frontEnd.half),true)
-          .map((value,i)=>value-front[i]);
-        const backX=backEnd && side*(backEnd.center+position*backEnd.half);
-        const backDelta=backEnd && (halter?collarPoint(backX,bind[1]-.167):shellPoint(backX,false))
-          .map((value,i)=>value-back[i]);
+        const frontAcross=position*(frontEnd?.half??halfWidth);
+        const frontX=side*((frontEnd?.center??center)+frontAcross);
+        const frontDelta=(frontEnd || frontJoin || frontSkew) &&
+          shellPoint(frontX,true,frontJoin-frontSkew*frontAcross/centimeter).map((value,i)=>value-front[i]);
+        const backAcross=position*(backEnd?.half??halfWidth);
+        const backX=side*((backEnd?.center??center)+backAcross);
+        const backDelta=(backEnd || backJoin || backSkew) &&
+          (halter?collarPoint(backX,bind[1]-.167):shellPoint(backX,false,backJoin-backSkew*backAcross/centimeter)).map((value,i)=>value-back[i]);
         return {front,back,crown,raise,frontDelta,backDelta};
       });
       const strip=Array.from({length:stations+1},(_,index)=>{
@@ -1630,30 +1659,44 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         }
       }
       const crownStation=stations/2;
-      const rendered=adjustable?strip.slice(0,crownStation+1):strip;
-      if (adjustable) {
-        for (let i=crownStation+1;i<=stations;i++) {
+      const rendered=adjustable?[]:strip;
+      function clearSegment(first,last,direction) {
+        for (let i=first+1;i<=last;i++) {
           const a=strip[i-1],b=strip[i];
           // Sample extra points where the strap drops down the shoulder.
           // Clearing only the ends of a long panel can leave its middle inside skin.
           const steps=Math.max(1,Math.ceil(Math.max(...a.map((p,j)=>Math.abs(p[1]-b[j][1])))/.012));
           for (let step=1;step<=steps;step++) {
-            if (i===stations && step===steps) rendered.push(b);
+            if (i===last && step===steps) rendered.push(b);
             else rendered.push(a.map((p,j)=>{
               const point=p.map((n,k)=>fabricFit.mix(n,b[j][k],step/steps));
-              point[2]=behindShoulder(point);
+              point[2]=outsideShoulder(point,direction);
               return point;
             }));
           }
         }
       }
+      let crown=crownStation;
+      if (adjustable) {
+        if (frontJoin || frontSkew) {
+          rendered.push(strip[0]);
+          clearSegment(0,crownStation,1);
+        } else rendered.push(...strip.slice(0,crownStation+1));
+        crown=rendered.length-1;
+        clearSegment(crownStation,stations,-1);
+      }
       const projected=drawStrip(rendered);
       if (adjustable && componentKeys.size) {
         for (const [name,front] of [['Front',true],['Back',false]]) {
           if ((front?spin:-spin)+side*sine*.53<.10) continue;
-          const half=front?projected.slice(0,crownStation+1):projected.slice(crownStation).reverse();
-          addComponent('strap'+name+'Curve',[half.slice(Math.floor(half.length*.25)).map(line=>line[lanes/2])]);
+          const half=front?projected.slice(0,crown+1):projected.slice(crown).reverse();
+          const division=Math.max(2,Math.floor(half.length*.25));
+          addComponent('strap'+name+'Curve',[half.slice(division).map(line=>line[lanes/2])]);
           addComponent('strap'+name+'Taper',[half[1]]);
+          if (front || !halter) {
+            addComponent('strap'+name+'Join',[half.slice(0,division+1).map(line=>line[lanes/2])],{radius:8,priority:2});
+            addComponent('strap'+name+'Angle',[half[0]],{radius:8,priority:2});
+          }
         }
       }
     }
@@ -1775,6 +1818,33 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
             .map(([around,distance])=>zipPoint(theta+around,Math.min(distance,length)));
           markings.push({points:pull,closed:true,style:'rgba(244,216,152,.99)'});
         }
+      }
+    }
+  }
+
+  function paintLayer(section,rows,cloth,weave,opacity,channels,joined,ruffle,fluteCount) {
+    const segments=section.length;
+    for (let i=0;i<segments;i++) {
+      const a=section[i],b=section[(i+1)%segments];
+      if (!a.supported || !b.supported || a.hidden && b.hidden) continue;
+      const theta=(i+.5)*2*Math.PI/segments+angle;
+      for (let j=0;j<rows;j++) {
+        const band=(j+.5)/rows;
+        const points=[a.points[j],b.points[j],b.points[j+1],a.points[j+1]];
+        const [p,q,r]=points;
+        const inner=(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])>=0;
+        const visibleTex=fabricFit.sample(cloth.photo,i/segments*3,band*2.5,analysis?.redraw);
+        const swatch=visibleTex ? .35+.85*(.2126*visibleTex[0]+.7152*visibleTex[1]+.0722*visibleTex[2])/255 : 1;
+        const grain=weave==='satin'?Math.max(0,Math.cos(theta-1.95))**11*.17:
+          weave==='mesh'?(Math.sin(i*2.3)+Math.cos(j*2.7))*.012:
+            Math.sin(theta*(weave==='twill'?13:9)+band*42)*.017;
+        const edge=joined && j===0 || j===rows-1;
+        const fluteLight=ruffle?.18*(a.gather+b.gather)*.5*Math.cos(fluteCount*(theta-angle)+.64*band):0;
+        const light=(.76+.23*Math.cos(theta-1.95)+.11*Math.sin(theta)+grain+fluteLight)*(inner?.90:1)*(edge?.91:1);
+        const tint=channels.map(c=>fabricFit.clamp(Math.round(c*light*swatch),0,255));
+        const paint=opacity===1?'rgb('+tint.join(',')+')':'rgba('+tint.join(',')+','+opacity+')';
+        const depth=points.reduce((sum,p)=>sum+p[2],0)/4;
+        faces.push({points,depth,paint,skipStroke:opacity<1,seam:edge});
       }
     }
   }
@@ -1938,32 +2008,168 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
             {radius:12,guide:active,priority});
         }
       }
-      for (let i=0;i<segments;i++) {
-        const a=section[i],b=section[(i+1)%segments];
-        if (!a.supported || !b.supported || a.hidden && b.hidden) continue;
-        const theta=(i+.5)*2*Math.PI/segments+angle;
-        for (let j=0;j<rows;j++) {
-          const band=(j+.5)/rows;
-          const points=[a.points[j],b.points[j],b.points[j+1],a.points[j+1]];
-          const [p,q,r]=points;
-          const inner=(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])>=0;
-          const visibleTex=fabricFit.sample(cloth.photo,i/segments*3,band*2.5,analysis?.redraw);
-          const swatch=visibleTex ? .35+.85*(.2126*visibleTex[0]+.7152*visibleTex[1]+.0722*visibleTex[2])/255 : 1;
-          const grain=weave==='satin'?Math.max(0,Math.cos(theta-1.95))**11*.17:
-            weave==='mesh'?(Math.sin(i*2.3)+Math.cos(j*2.7))*.012:
-              Math.sin(theta*(weave==='twill'?13:9)+band*42)*.017;
-          const edge=joined && j===0 || j===rows-1;
-          const fluteLight=ruffle?.18*(a.gather+b.gather)*.5*Math.cos(fluteCount*(theta-angle)+.64*band):0;
-          const light=(.76+.23*Math.cos(theta-1.95)+.11*Math.sin(theta)+grain+fluteLight)*(inner?.90:1)*(edge?.91:1);
-          const tint=channels.map(c=>fabricFit.clamp(Math.round(c*light*swatch),0,255));
-          const paint=opacity===1?'rgb('+tint.join(',')+')':'rgba('+tint.join(',')+','+opacity+')';
-          const depth=points.reduce((sum,p)=>sum+p[2],0)/4;
-          faces.push({points,depth,paint,skipStroke:opacity<1,seam:edge});
-        }
-      }
+      paintLayer(section,rows,cloth,weave,opacity,channels,joined,ruffle,fluteCount);
       if (layer.laceTrim && section.some(column=>!column.hidden)) {
         drawLace(layer.laceTrim,section.map(column=>column.vertices[rows]),section.map(column=>column.vertices[rows-1]),
           layerKey('layerLaceTrim'),{visible:i=>section[i].supported && !section[i].hidden,opacity});
+      }
+    }
+  }
+
+  function drawFittedLayers(surface) {
+    if (!garmentLayers.length) return;
+    const {rest,geometry,side,moveEnd}=surface;
+    const segments=rest[0].length;
+    const hemRow=geometry.at(-1);
+    const restHem=rest.at(-1);
+    const centerOf=row=>[0,1,2].map(axis=>row.reduce((sum,p)=>sum+p[axis],0)/segments);
+    const centers=geometry.map(centerOf);
+    const restCenter=centerOf(restHem);
+    const floor=proportions.yAt(1.105);
+    const minimumDrop=.036;
+    const legJoin=side?proportions.yAt(shell.at(-1)[0])-.012:-Infinity;
+    const mapOpacity=regions?1-.68**(1/garmentLayers.length):1;
+    const stack=[];
+    const columns=restHem.map((end,i)=>{
+      const theta=i*2*Math.PI/segments;
+      const levels=rest.map((row,j)=>({height:proportions.yAt(row[i][1]),point:geometry[j][i],center:centers[j]}))
+        .sort((a,b)=>a.height-b.height);
+      const centerLevels=levels.map(({height,center})=>({height,point:center}));
+      const hem=levels.at(-1).height;
+      const baseEnd=moveEnd(end,theta);
+      const correction=hemRow[i].map((n,k)=>n-baseEnd[k]);
+      function sample(height) {
+        if (height<=hem) {
+          const point=pointAtHeight(levels,height);
+          const center=pointAtHeight(centerLevels,height);
+          return {point,center};
+        }
+        const canonical=proportions.baseAt((1.128-height)/centimeter);
+        const extension=height-hem;
+        const fade=Math.max(0,1-extension/.24);
+        const section=side?avatar?.sectionAt('leg',canonical):null;
+        const across=Math.cos(theta), depth=Math.sin(theta);
+        const center=[section?side*section[2]:restCenter[0],canonical,section?.[3]??restCenter[2]];
+        const x=section?center[0]+Math.sign(across)*Math.max(Math.abs(end[0]-restCenter[0]),(section[0]+.014)*Math.abs(across)):end[0];
+        const z=section?center[2]+Math.sign(depth)*Math.max(Math.abs(end[2]-restCenter[2]),(section[1]+.016)*Math.abs(depth)):end[2];
+        const blend=Math.min(1,extension/.085);
+        const placed=[fabricFit.mix(end[0],x,blend),canonical,fabricFit.mix(end[2],z,blend)];
+        return {point:moveEnd(placed,theta).map((n,k)=>n+correction[k]*fade),center:moveEnd(center,theta)};
+      }
+      // The leg mesh overlaps the seat shell at its first rings. Use the
+      // exposed upper leg edge so its layer stays clear of the hip panel.
+      const top=Math.max(levels[0].height,Math.min(legJoin,hem-minimumDrop));
+      return {theta,top,hem,sample};
+    });
+    const entries=garmentLayers.map((layer,index)=>({layer,index,inside:studioDesign.layerIsInner(layer)}));
+    const ordered=[...entries.filter(entry=>entry.inside),...entries.filter(entry=>!entry.inside)];
+    for (const {layer,index,inside} of ordered) {
+      const cloth=getFabric(layer.fabric);
+      const weave=fabricFit.weave(layer.fabric,cloth.category);
+      const opacity=Math.min(layer.opacity/100,mapOpacity);
+      const channels=color(layer.color).slice(1).match(/../g).map(n=>parseInt(n,16));
+      const ruffle=layer.kind==='Ruffle';
+      const tier=layer.kind==='Tier';
+      const fluteCount=side?7:11;
+      const plans=columns.map(({theta,top,hem})=>{
+        const sideAngle=side?(side>0?0:Math.PI):theta;
+        const percent=studioDesign.layerAttachmentAt(layer,sideAngle,model)/100;
+        const sweep=studioDesign.layerSweepAt(layer,sideAngle)*(side?.5:1);
+        const profile=studioDesign.hemOffsetAt(layer,theta)*centimeter;
+        const fixed=hem+(layer.hemOffset??0)*centimeter+profile;
+        const requested=fabricFit.mix(top,hem,percent);
+        const lastJoin=Math.min(hem,floor,ruffle?Infinity:fixed)-minimumDrop;
+        const attachment=fabricFit.clamp(requested,top,Math.max(top,lastJoin));
+        const end=Math.min(floor,Math.max(attachment+minimumDrop,ruffle?attachment+layer.depth*centimeter+profile:fixed));
+        const start=inside?Math.min(end,Math.max(attachment,hem-.014)):attachment;
+        return {attachment,start,end,gather:sweep/(sweep+70),spread:sweep*centimeter/(2*Math.PI)};
+      });
+      const rows=Math.max(8,Math.ceil(Math.max(...plans.map(plan=>plan.end-plan.start))/(thumbnail?.078:.050)));
+      const section=columns.map(({theta,hem,sample},i)=>{
+        const {attachment,start,end,gather,spread}=plans[i];
+        const length=Math.max(minimumDrop,end-attachment);
+        const supported=end>attachment;
+        const hidden=!supported || inside && end<=hem+.001;
+        const vertices=Array.from({length:rows+1},(_,j)=>{
+          const height=fabricFit.mix(start,end,j/rows);
+          const fraction=fabricFit.clamp((height-attachment)/length,0,1);
+          const extension=Math.max(0,height-hem);
+          const {point,center}=sample(height);
+          const radial=[point[0]-center[0],side?point[1]-center[1]:0,point[2]-center[2]];
+          const magnitude=Math.hypot(...radial)||1;
+          const normal=radial.map(n=>n/magnitude);
+          const wave=theta*(ruffle?fluteCount:tier?10:8)+fraction*(ruffle?.64:1.9);
+          const fullness=ruffle?Math.min(.13,length*.63)*gather*(1-.43*cloth.bend)*fraction**.8:
+            (.012+spread*.10)*(1-.64*cloth.bend)*fraction**1.45;
+          const drape=ruffle?Math.min(.26,length*.86)*gather*fraction**.85:spread*fraction**(tier?.73:1.28);
+          const release=inside?fabricFit.clamp(extension/.105,0,1):1;
+          let offset=(inside?-.009:.008)+release*Math.max(0,drape+Math.cos(wave)*fullness);
+          if (!inside || extension>.014) for (const previous of stack) {
+            const panel=previous[i];
+            if (panel.hidden || height<panel.start-.045 || height>panel.end+.045) continue;
+            const t=fabricFit.clamp((height-panel.start)/Math.max(.001,panel.end-panel.start),0,1)*(panel.vertices.length-1);
+            const a=panel.vertices[Math.floor(t)],b=panel.vertices[Math.ceil(t)];
+            const depth=normal.reduce((sum,n,k)=>sum+(fabricFit.mix(a[k],b[k],t%1)-point[k])*n,0);
+            const edge=fabricFit.clamp(1-Math.max(panel.start-height,height-panel.end,0)/.045,0,1);
+            offset+=Math.max(0,depth+.009-offset)*edge*edge*(3-2*edge);
+          }
+          // Keep each trouser layer on its own leg even at a large sweep.
+          if (side && side*normal[0]<-.01) offset=Math.min(offset,Math.max(.004,(side*point[0]+.006)/(-side*normal[0])));
+          const moved=fabricFit.followThrough(point,theta,fraction,pose,cloth);
+          const position=point.map((n,k)=>n+normal[k]*offset+(moved[k]-n)*.52*release);
+          if (ruffle) position[1]+=Math.sin(wave)*fullness*.24*fraction;
+          return !side && extension && shellContact?shellContact(position,theta):position;
+        });
+        return {start,end,vertices,points:vertices.map(project),supported,hidden,gather};
+      });
+      stack.push(section);
+      const active=editing?.layerIndex===index;
+      const key=name=>active?name:name+':'+index;
+      const priority=1+stack.length*.05+(active?.015:0);
+      function paths(points,center,span,visibleOnly=true) {
+        const result=[];
+        let path=[];
+        for (const theta of viewArc(theta=>theta,center,span,25)) {
+          const i=Math.floor(((theta/2/Math.PI*segments)%segments+segments)%segments);
+          const a=section[i],b=section[(i+1)%segments];
+          if (a.supported && b.supported && (!visibleOnly || !a.hidden && !b.hidden)) path.push(aroundAt(theta,points));
+          else {
+            if (path.length>1) result.push(path);
+            path=[];
+          }
+        }
+        if (path.length>1) result.push(path);
+        return result;
+      }
+      if (editing) {
+        const reference=columns[Math.round(segments/4)];
+        const cssScale=scale*Math.cos(tilt)*(canvas.clientHeight||height)/Math.max(1,height);
+        const spans=editorMetadata.layerAttachmentDragSpans??={};
+        spans[index]=Math.max(spans[index]||30,(reference.hem-reference.top)*cssScale);
+        if (active) editorMetadata.layerAttachmentDragSpan=spans[index];
+      }
+      const attachmentKey=key('layerAttachment');
+      if ((active || !inside) && componentKeys.has(attachmentKey)) {
+        const edge=inside?columns.map(({theta,sample},i)=>liftedPoint(sample(plans[i].attachment).point,theta)):
+          section.map(column=>column.points[0]);
+        addComponent(attachmentKey,paths(edge,near,1.48,false),{radius:9,guide:active,priority});
+      }
+      if (section.some(column=>!column.hidden)) {
+        const edge=section.map(column=>column.points.at(-1));
+        if (componentKeys.has(key('layerHem'))) {
+          addComponent(key('layerHem'),paths(edge,near,.73),{radius:10,guide:active,priority});
+        }
+        if (componentKeys.has(key('layerSweep'))) {
+          const band=section.map(column=>column.points[Math.round(rows*.77)]);
+          addComponent(key('layerSweep'),[-1,1].flatMap(n=>paths(band,near+n*1.07,.32)),{radius:12,guide:active,priority});
+        }
+        if (regions) {
+          const style='rgba('+channels.map(n=>Math.round(n*.60+52)).join(',')+',.68)';
+          for (const points of paths(edge,near,1.48)) markings.push({points,style});
+        }
+        paintLayer(section,rows,cloth,weave,opacity,channels,true,ruffle,fluteCount);
+        if (layer.laceTrim) drawLace(layer.laceTrim,section.map(column=>column.vertices.at(-1)),
+          section.map(column=>column.vertices.at(-2)),key('layerLaceTrim'),{visible:i=>!section[i].hidden,opacity});
       }
     }
   }
@@ -2082,7 +2288,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       addComponent('straplessSupport',[points],{radius:8,priority:2});
     }
     markSeams();
-    drawSkirtLayers();
+    if (skirtFit) drawSkirtLayers();
+    else if (model==='top') drawFittedLayers(surfaces.shell);
     bridgeShoulders();
     if (design?.hood) {
       const hood=fabricFit.resample([[-.867,.072,.041],[-.835,.10,.061],[-.775,.136,.079],[-.705,.136,.105],
@@ -2264,6 +2471,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           moved[2]+=pose.sit*knee*Math.max(0,Math.sin(theta))*(changes.kneeFlex||0)/145;
           return moved;
         },'leg');
+        drawFittedLayers(surfaces.leg);
       }
     }
   }
@@ -2562,25 +2770,28 @@ function focusSlider(input) {
 function openSliderSections(input) {
   for (let panel=input.closest('details');panel;panel=panel.parentElement.closest('details')) panel.open=true;
 }
-function slider(label,attributes,[min,max],value,{step=.5,unit='cm',disabled=false,signed=false,ends}={}) {
-  const display=sliderValue(value,unit,signed);
-  return `<label class="field adjustment"><span>${label} <output>${display}</output></span><input ${attributes} type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-slider-unit="${unit}"${signed?' data-slider-offset':''}${disabled?' disabled':''}>${ends?`<span class="adjustment-ends"><span>${ends[0]}</span><span>${ends[1]}</span></span>`:''}</label>`;
+function slider(label,attributes,[min,max],value,{step=.5,unit='cm',disabled=false,signed=false,ends,reference}={}) {
+  const display=sliderValue(value,unit,signed,reference);
+  return `<label class="field adjustment"><span>${label} <output>${display}</output></span><input ${attributes} type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-slider-unit="${unit}"${reference?` data-slider-reference="${escape(reference)}"`:''}${signed?' data-slider-offset':''}${disabled?' disabled':''}>${ends?`<span class="adjustment-ends"><span>${ends[0]}</span><span>${ends[1]}</span></span>`:''}</label>`;
 }
-function sliderValue(value,unit,signed) {
-  if (unit==='attachment') return layerAttachmentLabel(value);
+function sliderValue(value,unit,signed,reference) {
+  if (unit==='attachment') return layerAttachmentLabel(value,reference);
   const prefix=signed && value>0?'+':'';
   return `${prefix}${value}${unit==='cm'?' cm':unit==='percentage points'?' points':unit}`;
 }
 function writeSlider(input,value) {
   input.value=value;
   const output=input.closest('.field').querySelector('output');
-  output.textContent=sliderValue(value,input.dataset.sliderUnit,input.hasAttribute('data-slider-offset'));
+  output.textContent=sliderValue(value,input.dataset.sliderUnit,input.hasAttribute('data-slider-offset'),input.dataset.sliderReference);
   studioUnits.refresh(output);
 }
-const strapShapeLabels={strapFrontCurve:'Front curve toward neckline',strapBackCurve:'Back curve toward neckline',
-  strapFrontTaper:'Width at front join',strapBackTaper:'Width at back join'};
+const strapShapeLabels={strapFrontCurve:'Front curve toward neckline',strapFrontTaper:'Width at front join',
+  strapFrontJoin:'Front join depth',strapFrontAngle:'Front join angle',
+  strapBackCurve:'Back curve toward neckline',strapBackTaper:'Width at back join',
+  strapBackJoin:'Back join depth',strapBackAngle:'Back join angle'};
 const strapShapeKeys=Object.keys(strapShapeLabels);
-const strapShapeUnit=key=>key.endsWith('Taper')?'%':'cm';
+const strapShapeUnit=key=>key.endsWith('Taper')?'%':key.endsWith('Angle')?'°':'cm';
+const strapShapeSigned=key=>key.endsWith('Curve')||key.endsWith('Angle');
 function strapShapePreset(shape) {
   return Object.keys(studioDesign.strapShapeChoices).find(name=>strapShapeKeys.every(key=>shape[key]===studioDesign.strapShapeChoices[name][key])) || 'Custom';
 }
@@ -2588,14 +2799,21 @@ function strapShapeControls(support,settings) {
   const shape=studioDesign.strapShape(settings);
   const preset=strapShapePreset(shape);
   const active=studioDesign.supportsStrapShape(support);
+  const group=(side,label)=>`<details class="design-options slider-group"><summary>${label}</summary><div class="slider-group-content">
+    ${strapShapeKeys.filter(key=>key.startsWith(`strap${side}`)).map(key=>{
+      const unit=strapShapeUnit(key);
+      const backBodice=['strapBackJoin','strapBackAngle'].includes(key);
+      return slider(strapShapeLabels[key],`name="${key}" data-strap-shape-field data-component-slider="${key}"${backBodice?' data-back-bodice-join':''}`,
+        studioDesign.strapShapeLimits[key],shape[key],{unit,step:unit==='cm'?.5:1,signed:strapShapeSigned(key),disabled:!active});
+    }).join('')}</div></details>`;
   return `<details class="design-options" data-strap-shape${active?'':' hidden'}><summary>Strap curve and taper</summary>
     <div class="slider-group-content"><label class="field">Strap shape<select data-strap-preset${active?'':' disabled'}>${[...Object.keys(studioDesign.strapShapeChoices),'Custom'].map(name=>option(name,name,preset)).join('')}</select></label>
-    <p>Positive curves move the joins toward the neckline. Each join width is a percentage of the width over the shoulder.</p>
-    ${strapShapeKeys.map(key=>slider(strapShapeLabels[key],`name="${key}" data-strap-shape-field data-component-slider="${key}"`,
-      studioDesign.strapShapeLimits[key],shape[key],{unit:strapShapeUnit(key),step:key.endsWith('Taper')?1:.5,signed:key.endsWith('Curve'),disabled:!active})).join('')}</div></details>`;
+    <p>Join depth extends the strap onto the bodice. A positive angle lowers the neckline side of the join. Join width is a percentage of shoulder width.</p>
+    ${group('Front','Front neckline join')}${group('Back','Back neckline or collar join')}</div></details>`;
 }
 function readStrapShape(form) {
-  return Object.fromEntries(strapShapeKeys.map(key=>[key,form.elements.namedItem(key).valueAsNumber]));
+  const values=Object.fromEntries(strapShapeKeys.map(key=>[key,form.elements.namedItem(key).valueAsNumber]));
+  return studioDesign.strapShape({...values,support:form.elements.namedItem('support').value});
 }
 function updateStrapShape(form,input) {
   const preset=form.querySelector('[data-strap-preset]');
@@ -2624,8 +2842,13 @@ function refreshStraplessControls(form) {
   form.querySelector('[data-choose-strapless]').setAttribute('aria-pressed',active);
   const shape=form.querySelector('[data-strap-shape]');
   if (shape) {
-    shape.hidden=!studioDesign.supportsStrapShape(form.elements.namedItem('support').value);
-    for (const field of shape.querySelectorAll('input,select')) field.disabled=shape.hidden;
+    const support=form.elements.namedItem('support').value;
+    shape.hidden=!studioDesign.supportsStrapShape(support);
+    for (const field of shape.querySelectorAll('input,select')) {
+      const collar=support==='Halter strap' && field.hasAttribute('data-back-bodice-join');
+      field.disabled=shape.hidden||collar;
+      if (field.hasAttribute('data-back-bodice-join')) field.closest('.field').hidden=collar;
+    }
   }
 }
 function bindStraplessChoice(form) {
@@ -2938,14 +3161,15 @@ function fitSummary(delta) {
     if (key==='support' || key==='straplessSupport') return amount;
     if (key==='strapWidth' && Number.isFinite(amount)) return 'Finished shoulder width '+amount+' cm';
     if (key==='strapPlacement' && amount) return 'Shoulder placement '+adjustmentText(amount);
-    if (Object.hasOwn(strapShapeLabels,key)) return `${strapShapeLabels[key]} ${sliderValue(amount,strapShapeUnit(key),key.endsWith('Curve'))}`;
+    if (Object.hasOwn(strapShapeLabels,key)) return `${strapShapeLabels[key]} ${sliderValue(amount,strapShapeUnit(key),strapShapeSigned(key))}`;
     if (key==='sleeveStyle') return amount+' sleeves';
     if (key==='sleeves') return amount?'Add sleeves':'Remove sleeves';
     return garmentFit.fields[key]?garmentFit.fields[key][0]+' '+adjustmentText(amount):[];
   }).join(' · ');
 }
-function layerAttachmentLabel(value) {
-  return value?`${Math.abs(value)}% ${value<0?'above':'below'} waist`:'At waist';
+function layerAttachmentLabel(value,reference='Waist') {
+  const edge=reference.toLowerCase();
+  return value?`${Math.abs(value)}% ${value<0?'above':'below'} ${edge}`:`At ${edge}`;
 }
 function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBody) {
   const dimensions=Object.entries(sewingModels.dimensions).map(([key,[label]])=>[key,label]);
@@ -2965,7 +3189,7 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
   if (changes.strapPlacement) adjustments.push(['Shoulder placement',adjustmentText(changes.strapPlacement)]);
   if (strapShapeKeys.some(key=>Object.hasOwn(changes,key))) {
     const shape=studioDesign.strapShape(changes);
-    for (const key of strapShapeKeys) adjustments.push([strapShapeLabels[key],sliderValue(shape[key],strapShapeUnit(key),key.endsWith('Curve'))]);
+    for (const key of strapShapeKeys) adjustments.push([strapShapeLabels[key],sliderValue(shape[key],strapShapeUnit(key),strapShapeSigned(key))]);
   }
   if (changes.sleeveStyle && (make?targetChanges.hasSleeves:true)) adjustments.push(['Sleeve style',changes.sleeveStyle]);
   if (make) {
@@ -3005,13 +3229,14 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
   }
   const layers=make?studioDesign.layers(pattern.design).map((layer,index)=>{
     const model=pattern.design.model;
+    const reference=studioDesign.layerStartsAt(model);
     const center=layer.attachment;
     const sides=[['Left',0],['Right',Math.PI]].flatMap(([side,angle])=>{
       const height=studioDesign.layerAttachmentAt(layer,angle,model);
-      return height===center?[]:[`${side} ${layerAttachmentLabel(height).toLowerCase()}`];
+      return height===center?[]:[`${side} ${layerAttachmentLabel(height,reference).toLowerCase()}`];
     });
     return [`Layer ${index+1} · ${layer.kind}`,layer.fabric,layer.kind==='Ruffle'?cm(layer.depth)+' drop':adjustmentText(layer.hemOffset),cm(layer.sweep),
-      [layerAttachmentLabel(center),...sides].join(' · ')];
+      [layerAttachmentLabel(center,reference),...sides].join(' · ')];
   }):[];
   return {headings:make?['Model measurement','Size']:['Model measurement','Source','Target'],
     rows,adjustments,targets,layers,make};
@@ -3429,7 +3654,7 @@ function designStudio() {
       </section><section data-design-panel="layers" aria-label="Layer settings" hidden>
       <details class="design-options" id="design-layers">
         <summary>Fabric layers</summary>
-        <p class="muted tight">Add an overskirt, underskirt, tier, or gathered ruffle. Hem offsets are relative to the main hem. Outer layers stack in list order.</p>
+        <p id="design-layer-hint" class="muted tight"></p>
         <div id="design-layer-list"></div>
         <button type="button" class="secondary" id="add-design-layer">＋ Add layer</button>
       </details>
@@ -3744,7 +3969,7 @@ function designStudio() {
     const asymmetryKeys=studioDesign.asymmetryKeys(designDraft);
     const seams=studioDesign.seams(designDraft);
     const single=singleSeam(seams);
-    const layerAllowed=['dress','skirt'].includes(designDraft.model);
+    const layerAllowed=studioDesign.layerKindChoices(designDraft.model).length>0;
     mode.querySelector('[value=seams]').disabled=!seamKeys.length;
     mode.querySelector('[value=layers]').disabled=!layerAllowed;
     designTabs.find(button=>button.dataset.designPanelTab==='seams').hidden=!seamKeys.length;
@@ -3978,9 +4203,15 @@ function designStudio() {
   }
   const select = (key,label,items) => `<label class="field">${label}<select name="${key}">${items.map(item=>option(item,item,designDraft[key])).join('')}</select></label>`;
   function drawLayers() {
-    layerPanel.hidden=!['dress','skirt'].includes(designDraft.model);
+    const model=designDraft.model;
+    const kinds=studioDesign.layerKindChoices(model);
+    const reference=studioDesign.layerStartsAt(model);
+    layerPanel.hidden=!kinds.length;
+    layerPanel.querySelector('#design-layer-hint').textContent=model==='trousers'
+      ?'Layers wrap both legs. Hem offsets are relative to the main leg openings.'
+      :'Hem offsets are relative to the main hem. Outer layers stack in list order.';
     const layers=studioDesign.layers(designDraft);
-    const attachmentLimits=studioDesign.layerAttachmentLimits(designDraft.model);
+    const attachmentLimits=studioDesign.layerAttachmentLimits(model);
     const field=(layer,key,label,unit='cm')=>slider(label,
       `data-layer-field="${key}"${layerComponents[key]?` data-component-slider="${layerComponents[key]}"`:''}`,
       studioDesign.layerLimits[key],layer[key],{unit,step:unit==='%'?1:.5,signed:key==='hemOffset'});
@@ -3990,7 +4221,7 @@ function designStudio() {
       const open=openLayers.get(index)||[];
       return `<details class="design-options layer-card" data-layer-index="${index}"${open.includes('card')?' open':''}>
       <summary>Layer ${index+1} · ${layer.kind}</summary><div class="slider-group-content">
-      <label class="field">Layer type<select data-layer-field="kind">${studioDesign.layerKinds.map(kind=>option(kind,kind,layer.kind)).join('')}</select></label>
+      <label class="field">Layer type<select data-layer-field="kind">${kinds.map(kind=>option(kind,kind,layer.kind)).join('')}</select></label>
       <details class="design-options" data-layer-section="fabric"${open.includes('fabric')?' open':''}><summary>Fabric and color</summary><div class="fields tight">
         <label class="field">Fabric<select data-layer-field="fabric">${fabricOptions(layer.fabric)}</select></label>
         <label class="field">Color<input type="color" data-layer-field="color" value="${color(layer.color)}"></label>
@@ -3999,8 +4230,8 @@ function designStudio() {
       <details class="design-options" data-layer-section="fit"${open.includes('fit')?' open':''}><summary>Attachment and fullness</summary>
         <div class="slider-group-content">
           ${slider('Attachment height','data-layer-field="attachment" data-component-slider="layerAttachment"',attachmentLimits,layer.attachment,
-            {unit:'attachment',step:1,ends:[attachmentLimits[0]===0?'Waist':'Higher','Lower']})}
-          <p>The percentage uses the main garment’s waist-to-base-hem length.</p>
+            {unit:'attachment',step:1,reference,ends:[attachmentLimits[0]===0?reference:'Higher','Lower']})}
+          <p>Measure from the ${reference.toLowerCase()} to the base hem to convert the percentage to a length.</p>
           ${field(layer,'sweep','Extra hem sweep')}
         </div></details>
       <details class="design-options" data-layer-section="hem"${open.includes('hem')?' open':''}><summary>Hem and points</summary><div class="slider-group-content">
@@ -4135,7 +4366,7 @@ function designStudio() {
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
-    designDraft = {...studioDesign.defaults(model),...studioDesign.hemContour(designDraft),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details,layers:designDraft.layers,seams:designDraft.seams,laceTrims:designDraft.laceTrims,asymmetry:designDraft.asymmetry,shoulderSide:designDraft.shoulderSide};
+    designDraft = {...studioDesign.defaults(model),...studioDesign.hemContour(designDraft),...studioDesign.strapShape(designDraft),name:designDraft.name,reference:designDraft.reference,photoOutline:designDraft.photoOutline,fitModelId:designDraft.fitModelId,primary:designDraft.primary,accent:designDraft.accent,details:designDraft.details,layers:designDraft.layers,seams:designDraft.seams,laceTrims:designDraft.laceTrims,asymmetry:designDraft.asymmetry,shoulderSide:designDraft.shoulderSide,straplessSupport:designDraft.straplessSupport};
     panelZipperMaxLength=undefined;
     editor.reset();
     settingsForModel();
@@ -4246,7 +4477,7 @@ function designStudio() {
     const current=studioDesign.layers(designDraft);
     if (current.length>=studioDesign.maxLayers) return;
     editor.checkpoint();
-    designDraft.layers=[...current,{...studioDesign.newLayer(kind),color:designDraft.accent}];
+    designDraft.layers=[...current,{...studioDesign.newLayer(kind,designDraft.model),color:designDraft.accent}];
     layerTarget=current.length;
     mode.value='layers';
     angle.value=0;
@@ -4256,10 +4487,10 @@ function designStudio() {
     layerList.querySelector('.layer-card:last-child').open=true;
   }
   addLayer.onclick=()=>{
-    appendLayer('Overskirt');
+    appendLayer();
     layerList.querySelector('.layer-card:last-child select')?.focus();
   };
-  quickLayer.onclick=()=>appendLayer('Overskirt');
+  quickLayer.onclick=()=>appendLayer();
   addRuffle.onclick=()=>appendLayer('Ruffle');
   layerList.addEventListener('click',event=>{
     const button=event.target.closest('button');
