@@ -1,10 +1,10 @@
 const cachePrefix = 'jessicas-sewing-';
-const cacheName = cachePrefix + 'v40';
+const cacheName = cachePrefix + 'v41';
 const cameraCacheName = cachePrefix + 'camera-v1';
 const cameraAssets = new URL('./vendor/mediapipe/', self.registration.scope).pathname;
-const files = ['./', './index.html', './style.css?v=40', './app.js?v=40', './cloth-contact.js?v=40', './fitting-render.js?v=40', './atelier.jpg',
+const files = ['./', './index.html', './style.css?v=41', './app.js?v=41', './cloth-contact.js?v=41', './fitting-render.js?v=41', './atelier.jpg',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
-  './fabric.js?v=40', './handles.js?v=40', './catalog.js?v=40', './vanderwood-wordmark.webp', './units.js?v=40', './work-figures.js?v=40', './visuals.js?v=40', './fit.js?v=40', './fasteners.js?v=40', './design.js?v=40', './photo.js?v=40', './model-person.js?v=40', './model-outline.js?v=40', './camera.js?v=40', './models.js?v=40', './human-mesh.js?v=40', './human-preview.js?v=40', './brother-cp2160f.jpg',
+  './fabric.js?v=41', './handles.js?v=41', './catalog.js?v=41', './vanderwood-wordmark.webp', './units.js?v=41', './work-figures.js?v=41', './visuals.js?v=41', './fit.js?v=41', './fasteners.js?v=41', './design.js?v=41', './photo.js?v=41', './model-person.js?v=41', './model-outline.js?v=41', './camera.js?v=41', './models.js?v=41', './human-mesh.js?v=41', './human-preview.js?v=41', './brother-cp2160f.jpg',
   ...Array.from({length:12},(_,index)=>'./tools/tool-'+index+'.jpg')];
 
 self.addEventListener('install', event => {

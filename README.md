@@ -54,6 +54,10 @@ Select **Cut the front strap and bodice in one piece** or the equivalent back op
 
 Open **Trims & details** to add lace to the upper edge, sleeve openings, hems, pocket openings, trouser waistbands or seams. Select the lace style, color, and width for each placement. Each fabric layer also has a separate lace option at its hem. Choose **Stitched details** for a gathered ruffle, knife, box or inverted pleats, or pintucks. Set the placement and depth, then the spacing or gathering ratio.
 
+Under **Seam overlay**, place lace centered, left, or right of the seam. Centered trim can use the same style, width, and color as an in-seam pocket it meets. Keep the pocket mouth free when stitching the trim.
+
+Open **Slits** under **Trims & details** or in **Fit and revise**. Set the position, length from the finished hem, and opening width for each slit. Choose the left or right leg for trousers and shorts. Set the width to zero for edges that meet at rest. The work order marks each top stop and shows how to finish and reinforce the opening.
+
 Choose a button closure to edit the button count, diameter, spacing and first position. **Wrap ties** offers length, width and placement. **Drawstring waistband** is available for trousers and skirts and includes cord dimensions, casing depth and exit placement. Illustrated work orders show the selected measurements.
 
 Select **Fit sliders** to open the **Fit adjustments** panel. Both workflows use the same sliders, fabric weight, stretch and drape settings, poses, motion playback, and tightness map. Saved designs keep their fabric and fit settings for revisions and construction work orders.

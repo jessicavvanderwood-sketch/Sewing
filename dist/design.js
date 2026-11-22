@@ -30,13 +30,16 @@ const studioDesign = (() => {
   const rises = ['Low rise','Natural rise','High rise'];
   const pockets = ['None','Patch pockets','In-seam pockets'];
   const pocketTypes = {patch:'Patch pocket',inseam:'In-seam pocket'};
-  const pocketSectionLabels = {body:'Garment body',leftLeg:'Wearer’s left leg',rightLeg:'Wearer’s right leg'};
+  const sectionLabels = {body:'Garment body',leftLeg:'Wearer’s left leg',rightLeg:'Wearer’s right leg'};
   const pocketLimits = {angle:[-180,180],height:[0,100],width:[4,30],depth:[4,35],opening:[3,30],rotation:[-45,45]};
   const pocketShapes = ['Square','Rounded','Pointed'];
+  const slitLimits = {angle:[-180,180],length:[1,65],opening:[0,25]};
+  const slitDefaults = {angle:90,length:14,opening:2};
   const finishes = ['Double-fold hem','Faced hem','Contrast hem band'];
   const laceStyles = ['Scalloped lace','Eyelet lace','Stretch lace'];
   const laceWidthLimits = [.5,8];
   const laceDefaults = {style:laceStyles[0],width:2,color:'#f1e6da'};
+  const seamLaceAlignments = ['center','left','right'];
   const stitchStyles = ['Gathered ruffle','Knife pleats','Box pleats','Inverted pleats','Pintucks'];
   const maxStitchDetails = 6;
   const stitchLimits = {depth:[.5,28],spacing:[.5,25],fullness:[1.25,3.5]};
@@ -144,7 +147,7 @@ const studioDesign = (() => {
   function pocketSections(design,type='patch') {
     if (!Object.hasOwn(silhouettes,design?.model) || !Object.hasOwn(pocketTypes,type)) return {};
     if (type==='inseam' && !supportsInseamPocket(design.model)) return {};
-    return type==='patch' && design.model==='trousers'?{...pocketSectionLabels}:{body:pocketSectionLabels.body};
+    return type==='patch' && design.model==='trousers'?{...sectionLabels}:{body:sectionLabels.body};
   }
 
   function pocketDefaults(design,type) {
@@ -201,8 +204,48 @@ const studioDesign = (() => {
   }
 
   function pocketPositionLabel(pocket) {
-    return `${pocketSectionLabels[pocket.section]} · ${singleSeamLocation(pocket.angle)} (${pocket.angle}°) · ${pocket.height}% down`;
+    return `${sectionAngleLabel(pocket)} · ${pocket.height}% down`;
   }
+
+  function slitSections(design) {
+    if (!Object.hasOwn(silhouettes,design?.model)) return {};
+    if (design.model==='trousers') return {leftLeg:sectionLabels.leftLeg,rightLeg:sectionLabels.rightLeg};
+    return {body:sectionLabels.body};
+  }
+
+  function slitDetail(value,design) {
+    if (!value || typeof value!=='object' || Array.isArray(value)) return null;
+    const choices=slitSections(design);
+    const sections=Object.keys(choices);
+    if (!sections.length) return null;
+    const suggested=choices.rightLeg && value.angle<0?'rightLeg':sections[0];
+    const section=Object.hasOwn(choices,value.section)?value.section:suggested;
+    const fallbackAngle=section==='rightLeg'?-slitDefaults.angle:slitDefaults.angle;
+    return {section,angle:numeric(value,'angle',fallbackAngle,slitLimits.angle),length:numeric(value,'length',slitDefaults.length,slitLimits.length),
+      opening:numeric(value,'opening',slitDefaults.opening,slitLimits.opening)};
+  }
+
+  function slits(design) {
+    if (!Array.isArray(design?.slits)) return [];
+    return design.slits.map(slit=>slitDetail(slit,design)).filter(Boolean);
+  }
+
+  function newSlit(design,overrides={}) {
+    const sections=slitSections(design);
+    const choices=Object.keys(sections);
+    if (!choices.length) return null;
+    const existing=slits(design);
+    const section=Object.hasOwn(sections,overrides.section)?overrides.section:choices[existing.length%choices.length];
+    const angles=section==='rightLeg'?[-90,0,180,90]:section==='leftLeg'?[90,0,180,-90]:[90,-90,180,0,45,-45,135,-135];
+    const count=existing.filter(item=>item.section===section).length;
+    return slitDetail({...slitDefaults,...overrides,section,angle:overrides.angle??angles[count%angles.length]},design);
+  }
+
+  function sectionAngleLabel(piece) {
+    return `${sectionLabels[piece.section]} · ${singleSeamLocation(piece.angle)} (${piece.angle}°)`;
+  }
+
+  const slitLabel = slit=>sectionAngleLabel(slit);
 
   function onePieceChoices(design) {
     const model=design?.model;
@@ -235,6 +278,13 @@ const studioDesign = (() => {
     return {style:value.style,width:numeric(value,'width',laceDefaults.width,laceWidthLimits),color};
   }
 
+  function seamLaceTrim(value) {
+    const trim=laceTrim(value);
+    if (!trim) return null;
+    const alignment=seamLaceAlignments.includes(value.alignment)?value.alignment:'center';
+    return {...trim,alignment,matchPocket:typeof value.matchPocket==='boolean'?value.matchPocket:true};
+  }
+
   function lacePlacements(design) {
     const model=design?.model;
     if (!Object.hasOwn(silhouettes,model)) return {};
@@ -250,7 +300,7 @@ const studioDesign = (() => {
 
   function laceTrims(design) {
     return Object.fromEntries(Object.keys(lacePlacements(design)).flatMap(key=>{
-      const trim=laceTrim(design.laceTrims?.[key]);
+      const trim=(key==='seams'?seamLaceTrim:laceTrim)(design.laceTrims?.[key]);
       return trim?[[key,trim]]:[];
     }));
   }
@@ -261,6 +311,21 @@ const studioDesign = (() => {
     if (panelSeam===centerFrontSeam) return {kind:'single',angle:panelAngle};
     if (Number.isFinite(panelSeam)) return {kind:'panels',offset:panelSeam};
     return {kind:'sides'};
+  }
+
+  function seamLaceCanMatch(design) {
+    if (!laceTrim(design?.laceTrims?.seams) || !laceTrim(design.laceTrims.pockets) || !hasInseamPocket(design)) return false;
+    const seam=laceSeamPlacement(design);
+    if (seam.kind==='sides') return true;
+    if (seam.kind!=='single' || Math.abs(seam.angle)!==90) return false;
+    return pocketDetails(design).some(pocket=>pocket.type==='inseam' && pocket.angle===seam.angle);
+  }
+
+  function effectiveSeamLace(design) {
+    const seam=seamLaceTrim(design?.laceTrims?.seams);
+    if (!seam || !Object.hasOwn(silhouettes,design?.model) || onePiece(design).legOutseam) return null;
+    if (seam.alignment!=='center' || !seam.matchPocket || !seamLaceCanMatch(design)) return seam;
+    return {...seam,...laceTrim(design.laceTrims.pockets)};
   }
 
   function stitchPlacements(design) {
@@ -706,7 +771,7 @@ const studioDesign = (() => {
 
   function laceTrimTargets(design) {
     const placements=lacePlacements(design);
-    const main=Object.entries(laceTrims(design)).map(([edge,trim])=>({edge,label:placements[edge],trim}));
+    const main=Object.entries(laceTrims(design)).map(([edge,trim])=>({edge,label:placements[edge],trim:edge==='seams'?effectiveSeamLace(design):trim}));
     const layerHems=layers(design).flatMap((layer,index)=>layer.laceTrim
       ?[{edge:'layer',label:`Layer ${index+1} ${layer.kind.toLowerCase()} hem`,trim:layer.laceTrim}]:[]);
     return [...main,...layerHems];
@@ -728,9 +793,13 @@ const studioDesign = (() => {
       } else if (edge==='seams') {
         const seam=laceSeamPlacement(design);
         const route=seam.kind==='single'?singleSeamLocation(seam.angle):seam.kind==='panels'?'the two marked front panel seams':'the side seams';
-        placement=`Sew and press the structural seams first. On the right side, mark the trim route along ${route}. Measure each exposed section and center the lace over the seam line. Fold or finish the trim ends at the ends of each section. Keep zipper teeth, pocket mouths and any vent clear. Baste the two lace edges flat before sewing or hand-tacking them to the outer fabric.`;
+        const alignment=trim.alignment==='center'?'Center the lace over the seam line.':`With the garment right side out and the upper edge up, place the band to the ${trim.alignment} of the seam. Align its nearer edge along the seam line.`;
+        const matching=trim.alignment==='center' && trim.matchPocket && seamLaceCanMatch(design)
+          ?' Use the same lace as the in-seam pocket lip. Lay out the repeats so the motif and rail align above and below the opening. Cut separate lengths at the opening ends so the lace follows the seam without bridging the pocket mouth.':'';
+        placement=`Sew and press the structural seams first. On the right side, mark the trim route along ${route}. Measure each exposed section. ${alignment}${matching} Fold or finish the trim ends at the ends of each section. Keep zipper teeth, pocket mouths and any vent clear. Baste the two lace edges flat before sewing or hand-tacking them to the outer fabric.`;
       } else {
         placement='Finish and fit the fabric edge first. With a flexible tape, measure the stitching path and mark matching points, joins and any closure. Match motifs on paired edges. Lay the right side of the lace outward and place its solid sewing rail just over the finished edge. Let the decorative part extend beyond the garment. Clip and baste the rail.';
+        if (edge==='hem' && slits(design).length) placement+=' Secure the lace ends separately where a slit meets the hem so the opening stays clear.';
       }
       return {edge,visual:'designLaceTrim',text:`${label}. Apply ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}). ${placement} Allow spare trim for pattern repeats, joins and a test piece. ${settings} With the lace lying flat, sew the basted path. Remove visible basting and check that the edge, seam, closure or pocket opens and moves as intended.`};
     });
@@ -762,6 +831,19 @@ const studioDesign = (() => {
     });
   }
 
+  function slitInstructions(design) {
+    const settings='On the Brother CP2160F, test straight stitch 01 with foot J and a 2.5 mm length on a stable woven sample. For a stretch edge, test a compatible stretch stitch or narrow zigzag 04 on matching layers.';
+    return slits(design).map((slit,index)=>{
+      const {length,opening,section}=slit;
+      const halfWidth=Number((opening/2).toFixed(3));
+      const which=section==='body'?'selected panel':'selected leg';
+      const marks=opening?`Mark the two finished hem corners ${halfWidth} cm to each side of the center mark. Join each corner to the top stop to make a ${opening} cm opening across the finished hem.`
+        :'Mark both finished hem corners at the center mark. Draw a straight slit to the top stop, with a 0 cm gap when the edges meet at rest.';
+      const label=`Slit ${index+1} · ${slitLabel(slit)}.`;
+      return {visual:'designSlit',text:`${label} On the fitted ${which}, mark the finished hem, then mark the slit center at the indicated location. Measure ${length} cm up from that finished hem line to the top stop. ${marks} Check the opening while sitting or walking and transfer the hem mark and stop to paper. At a retained seam, keep the section below the top stop open and finish each edge separately. For a slit in an unbroken panel, trace a matching facing and stabilize the top stop. Mark the finished lines, the cut line inside the opening and the pattern’s seam allowances on the paper. ${settings} Baste and stitch the facing around the marked opening. Clip inside the allowance up toward the reinforced stop, then turn and press the facing. Fold the hem separately on both sides and secure the facing and top stop. Measure the ${length} cm finished length and ${opening} cm hem gap again. Keep any trim ends and hems free of the opening.`};
+    });
+  }
+
   const stitchVisuals = {
     'Gathered ruffle':'designGatheredRuffle','Knife pleats':'designKnifePleats','Box pleats':'designBoxPleats',
     'Inverted pleats':'designInvertedPleats',Pintucks:'designPintucks'
@@ -769,11 +851,12 @@ const studioDesign = (() => {
 
   function stitchInstructions(design) {
     const placements=stitchPlacements(design);
+    const keepsSlits=slits(design).length?' Finish each section separately at a slit so the trim stays clear of the opening.':'';
     const fittedPaths={
       waist:'Mark and measure the waist reference on the fitted sample, using the marked waist join when present.',
       waistband:'Mark and measure the finished waistband top on the fitted sample. Leave the casing opening, eyelets or fastener clear.',
       neckline:'Measure the fitted neckline path and mark its front and back. Keep straps, closures and head clearance free.',
-      hem:design.model==='trousers'?'Measure the finished edge around each leg separately. Keep the legs matched unless the plan calls for an asymmetry.':'Measure the finished hem line. Work along the actual curve and points.',
+      hem:(design.model==='trousers'?'Measure the finished edge around each leg separately. Keep the legs matched unless the plan calls for an asymmetry.':'Measure the finished hem line. Work along the actual curve and points.')+keepsSlits,
       sleeves:'Mark and measure the opening on each sleeve separately. Keep any cuff opening or placket free.'
     };
     const machine='On the Brother CP2160F, test centered straight stitch 01 with foot J and 2.5 mm stitch length on the planned woven layers. If the edge needs to stretch, test a compatible stretch stitch or zigzag 04 and check recovery on scrap first.';
@@ -901,6 +984,7 @@ const studioDesign = (() => {
       'Faced hem':'Trace a shaped facing that matches the hem curve. Stitch it to the lower edge, grade the seam, turn it inside and secure the upper edge.',
       'Contrast hem band':'Cut a matching band in contrast fabric. Test the finished band depth on the wearer, then join the band, press the seam and finish its inside edge.'
     };
+    list.push(...slitInstructions(design));
     if (hemShape.text) add('finish','Let the hem hang so any bias edges settle. Recheck the finished edge at each marked point on the wearer, and test the finish on a scrap cut at the same angle before trimming. '+hem[design.finish]);
     else add('finish','Mark a level hem during a final fitting. '+hem[design.finish]);
     list.push(...layerSteps.hem);
@@ -914,6 +998,8 @@ const studioDesign = (() => {
     const garmentLayers=layers(design);
     design={...design};
     if (Array.isArray(design.pocketDetails)) design.pocketDetails=pocketDetails(design);
+    if (Array.isArray(design.slits)) design.slits=slits(design);
+    else delete design.slits;
     const continuous=onePiece(design);
     if (Object.keys(continuous).length) design.onePiece=continuous;
     else delete design.onePiece;
@@ -972,6 +1058,7 @@ const studioDesign = (() => {
     if (trimTargets.length) tools.push('foot J','hand-basting needle','compatible needle','flexible measuring tape');
     if (details.length) tools.push('foot J','removable fabric marker','hand-basting needle','press cloth');
     if (design.pocketDetails?.length) tools.push('foot J','removable fabric marker','press cloth');
+    if (design.slits?.length) tools.push('foot J','removable fabric marker','facing and lightweight reinforcement');
     const layerFabrics=garmentLayers.length?' Layers: '+garmentLayers.map((layer,index)=>`${index+1} ${layer.kind.toLowerCase()} in ${layer.fabric}`).join(', ')+'.':'';
     const trimMaterials=trimTargets.length?' '+trimTargets.map(({label,trim})=>`Use ${trim.style.toLowerCase()} ${trim.width} cm wide (${trim.color}) for ${label.toLowerCase()}.`).join(' ')+' Measure each finished edge and allow spare for motif matching, joins and a test piece.':'';
     const detailMaterials=details.length?' Allow fabric for the selected ruffle fullness, folded bands or pintuck take-up. Measure the fitted attachment paths and add seam and hem allowances before finalizing the layout.':'';
@@ -984,7 +1071,8 @@ const studioDesign = (() => {
   }
 
   return {silhouettes,necklines,sleeves,fabrics,closures,pockets,finishes,hemStyles,hasFairyHem,hemDrop,hemContourLimits,hemContour,hemOffsetAt,tones,backs,rises,
-    laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,laceSeamPlacement,
+    laceStyles,laceWidthLimits,newLaceTrim,laceTrim,lacePlacements,laceTrims,laceSeamPlacement,seamLaceAlignments,seamLaceTrim,seamLaceCanMatch,effectiveSeamLace,
+    slitLimits,slitSections,slitDetail,slits,newSlit,slitLabel,slitInstructions,
     stitchStyles,stitchLimits,maxStitchDetails,stitchPlacements,newStitchDetail,stitchDetail,stitchDetails,stitchFoldDepth,
     layerKinds,layerKindChoices,layerStartsAt,layerIsInner,layerLimits,maxLayers,layers,newLayer,layerSweepAt,layerAttachmentLimits,layerAttachmentAt,
     seamKeys,seamLimits,configuredSeams,seams,onePieceChoices,onePiece,onePieceInstructions,asymmetryLimits,asymmetryKeys,asymmetry,

@@ -216,6 +216,7 @@ function designForFit(design,changes) {
   const fitAdjustments=Object.fromEntries(Object.entries(changes).filter(([key,value])=>garmentFit.fields[key]&&Number.isFinite(value)&&value!==0));
   const fitted={...design,fitAdjustments,neckline:changes.neckline??design.neckline,back:changes.back??design.back};
   if (changes.onePiece) fitted.onePiece=changes.onePiece;
+  if (Array.isArray(changes.slits)) fitted.slits=changes.slits;
   if (!changes.support) return fitted;
   const shape=studioDesign.strapShape({...design,...changes});
   for (const key of Object.keys(shape)) delete fitted[key];
@@ -226,7 +227,12 @@ function designForFit(design,changes) {
 }
 function fittingConstruction(pattern,changes=pattern.fit?.changes) {
   return {...pattern.design,model:pattern.design?.model||basePattern(pattern).id,
-    support:changes?.support||shoulderSettings(pattern).support,onePiece:changes?.onePiece??pattern.design?.onePiece};
+    support:changes?.support||shoulderSettings(pattern).support,onePiece:changes?.onePiece??pattern.design?.onePiece,
+    slits:changes?.slits??pattern.design?.slits};
+}
+function withSlitFigures(pattern) {
+  const slits=pattern.fit?.changes?.slits;
+  return Array.isArray(slits)?{...pattern,design:{...pattern.design,model:pattern.design?.model||basePattern(pattern).id,slits}}:pattern;
 }
 const option = (value,name,selected) => `<option value="${escape(value)}"${value===selected?' selected':''}>${escape(name)}</option>`;
 const patternCategory=pattern=>pattern.category || ({dress:'Dresses by silhouette',top:'Tops by silhouette',skirt:'Skirts by silhouette',trousers:'Pants by silhouette'}[basePattern(pattern).id]);
@@ -1031,7 +1037,7 @@ function orderFigureSections(order,pattern,measurements) {
 }
 function orderDetails(order) {
   const original=getPattern(order.pattern);
-  const pattern={...original,...getOrderPattern(order)};
+  const pattern=withSlitFigures({...original,...getOrderPattern(order)});
   const referenceBody=order.plan?.modelId?getModel(order.plan.modelId):null;
   const measurements=pattern.measurements || (referenceBody?fitMeasurementSheet(referenceBody,{hasSleeves:hasSleeves(original||pattern)},{},true,original||pattern,referenceBody):null);
   const notes=order.notes || original?.design?.details;
@@ -1145,7 +1151,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const garmentSeams=studioDesign.seams?.(effectiveDesign) || {};
   const garmentLace=studioDesign.laceTrims(effectiveDesign);
   const customPockets=Array.isArray(design?.pocketDetails)?studioDesign.pocketDetails(design):null;
-  const seamLace=garmentLace.seams?studioDesign.laceSeamPlacement(effectiveDesign):null;
+  const garmentSlits=studioDesign.slits({...effectiveDesign,slits:changes.slits??design?.slits});
+  const seamOverlay=studioDesign.effectiveSeamLace(effectiveDesign);
+  const seamLace=seamOverlay?studioDesign.laceSeamPlacement(effectiveDesign):null;
   const pocketSeamClearance=[];
   const pocketSeamTrims=[];
   const stitchDetails=studioDesign.stitchDetails?.(design) || [];
@@ -1239,11 +1247,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   const liftedPoint=([x,y,z],theta)=>project([x+.0045*Math.cos(theta),y,z+.0045*Math.sin(theta)]);
   const viewArc=(sample,center=near,span=1.48,count=25)=>
     Array.from({length:count},(_,i)=>sample(center+span*(2*i/(count-1)-1)));
-  function visiblePaths(points,angles,side=0) {
+  function visiblePaths(points,angles,side=0,eligible=()=>true) {
     const paths=[];
     let path=[];
     for (const [i,point] of points.entries()) {
-      if (Math.sin(angles[i]+angle)>.045 && (!side || side*Math.cos(angles[i])>=-.001)) path.push(point);
+      if (eligible(i) && Math.sin(angles[i]+angle)>.045 && (!side || side*Math.cos(angles[i])>=-.001)) path.push(point);
       else if (path.length) {
         if (path.length>1) paths.push(path);
         path=[];
@@ -1259,14 +1267,14 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   let skinTopology=null;
   let skinCovered;
   let posedSkin=null;
-  function drawLace(trim,edge,inside,key,{visible,contact=null,opacity=1,closed=true,alignment=0,normalAt,acrossAt}={}) {
+  function drawLace(trim,edge,inside,key,{visible,contact=null,opacity=1,closed=true,alignment=0,normalAt,acrossAt,angleAt}={}) {
     const size=edge.length;
     if (size<2) return;
     const center=[0,1,2].map(axis=>edge.reduce((sum,p)=>sum+p[axis],0)/size);
     const distance=(a,b)=>Math.hypot(...a.map((n,i)=>n-b[i]));
     const spanCount=closed?size:size-1;
     const perimeter=edge.slice(0,spanCount).reduce((sum,p,i)=>sum+distance(p,edge[(i+1)%size]),0);
-    const width=trim.width*centimeter, overlap=Math.min(.0065,width*.20);
+    const width=trim.width*centimeter, overlap=alignment===.5?0:Math.min(.0065,width*.20);
     const scalloped=trim.style==='Scalloped lace';
     const eyelet=trim.style==='Eyelet lace';
     const neckline=key==='laceNeckline';
@@ -1293,7 +1301,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const outside=normal.reduce((sum,n,k)=>sum+n*radial[k],0)<0?-1:1;
       const magnitude=Math.hypot(...normal)||1;
       const unit=normalAt?.(j,k,t) || normal.map(n=>n*outside/magnitude);
-      const theta=s*2*Math.PI/size;
+      const theta=angleAt?.(j,k,t) ?? s*2*Math.PI/size;
       if (neckline) {
         // Roll the trim toward the neck over the shoulder rather than
         // carrying the bodice's outward flare past the neckline.
@@ -1340,6 +1348,170 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     if (path.length>1) hitPaths.push(path);
     addComponent(key,hitPaths,{radius:8,priority:4});
   }
+  function drawHemLace(surface,trim,key,contact) {
+    if (!surface.slitHemPaths) {
+      drawLace(trim,surface.geometry.at(-1),surface.geometry.at(-2),key,{contact});
+      return;
+    }
+    for (const run of surface.slitHemPaths) {
+      const angleAt=(j,k,t)=>fabricFit.mix(run.angles[j],run.angles[k],t);
+      drawLace(trim,run.edge,run.inside,key,{closed:false,contact,angleAt,
+        normalAt:(j,k,t)=>{
+          const theta=angleAt(j,k,t);
+          return [Math.cos(theta),0,Math.sin(theta)];
+        }});
+    }
+  }
+  function slitSurface(surface,section) {
+    const requested=garmentSlits.map((slit,index)=>({...slit,index})).filter(slit=>slit.section===section);
+    if (!requested.length) return null;
+    const {geometry,projected,rings,side}=surface;
+    const count=geometry[0].length;
+    const step=2*Math.PI/count;
+    const bottom=rings.length-1;
+    const wrap=column=>((column%count)+count)%count;
+    const around=(column,center)=>column-center-count*Math.round((column-center)/count);
+    const xyz=(column,row)=>{
+      const low=Math.floor(row),high=Math.ceil(row);
+      const a=surface.sampleRing(column*step,low),b=surface.sampleRing(column*step,high);
+      return a.map((n,k)=>fabricFit.mix(n,b[k],row-low));
+    };
+    const standing=(theta,row)=>{
+      const [x,y,z]=surface.standingPoint(theta,row);
+      return [x,proportions.yAt(y),z];
+    };
+    const distance=(a,b)=>Math.hypot(...a.map((n,k)=>n-b[k]));
+    const centers=requested.map(slit=>wrap((Math.PI/2-slit.angle*Math.PI/180)/step));
+    const adjusted=editing?(editorMetadata.slitFitAdjusted??=[]):null;
+    const cuts=requested.map((slit,index)=>{
+      const column=centers[index],theta=column*step;
+      const lengths=[0];
+      let prior=standing(theta,0);
+      for (let row=1;row<=bottom;row++) {
+        const point=standing(theta,row);
+        lengths.push(lengths.at(-1)+distance(point,prior)/centimeter);
+        prior=point;
+      }
+      const total=lengths.at(-1);
+      const available=Math.max(0,total-Math.max(1,lengths[1]||0));
+      const length=Math.min(available,slit.length);
+      if (length<.15) {adjusted?.push(slit.index); return null;}
+      const start=total-length;
+      const hi=Math.max(1,lengths.findIndex(length=>length>=start));
+      const topRow=hi-1+(start-lengths[hi-1])/Math.max(.001,lengths[hi]-lengths[hi-1]);
+      const neighbor=Math.min(count*.42,...centers.filter((_,i)=>i!==index).map(n=>Math.abs(around(n,column))));
+      const maxHalf=Math.max(0,Math.min(count*.20,(neighbor-.11)/2));
+      const span=half=>distance(standing((column-half)*step,bottom),standing((column+half)*step,bottom))/centimeter;
+      let lo=0, upper=maxHalf;
+      for (let iteration=0;iteration<18;iteration++) {
+        const half=(lo+upper)/2;
+        if (span(half)<slit.opening) lo=half;
+        else upper=half;
+      }
+      const opening=slit.opening>0?(lo+upper)/2:0;
+      if (slit.length-length>.25 || slit.opening-span(opening)>.20) adjusted?.push(slit.index);
+      const movement=(pose.sit*.22+Math.abs(pose.stride||0)*.10)*(.4+.6*Math.abs(Math.sin(theta)));
+      const hemHalf=Math.min(maxHalf,opening*(1+movement));
+      const progress=row=>fabricFit.clamp((lengths[row]-start)/length,0,1)**1.12;
+      const widths=lengths.map((_,row)=>progress(row)*hemHalf);
+      function halfAt(row) {
+        if (row<=topRow) return 0;
+        const lo=Math.floor(row),hi=Math.ceil(row);
+        const from=Math.max(lo,topRow);
+        return lo===hi?widths[lo]:fabricFit.mix(lo<topRow?0:widths[lo],widths[hi],(row-from)/(hi-from));
+      }
+      return {index:slit.index,column,theta,topRow,halfAt,hemHalf};
+    }).filter(Boolean).sort((a,b)=>a.column-b.column);
+    if (!cuts.length) return null;
+    surface.slitCuts=cuts;
+    surface.isSlitGap=(theta,row,margin=0)=>cuts.some(cut=>row>=cut.topRow &&
+      Math.abs(around(theta/step,cut.column))<=cut.halfAt(row)+margin/step+1e-6);
+    surface.slitHemPaths=cuts.map((cut,i)=>{
+      const following=cuts[(i+1)%cuts.length],turn=i===cuts.length-1?count:0;
+      const start=cut.column+cut.hemHalf, end=following.column+turn-following.hemHalf;
+      const insideStart=cut.column+cut.halfAt(bottom-1),insideEnd=following.column+turn-following.halfAt(bottom-1);
+      if (end-start<.06) return null;
+      const samples=Math.max(3,Math.ceil(end-start)+1);
+      const columns=Array.from({length:samples},(_,i)=>fabricFit.mix(start,end,i/(samples-1)));
+      const edge=columns.map(column=>xyz(column,bottom));
+      const inside=columns.map((_,i)=>xyz(fabricFit.mix(insideStart,insideEnd,i/(samples-1)),bottom-1));
+      return {edge,inside,angles:columns.map(column=>column*step)};
+    }).filter(Boolean);
+    const vertices=new Map();
+    const screenPoint=([column,row])=>{
+      const index=wrap(column);
+      const j=Math.round(index),r=Math.round(row);
+      if (Math.abs(index-j)<1e-6 && Math.abs(row-r)<1e-6) return projected[r][j%count];
+      const key=Math.round(index*1e6)+':'+Math.round(row*1e6);
+      if (!vertices.has(key)) vertices.set(key,project(xyz(column,row)));
+      return vertices.get(key);
+    };
+    function clip(poly,dist) {
+      if (!poly.length) return poly;
+      const next=[];
+      let a=poly.at(-1),before=dist(a);
+      for (const b of poly) {
+        const after=dist(b);
+        if ((before>=0)!==(after>=0)) {
+          const t=before/(before-after);
+          next.push(a.map((n,i)=>fabricFit.mix(n,b[i],t)));
+        }
+        if (after>=0) next.push(b);
+        a=b;before=after;
+      }
+      return next;
+    }
+    function cell(row,i) {
+      const active=cuts.filter(cut=>cut.hemHalf>0 && row+1>cut.topRow &&
+        Math.abs(around(i+.5,cut.column))<cut.halfAt(row+1)+.500001);
+      if (!active.length) return null;
+      let polygons=[[[i,row],[i+1,row],[i+1,row+1],[i,row+1]]];
+      for (const cut of active) {
+        const center=i+.5-around(i+.5,cut.column);
+        polygons=polygons.flatMap(polygon=>{
+          const above=cut.topRow>row?clip(polygon,([,y])=>cut.topRow-y):[];
+          const below=above.length?clip(polygon,([,y])=>y-cut.topRow):polygon;
+          const left=clip(below,([x,y])=>center-cut.halfAt(y)-x);
+          const right=clip(below,([x,y])=>x-center-cut.halfAt(y));
+          return [above,left,right].filter(part=>part.length>=3);
+        });
+      }
+      return polygons.map(polygon=>polygon.map(screenPoint));
+    }
+    function markEdges() {
+      const [r,g,b]=color(pattern.color).slice(1).match(/../g).map(n=>parseInt(n,16));
+      const bright=r*.213+g*.715+b*.072>142;
+      const ink=bright?'rgba(73,45,58,.70)':'rgba(241,220,210,.70)';
+      const edgePoint=(column,row,lift=.006)=>{
+        const point=xyz(column,row), opposite=xyz(column+count*.5,row);
+        const radial=point.map((n,i)=>i===1&&!side?0:n-opposite[i]);
+        const length=Math.hypot(...radial)||1;
+        return {point:project(point.map((n,i)=>n+lift*radial[i]/length)),normal:radial.map(n=>n/length)};
+      };
+      for (const cut of cuts) {
+        const rows=[cut.topRow,...Array.from({length:bottom-Math.floor(cut.topRow)},(_,i)=>Math.floor(cut.topRow)+1+i)];
+        const paths=[];
+        for (const sign of cut.hemHalf>0?[-1,1]:[0]) {
+          const edge=rows.map(row=>edgePoint(cut.column+sign*cut.halfAt(row),row));
+          markings.push({points:edge.map(v=>v.point),style:ink,width:1.12*pixelsPerCssPixel});
+          let run=[];
+          for (const {point,normal} of edge) {
+            if (!(side*sine<-.78) && rotateView(normal)[2]>.055) run.push(point);
+            else {
+              if (run.length>1) paths.push(run);
+              run=[];
+            }
+          }
+          if (run.length>1) paths.push(run);
+        }
+        const tack=[-.18,.18].map(shift=>edgePoint(cut.column+shift,cut.topRow,.008).point);
+        markings.push({points:tack,style:ink,width:1.5*pixelsPerCssPixel});
+        addComponent('slit:'+cut.index,paths,{radius:9,priority:4.5});
+      }
+    }
+    return {cell,markEdges};
+  }
+
   function mesh(rings,hex,offset=0,neck=false,detail=false,fabricBody=false,transform=null,part=null,visibleBand=null) {
     const trouserJoin=part==='leg' && model==='trousers'?surfaces.shell:null;
     const segments = part==='shell' || trouserJoin ? 64 : hex===skin && !detail ? 54 : 38;
@@ -1533,6 +1705,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     }
     const joins=part==='shell' && neck && (continuous.strapFront||continuous.strapBack);
     if (joins) surfaces.shell.topBandFaces=[];
+    const slitSection=part==='leg'?(side>0?'leftLeg':'rightLeg'):part==='shell'&&model!=='trousers'?'body':null;
+    const slit=slitSection&&garmentSlits.length?slitSurface(surfaces[part],slitSection):null;
     const contrast = design?.accent ? color(design.accent).match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)) : channels;
     for (let ring=0;ring<rings.length-1;ring++) {
       const band=(rings[ring][0]+rings[ring+1][0])*.5;
@@ -1575,9 +1749,15 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const outseam=continuous.legOutseam && (part==='leg'?i===(side>0?0:segments/2):part==='shell' && model==='trousers' && sideMark);
         const face={points,depth,paint:'rgb('+fiber.join(',')+')',seam:detail&&(sideMark&&!outseam||finishedEdge||panelSeam)};
         if (joins && ring===0) surfaces.shell.topBandFaces[i]=faces.length;
-        faces.push(face);
+        const pieces=slit?.cell(ring,i);
+        if (!pieces) faces.push(face);
+        else for (const piece of pieces) {
+          const depth=piece.reduce((sum,p)=>sum+p[2],0)/piece.length;
+          faces.push({...face,points:piece,depth,seam:false});
+        }
       }
     }
+    slit?.markEdges();
     if (part==='shell' && neck && garmentLace.neckline) {
       drawLace(garmentLace.neckline,geometry[0],geometry[1],'laceNeckline',{contact});
     }
@@ -1585,7 +1765,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       drawLace(garmentLace.sleeves,geometry.at(-1),geometry.at(-2),'laceSleeves');
     }
     if ((part==='shell' && model!=='trousers' || part==='leg') && garmentLace.hem) {
-      drawLace(garmentLace.hem,geometry.at(-1),geometry.at(-2),'laceHem',{contact});
+      drawHemLace(surfaces[part],garmentLace.hem,'laceHem',contact);
     }
   }
   const waistDelta = (changes.waist || 0)/450;
@@ -2261,11 +2441,18 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
     const end=Math.min(surface.rings.at(-1)[0]-.025,start+(model==='top'?.155:.21));
     return {start,end};
   }
-  function lacePocketOpening({edge,inside=edge,angles,acrossAt,normalAt,inSeam=false,surface}) {
+  function centeredPocketRail(theta) {
+    if (seamOverlay?.alignment!=='center') return false;
+    return seamLace.kind==='sides' || seamLace.kind==='single' &&
+      thetaDelta(theta,Math.PI/2-seamLace.angle*Math.PI/180)<.075;
+  }
+  function lacePocketOpening({edge,inside=edge,angles,acrossAt,centerAcrossAt,normalAt,inSeam=false,surface}) {
     if (inSeam && surface && seamLace) pocketSeamClearance.push({surface,edge});
     const trim=garmentLace.pockets;
     if (!trim) return;
-    drawLace(trim,edge,inside,'lacePocket',{closed:false,acrossAt,
+    const aligned=inSeam && centerAcrossAt && centeredPocketRail(angles[0]);
+    drawLace(trim,edge,inside,'lacePocket',{closed:false,alignment:aligned?.5:0,
+      acrossAt:aligned?centerAcrossAt:acrossAt,
       normalAt:normalAt||((j,k,t)=>{
         const theta=fabricFit.mix(angles[j],angles[k],t);
         return [Math.cos(theta),0,Math.sin(theta)];
@@ -2285,6 +2472,10 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
   }
   function verticalTrim(surface,path,trim,{skip,frontEdge=false,key='laceSeam'}={}) {
     let run=[];
+    // Increasing angle moves left when facing the outside of the seam,
+    // whether the seam is on the front, the back, or either pant leg.
+    const lateral=key==='laceSeam'?(trim.alignment==='left'?1:trim.alignment==='right'?-1:0):0;
+    const seamOffset=lateral*(trim.width*.5+.12)*centimeter;
     function paintRun() {
       if (run.length<2) {run=[];return;}
       const edge=run.map(({theta,row})=>surfaceRowPoint(surface,theta,row));
@@ -2298,7 +2489,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           const row=fabricFit.mix(run[j].row,run[k].row,t);
           const theta=fabricFit.mix(run[j].theta,run[k].theta,t);
           const radius=Math.max(.045,decorDistance(surfaceRowPoint(surface,theta-.03,row),surfaceRowPoint(surface,theta+.03,row))/.06);
-          const shift=frontEdge?Math.max(.005,offset+.007)*direction:offset;
+          const shift=frontEdge?Math.max(.005,offset+.007)*direction:offset+seamOffset;
           return surfaceRowPoint(surface,theta+shift/radius,row);
         }});
       run=[];
@@ -2328,9 +2519,10 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       return {theta,row,y,distance};
     });
     const pockets=pocketSeamClearance.filter(pocket=>pocket.surface===surface || model==='trousers');
-    const margin=Math.max(.018,trim.width*centimeter*.55);
+    const margin=Math.max(.012,trim.width*centimeter*.30);
     verticalTrim(surface,path,trim,{skip:({theta,row,y,distance})=>
       (zipped && distance<(garmentSeams.panelZipper+1)*centimeter) ||
+      surface.isSlitGap?.(theta,row,.04+trim.width*.017) ||
       (skipClosures && closureStop && thetaDelta(theta,closureTheta)<.15+trim.width*.024 && row/path.length<closureStop+.03) ||
       (!customPockets && skipClosures && design.pocket==='In-seam pockets' && Math.abs(Math.cos(theta))>.95 &&
         y>=pocket.start-.011 && y<=pocket.end+.011) ||
@@ -2400,16 +2592,26 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const distance=decorDistance(previous,last);
       return [last,last.map((n,k)=>n+(n-previous[k])*drop/Math.max(.003,distance))];
     });
+    const available=pintuck?Math.min(...outline.map(path=>path.slice(1).reduce((length,point,index)=>
+      length+decorDistance(point,path[index]),0))):drop;
+    const run=Math.min(drop,Math.max(0,available-(pintuck?.004:0)));
+    if (pintuck && editing && drop-run>.012) {
+      (editorMetadata.stitchFitAdjusted??=new Set()).add(Number(key.split(':')[1]));
+    }
+    if (run<.002) return;
     function pointAlong(path,distance) {
-      if (!distance) return path[0];
+      if (!distance) return {point:path[0],index:0};
       for (let i=1;i<path.length;i++) {
         const edge=decorDistance(path[i-1],path[i]);
-        if (distance<=edge) return decorMix(path[i-1],path[i],distance/Math.max(.0001,edge));
+        if (distance<=edge) {
+          const fraction=distance/Math.max(.0001,edge);
+          return {point:decorMix(path[i-1],path[i],fraction),index:i-1+fraction};
+        }
         distance-=edge;
       }
       const last=path.at(-1), previous=path.at(-2);
-      if (!previous) return last;
-      return last.map((n,k)=>n+(n-previous[k])*distance/Math.max(.003,decorDistance(last,previous)));
+      const point=pintuck || !previous?last:last.map((n,k)=>n+(n-previous[k])*distance/Math.max(.003,decorDistance(last,previous)));
+      return {point,index:path.length-1};
     }
     function normalBetween(a,b,c,theta) {
       const u=b.map((n,k)=>n-a[k]);
@@ -2433,18 +2635,22 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       const station=i/samples*count;
       const column=Math.floor(station), next=(column+1)%count, t=station-column;
       const start=centerRing[column], adjacent=centerRing[next];
-      const inward=pointAlong(outline[column],.03);
+      const inward=pointAlong(outline[column],Math.min(.03,run)).point;
       const norm=normalBetween(start,adjacent,inward,theta);
       const points=Array.from({length:rows+1},(_,j)=>{
         const fall=j/rows;
         const profile=foldProfile(i*repeat/samples+fall*(gathered?.26:0));
-        const base=decorMix(pointAlong(outline[column],drop*fall),pointAlong(outline[next],drop*fall),t);
+        const a=pointAlong(outline[column],run*fall);
+        const b=pointAlong(outline[next],run*fall);
+        const base=decorMix(a.point,b.point,t);
         const amplitude=pintuck?fold*Math.sin(Math.PI*fall)**.58:fullnessLift*fall**.73;
         const flare=gathered?drop*.16*fall**1.8:0;
         const lift=.006+amplitude*profile+flare;
         let point=base.map((n,k)=>n+norm[k]*lift);
         if (point[1]>1.126) point=[point[0]+norm[0]*(point[1]-1.126)*.4,1.126,point[2]+norm[2]*(point[1]-1.126)*.4];
-        return {projected:project(point),profile};
+        const fromEdge=fabricFit.mix(a.index,b.index,t);
+        const row=atEnd?surface.geometry.length-1-fromEdge:fromEdge;
+        return {projected:project(point),profile,row};
       });
       return {points,theta};
     });
@@ -2453,6 +2659,8 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       if (opening!==null && thetaDelta(theta-angle,opening)<.09) continue;
       for (let j=0;j<rows;j++) {
         const vertices=[a.points[j],b.points[j],b.points[j+1],a.points[j+1]];
+        if (pintuck && (Math.max(...vertices.map(point=>point.profile))<.36 ||
+            (atEnd && surface.isSlitGap?.(theta-angle,(a.points[j].row+b.points[j+1].row)/2,.035)))) continue;
         const points=vertices.map(p=>p.projected);
         const profile=vertices.reduce((sum,p)=>sum+p.profile,0)/4;
         const light=(.78+.17*Math.cos(theta-1.95)+.086*Math.sin(theta))*(.82+profile*.24);
@@ -2460,6 +2668,26 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         const paint='rgb('+(swatch||paintBase).map(n=>Math.min(255,Math.round(n*light))).join(',')+')';
         faces.push({points,depth:points.reduce((sum,p)=>sum+p[2],0)/4,paint,skipStroke:true});
       }
+    }
+    if (pintuck) {
+      if (!componentKeys.has(key)) return;
+      const paths=[];
+      for (let k=0;k<repeat;k++) {
+        const {theta,points}=ribbon[Math.round((k+.25)*samples/repeat)%samples];
+        if (Math.sin(theta+angle)<=.09 || (opening!==null && thetaDelta(theta,opening)<.09)) continue;
+        let path=[];
+        for (const point of points) {
+          if (atEnd && surface.isSlitGap?.(theta,point.row,.035)) {
+            if (path.length>1) paths.push(path);
+            path=[];
+          } else path.push(point.projected);
+        }
+        if (path.length>1) paths.push(path);
+      }
+      const display=paths.filter((_,index)=>index%Math.max(1,Math.ceil(paths.length/5))===0);
+      addComponent(key,display,{radius:8,priority:4});
+      if (componentHits[key]) componentHits[key].paths.push(...paths.filter(path=>!display.includes(path)).map(path=>path.map(coordinate)));
+      return;
     }
     const angles=ribbon.map(({theta})=>opening!==null && thetaDelta(theta,opening)<.09?-angle:theta);
     const mid=ribbon.map(station=>station.points[Math.ceil(rows/2)].projected);
@@ -2506,12 +2734,25 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       if (showGuides && !single) editorMetadata.panelSeamSnapOffset=studioDesign.panelSeamSnapOffset(model,...rows[selected]);
       for (const [index,path] of paths.entries()) {
         const points=path.map((theta,i)=>onSurface(surface.sampleRing(theta,i),theta));
-        if (!continuous.panel && (!single || Math.sin(path[selected]+angle)>0)) markings.push({points,style:style(panelSaved)});
+        const followsCloth=i=>!surface.isSlitGap?.(path[i],i,.031);
+        if (!continuous.panel && (!single || Math.sin(path[selected]+angle)>0)) {
+          if (!surface.slitCuts) markings.push({points,style:style(panelSaved)});
+          else {
+            let run=[];
+            for (let i=0;i<=points.length;i++) {
+              if (i<points.length && followsCloth(i)) run.push(points[i]);
+              else {
+                if (run.length>1) markings.push({points:run,style:style(panelSaved)});
+                run=[];
+              }
+            }
+          }
+        }
         const matchesSide=!focusedSide || single || (index===0?-1:1)===focusedSide;
         if (matchesSide && (!single || !Number.isFinite(garmentSeams.panelZipper))) {
-          addComponent(single?'panelAngle':'panelSeam',visiblePaths(points,path),{radius:9});
+          addComponent(single?'panelAngle':'panelSeam',visiblePaths(points,path,0,followsCloth),{radius:9});
         }
-        if (panelSaved && !continuous.panel && garmentLace.seams) seamTrim(surface,path,garmentLace.seams,true);
+        if (panelSaved && !continuous.panel && seamOverlay) seamTrim(surface,path,seamOverlay,true);
       }
       if (single && (analysis?.editor || Number.isFinite(garmentSeams.panelZipper))) {
         const theta=paths[0][0];
@@ -2524,7 +2765,9 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           const length=Math.hypot(...rest[i].map((n,k)=>n-rest[i-1][k]))/unit;
           distances.push(distances[i-1]+length);
         }
-        const maxLength=Math.min(studioDesign.panelZipperLimits[1],Math.max(0,Math.floor((distances.at(-1)-1)*2)/2));
+        const slitRow=distances.findIndex((_,i)=>surface.isSlitGap?.(theta,i,.035));
+        const stop=slitRow<0?distances.at(-1):distances[Math.max(0,slitRow-1)];
+        const maxLength=Math.min(studioDesign.panelZipperLimits[1],Math.max(0,Math.floor((stop-1)*2)/2));
         if (editing) editorMetadata.panelZipperMaxLength=maxLength;
         if (Number.isFinite(garmentSeams.panelZipper) && Math.sin(theta+angle)>0) {
           const length=Math.min(garmentSeams.panelZipper,maxLength);
@@ -3059,7 +3302,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (path.length>1) paths.push(path);
         return paths;
       };
-      let shape,opening,acrossAt,normalAt,insideHits=[];
+      let shape,opening,acrossAt,centerAcrossAt,normalAt,insideHits=[];
       if (inSeam) {
         const front=detail.angle>0?-1:1;
         opening=sampleLine(t=>at(0,detail.opening*t));
@@ -3069,8 +3312,10 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           paintPolygon([far[i-1].point,near[i-1].point,near[i].point,far[i].point],slitPaint);
         }
         shape=opening;
-        acrossAt=(j,k,t,offset)=>at(front*Math.max(.2,offset/(centimeter*fitScale)),detail.opening*fabricFit.mix(j,k,t)/(opening.length-1),.006).point;
-        normalAt=(j,k,t)=>at(0,detail.opening*fabricFit.mix(j,k,t)/(opening.length-1)).normal;
+        const openingStation=(j,k,t)=>detail.opening*fabricFit.mix(j,k,t)/(opening.length-1);
+        acrossAt=(j,k,t,offset)=>at(front*Math.max(.2,offset/(centimeter*fitScale)),openingStation(j,k,t),.006).point;
+        centerAcrossAt=(j,k,t,offset)=>at(-offset/(centimeter*fitScale),openingStation(j,k,t),.006).point;
+        normalAt=(j,k,t)=>at(0,openingStation(j,k,t)).normal;
       } else {
         const extent=t=>{
           if (detail.shape==='Pointed') return half*Math.min(1,Math.max(.001,(1-t)/.24));
@@ -3095,7 +3340,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
         if (componentKeys.has(key)) insideHits=[sampleLine(t=>at(0,detail.depth*t)),sampleLine(t=>at((2*t-1)*extent(.52),detail.depth*.52))];
       }
       markings.push({points:shape.map(v=>project(v.point)),style:thread,width:Math.max(1,pixelsPerCssPixel),closed:!inSeam});
-      lacePocketOpening({edge:opening.map(v=>v.point),angles:opening.map(v=>v.theta),acrossAt,normalAt,inSeam,surface});
+      lacePocketOpening({edge:opening.map(v=>v.point),angles:opening.map(v=>v.theta),acrossAt,centerAcrossAt,normalAt,inSeam,surface});
       if (componentKeys.has(key)) {
         const outlines=visiblePathsOf(shape);
         const inside=insideHits.flatMap(visiblePathsOf);
@@ -3416,9 +3661,11 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           } else {
             const sideTheta=side>0?.09:Math.PI-.09;
             if (garmentLace.pockets) {
+              const seamTheta=side>0?0:Math.PI;
+              const aligned=centeredPocketRail(seamTheta);
               const ringCount=surface.rings.length-1;
-              const path=Array.from({length:10},(_,i)=>({theta:sideTheta,row:fabricFit.mix(level(start),level(end),i/9)*ringCount}));
-              verticalTrim(surface,path,garmentLace.pockets,{frontEdge:true,key:'lacePocket'});
+              const path=Array.from({length:10},(_,i)=>({theta:aligned?seamTheta:sideTheta,row:fabricFit.mix(level(start),level(end),i/9)*ringCount}));
+              verticalTrim(surface,path,garmentLace.pockets,{frontEdge:!aligned,key:'lacePocket'});
             }
             if (!visible(sideTheta)) continue;
             addMark(Array.from({length:8},(_,i)=>[level(fabricFit.mix(start,end,i/7)),sideTheta]),ink,false,legacyKey(side>0?0:1));
@@ -3457,7 +3704,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
       }
       if (garmentLace.waistband) waistbandTrim(surface,garmentLace.waistband);
       if (seamLace?.kind==='sides') {
-        for (const theta of [0,Math.PI]) seamTrim(surface,surface.rings.map(()=>theta),garmentLace.seams);
+        for (const theta of [0,Math.PI]) seamTrim(surface,surface.rings.map(()=>theta),seamOverlay);
       }
     }
     if (changes.hasSleeves && (model==='dress'||model==='top')) {
@@ -3564,7 +3811,7 @@ function drawModel(canvas,pattern,angle,changes,body,thumbnail=false,analysis=nu
           moved[2]+=pose.sit*knee*Math.max(0,Math.sin(theta))*(changes.kneeFlex||0)/145;
           return moved;
         },'leg');
-        if (seamLace?.kind==='sides') seamTrim(surfaces.leg,surfaces.leg.rings.map(()=>side>0?0:Math.PI),garmentLace.seams);
+        if (seamLace?.kind==='sides') seamTrim(surfaces.leg,surfaces.leg.rings.map(()=>side>0?0:Math.PI),seamOverlay);
         drawFittedLayers(surfaces.leg);
       }
     }
@@ -4276,6 +4523,22 @@ function guide(pattern,changes,body) {
     steps.push(...added.map(step=>step.text));
     visuals.push(...added.map(step=>step.visual));
   }
+  if (Array.isArray(changes.slits)) {
+    const unmatched=studioDesign.slits(fittingConstruction(pattern)).map(slit=>JSON.stringify(slit));
+    const instructions=studioDesign.slitInstructions({...fittingConstruction(pattern),slits:changes.slits});
+    const additions=instructions.filter((_,index)=>{
+      const previous=unmatched.indexOf(JSON.stringify(changes.slits[index]));
+      if (previous===-1) return true;
+      unmatched[previous]=null;
+      return false;
+    });
+    if (unmatched.some(Boolean)) {
+      steps.push('Mark the old slit and the new top stop on a fitting sample. To shorten the slit, stitch the intact seam allowances together only as far as the new stop. Plan a matching insert or replacement panel if the old opening was cut through a continuous piece without allowances.');
+      visuals.push('open');
+    }
+    steps.push(...additions.map(step=>step.text));
+    visuals.push(...additions.map(step=>step.visual));
+  }
   steps.push('Check the finished measurements, ease, closures and hem before trimming any remaining excess or closing the lining.');
   visuals.push('fit');
   return {steps,visuals};
@@ -4320,6 +4583,9 @@ function fitDifference(source, target, sourceBody, targetBody) {
     const to=studioDesign.pocketDetails(target.design);
     if (JSON.stringify(from)!==JSON.stringify(to)) difference.pocketDetails=to;
   }
+  const sourceSlits=studioDesign.slits(fittingConstruction(source));
+  const targetSlits=studioDesign.slits(fittingConstruction(target));
+  if (JSON.stringify(sourceSlits)!==JSON.stringify(targetSlits)) difference.slits=targetSlits;
   return difference;
 }
 function applyDesignFit(item,body) {
@@ -4335,6 +4601,7 @@ function fitSummary(delta) {
     if (key==='back') return amount;
     if (key==='onePiece') return 'One-piece seam changes';
     if (key==='pocketDetails') return 'Pocket layout updated';
+    if (key==='slits') return 'Slit layout updated';
     if (key==='support' || key==='straplessSupport') return amount;
     if (key==='strapWidth' && Number.isFinite(amount)) return 'Finished shoulder width '+amount+' cm';
     if (key==='strapPlacement' && amount) return 'Shoulder placement '+adjustmentText(amount);
@@ -4403,8 +4670,10 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
       }
     }
     const laceLabels=studioDesign.lacePlacements(pattern.design);
-    for (const [key,trim] of Object.entries(studioDesign.laceTrims(pattern.design))) {
-      adjustments.push([`${laceLabels[key]} trim`,`${trim.style} · ${cm(trim.width)}`]);
+    for (const [key,savedTrim] of Object.entries(studioDesign.laceTrims(pattern.design))) {
+      const trim=key==='seams'?studioDesign.effectiveSeamLace(pattern.design):savedTrim;
+      const alignment={center:'Centered on seam',left:'Left of seam',right:'Right of seam'}[trim.alignment];
+      adjustments.push([`${laceLabels[key]} trim`,`${trim.style} · ${cm(trim.width)}${alignment?' · '+alignment:''}`]);
     }
     const detailPositions=studioDesign.stitchPlacements(pattern.design);
     for (const [index,detail] of studioDesign.stitchDetails(pattern.design).entries()) {
@@ -4433,6 +4702,13 @@ function fitMeasurementSheet(body,targetChanges,difference,make,pattern,sourceBo
     }
   }
   const targets=[];
+  const slitSizes=make?studioDesign.slits(construction):changes.slits;
+  if (Array.isArray(slitSizes) && (slitSizes.length || !make)) {
+    adjustments.push(['Slit count',String(slitSizes.length)]);
+    for (const [index,slit] of slitSizes.entries()) {
+      adjustments.push([`Slit ${index+1}`,`${studioDesign.slitLabel(slit)} · ${cm(slit.length)} above the hem · ${cm(slit.opening)} opening at the hem`]);
+    }
+  }
   if (make && Number.isFinite(pattern.design?.ease)) {
     const model=basePattern(pattern).id;
     const key=['top','dress'].includes(model)?'bust':'hip';
@@ -4468,6 +4744,8 @@ function constructionGuide(pattern,changes,body,fabric) {
   while (base.fit?.source && getPattern(base.fit.source)) base=getPattern(base.fit.source);
   const delta=fitDifference(base,{...pattern,fit:{changes}},body,body);
   const design=pattern.design || base.design;
+  const stockSlits=design?[]:studioDesign.slitInstructions(fittingConstruction(pattern,changes));
+  delete delta.slits;
   if (design) {
     delete delta.onePiece;
     delete delta.pocketDetails;
@@ -4488,7 +4766,10 @@ function constructionGuide(pattern,changes,body,fabric) {
   const instructions=design?studioDesign.make({...designForFit(design,changes),fabric:fabric.name},pattern.name,body):base;
   const baseVisuals=instructions.visuals || sewingVisuals.patterns[base.id] || instructions.steps.map(sewingVisuals.identify);
   const extraTools=!design && changes.support==='Strapless'?studioDesign.straplessTools(straplessFitDesign(pattern,changes)):[];
-  return {steps:[...steps,...instructions.steps],visuals:[...visuals,...baseVisuals],tools:[instructions.tools,...extraTools].join(', '),
+  const firstHem=stockSlits.length?instructions.steps.findIndex(step=>/\bhems?\b/i.test(step)):-1;
+  const slitStage=firstHem<0?instructions.steps.length:firstHem;
+  return {steps:[...steps,...instructions.steps.slice(0,slitStage),...stockSlits.map(step=>step.text),...instructions.steps.slice(slitStage)],
+    visuals:[...visuals,...baseVisuals.slice(0,slitStage),...stockSlits.map(step=>step.visual),...baseVisuals.slice(slitStage)],tools:[instructions.tools,...extraTools].join(', '),
     fabric:`${fabric.name} (${fabric.gsm} g/m²). ${instructions.fabric}`};
 }
 
@@ -4506,6 +4787,7 @@ function fitting() {
   const startingNeck=fitRevision?.changes.neckline || pattern.design?.neckline || 'Scoop';
   const startingBack=fitRevision?.changes.back || pattern.design?.back || 'Classic back';
   const startingFit=fitRevision?.changes || pattern.design?.fitAdjustments || {};
+  const slitBase=fittingConstruction(pattern);
   const shoulders=shoulderSettings(pattern);
   const supportStyles=studioDesign.supportChoices(supportModel);
   const initialConstruction=!publisher&&pattern.design?fittingConstruction(pattern):undefined;
@@ -4540,6 +4822,7 @@ function fitting() {
       Object.values(pattern.design?.fitAdjustments||{}).some(Boolean)?'<p class="muted fit-baseline">These sliders start from the fit saved with this design.</p>':''}
     <div id="fit-sliders"></div>
     ${initialConstruction?pocketEditorMarkup(initialConstruction,'fit'):''}
+    ${publisher?'':slitEditorMarkup(slitBase,'fit')}
     ${onePieceFields.length?`<details class="design-options"><summary>One-piece construction</summary><div class="slider-group-content">${onePieceFields.map(([key,label])=>
       `<label class="sleeve-choice"><input type="checkbox" data-one-piece="${key}"${initialOnePiece[key]?' checked':''}> ${label}</label>`).join('')}</div></details>`:''}
     <p class="muted fit-baseline">The map estimates stretch demand as the fabric moves. The preview uses the selected weight, stretch and drape. Check the fit and movement on a sewn sample.</p>${publisher?`<div class="actions tight"><button type="button" data-action="new" data-use-fit-model data-id="${escape(pattern.id)}">Create publisher-pattern work order</button><button type="reset" class="secondary">Reset changes</button></div>${referenceLinks(pattern)}`:`<fieldset class="wo-path"><legend>Create work order</legend>
@@ -4558,6 +4841,7 @@ function fitting() {
   let hoveredComponent=null;
   let selectedComponent=null;
   let editedPockets;
+  let editedSlits;
   const activePattern=()=>editedPockets?{...pattern,design:{...pattern.design,...editedPockets}}:pattern;
   const pickedFabric=()=>form.elements.namedItem('fabric').value;
   const material=()=>readFitFabric(form,pickedFabric());
@@ -4590,6 +4874,17 @@ function fitting() {
       draw();
     }
   }):null;
+  const slitHost=form.querySelector('#fit-slits');
+  const slitEditor=slitHost?bindSlitEditor(slitHost,{
+    getDesign:()=>({...slitBase,slits:editedSlits??slitBase.slits}),
+    onChange(patch,{index}) {
+      editedSlits=patch.slits;
+      selectedComponent=Number.isInteger(index)&&index>=0?'slit:'+index:null;
+      fittingDraft=undefined;
+      fitGuide.hidden=true;
+      draw();
+    }
+  }):null;
   refreshPocketSeams();
   function refreshShoulders() {
     if (!supportField) return;
@@ -4607,6 +4902,8 @@ function fitting() {
   const changes = () => Object.fromEntries(keys().map(key=>[key,Number(form.elements.namedItem(key)?.value || 0)]));
   const adjustments = () => {
     const result = {hasSleeves:sleeves(),neckline:neckline()};
+    const slits=editedSlits??slitBase.slits;
+    if (Array.isArray(slits)) result.slits=slits;
     if (initialConstruction) result.onePiece=studioDesign.onePiece(construction());
     if (supportField) {
       result.back=form.elements.namedItem('back').value;
@@ -4629,6 +4926,16 @@ function fitting() {
   drawControls();
   const picker=fitHandles.selection(canvas,{
     select:key=>{
+      if (key?.startsWith('slit:')) {
+        const control=slitEditor?.control(key);
+        if (control) {
+          selectedComponent=key;
+          slitHost.open=true;
+          focusSlider(control);
+          draw();
+        }
+        return;
+      }
       if (key==='designPocket'||key?.startsWith('pocket:')) {
         const control=pocketEditor?.control(key);
         if (control) {
@@ -4694,12 +5001,14 @@ function fitting() {
         componentKeys.push(...studioDesign.pocketDetails(design).map((_,index)=>'pocket:'+index));
       } else componentKeys.push('designPocket');
     }
+    if (slitEditor) componentKeys.push(...studioDesign.slits({...slitBase,slits:editedSlits??slitBase.slits}).map((_,index)=>'slit:'+index));
     if (!componentKeys.includes(selectedComponent)) selectedComponent=null;
     if (!componentKeys.includes(hoveredComponent)) hoveredComponent=null;
     const preview=drawModel(canvas,activePattern(),angle,adjustments(),body(),false,
       {pose:analysis.pose(),material:material(),show:analysis.show(),fabricName:pickedFabric(),redraw:draw,pitch:Number(tiltControl.value)*Math.PI/180,
         editor:{componentKeys,hoveredComponent,selectedComponent}});
     pocketEditor?.fitAdjusted(preview?.pocketFitAdjusted);
+    slitEditor?.fitAdjusted(preview?.slitFitAdjusted);
     picker.targets(preview?.componentHits || {});
     if (layerMapNote) layerMapNote.hidden=!analysis.show();
   }
@@ -4707,7 +5016,7 @@ function fitting() {
   size.observe(canvas);
   fitCleanup = () => {size.disconnect();analysis.cleanup();picker.cleanup();};
   form.addEventListener('input',event=>{
-    if (pocketHost?.contains(event.target)) return;
+    if (pocketHost?.contains(event.target) || slitHost?.contains(event.target)) return;
     if (event.target.name==='pattern') { startFit(event.target.value); return; }
     if (event.target.name==='model') fitModel = event.target.value;
     if (event.target.name==='fabric') setFitFabric(form);
@@ -4737,6 +5046,7 @@ function fitting() {
   form.addEventListener('reset',event=>{
     event.preventDefault();
     editedPockets=undefined;
+    editedSlits=undefined;
     if (sleeveEligible) {
       supportField.value=shoulders.support;
       straplessSupport.value=shoulders.straplessSupport;
@@ -4754,6 +5064,7 @@ function fitting() {
     if (initialConstruction) refreshOnePieceStraps(form,construction());
     refreshPocketSeams();
     pocketEditor?.render();
+    slitEditor?.render();
     form.elements.namedItem('fabric').value=fabricName;
     setFitFabric(form,startingFabric);
     drawControls();
@@ -4799,17 +5110,18 @@ function fitting() {
     const measurements=fitMeasurementSheet(targetBody,targetChanges,compare,make,targetPattern,sourceBody);
     const modelMeasurements=snapshotModelMeasurements(targetBody);
     const patternDesign=designForFit(targetPattern.design,targetChanges);
-    const packet={...targetPattern,design:Array.isArray(compare.pocketDetails)?{...patternDesign,pocketDetails:compare.pocketDetails}:patternDesign,steps,visuals,measurements};
+    const packetDesign=Array.isArray(compare.pocketDetails)?{...patternDesign,pocketDetails:compare.pocketDetails}:patternDesign;
+    const packet=withSlitFigures({...targetPattern,fit:{changes:targetChanges},design:packetDesign,steps,visuals,measurements});
     const draftOrder={kind:make?'Construction':'Tailoring',plan:{
       ...(studioDesign.supportsStrapShape(targetChanges.support)?{strapWidth:targetChanges.strapWidth,...studioDesign.strapShape(targetChanges)}:{}),
       straplessSupport:targetChanges.straplessSupport
     }};
     const drawings=()=>orderFigureSections(draftOrder,packet,measurements)+workFigures.stepList(packet,draftOrder,measurements);
-    const rebuild=!make&&!savedTarget&&Array.isArray(compare.pocketDetails)
+    const rebuild=!make&&!savedTarget&&(Array.isArray(compare.pocketDetails)||Array.isArray(compare.slits))
       ?constructionGuide(targetPattern,targetChanges,targetBody,fabric):null;
-    const rebuildMeasurements=!make&&!savedTarget&&Array.isArray(packet.design?.pocketDetails)
+    const rebuildMeasurements=!make&&!savedTarget&&(Array.isArray(packet.design?.pocketDetails)||Array.isArray(packet.design?.slits))
       ?fitMeasurementSheet(targetBody,targetChanges,{},true,packet,targetBody):null;
-    fittingDraft={garment:pattern,patternDesign,packetDesign:packet.design,rebuild,rebuildMeasurements,...kit,summary,
+    fittingDraft={garment:pattern,patternDesign,packetDesign,rebuild,rebuildMeasurements,...kit,summary,
       modelId:targetBody.id,modelMeasurements,changes:targetChanges,fabric,make,savedTarget,route,materials:kit.fabric,measurements};
     fitGuide.hidden = false;
     fitGuide.innerHTML = `<h2>${make?'Construction work order':'Tailoring work order'}</h2><p class="tight"><strong>${escape(route)}</strong></p><p class="tight">${escape(pattern.name)} · ${escape(targetBody.name)} · ${escape(fabric.name)} (${fabric.gsm} g/m²) · ${escape(summary)}</p>${fitMeasurementTable(measurements)}${workFigures.bodySheet(measurements)}<p class="tight"><strong>Materials</strong> ${escape(kit.fabric)}</p><p class="tight"><strong>Tools and materials</strong> ${escape(tools)}</p>${sewingVisuals.tools(tools)}${allowanceEditor(draftOrder,packet,'preview-allowance-form')}<p id="preview-fit-status" role="status"></p>
@@ -4939,7 +5251,7 @@ function bindPocketEditor(host,{getDesign,onChange,focus=focusSlider}) {
         <div class="fields pocket-fields">${select('type','Pocket type',kinds)}${Object.keys(sections).length>1?select('section','Garment section',sections):''}</div>
         ${patch?adjust('angle','Around the garment',{unit:'°',step:1,signed:true}):select('angle','Side seam',{'-90':'Wearer’s right','90':'Wearer’s left'})}
         ${adjust('height','Distance from top of section',{unit:'%',step:1,ends:['Top','Bottom']})}
-        <p class="muted pocket-fit-note" data-pocket-fit-note${adjustedPockets.has(index)?'':' hidden'}>The preview adjusted this pocket to keep it on the fabric.</p>
+        <p class="muted garment-fit-note" data-pocket-fit-note${adjustedPockets.has(index)?'':' hidden'}>The preview adjusted this pocket to keep it on the fabric.</p>
         <details class="design-options" data-pocket-size${sizing?' open':''}><summary>Size and shape</summary><div class="slider-group-content">
           <div class="fields pocket-fields">${adjust('width',patch?'Finished width':'Pocket bag width',{step:.1})}${adjust('depth',patch?'Finished depth':'Pocket bag depth',{step:.1})}
           ${adjust('opening','Usable opening',{step:.1})}${patch?adjust('rotation','Rotation',{unit:'°',step:1,signed:true}):''}</div>
@@ -4961,7 +5273,7 @@ function bindPocketEditor(host,{getDesign,onChange,focus=focusSlider}) {
     list.innerHTML=pockets.map((pocket,index)=>pocketCard(design,pocket,index,opened.has(index),opened.get(index))).join('');
     if (pockets.length) {
       const angles=pockets.some(pocket=>pocket.type==='patch')?' 0° is center front. Positive angles move toward the wearer’s left. ±180° is center back.':'';
-      list.insertAdjacentHTML('afterbegin',`<p class="muted pocket-position-help">Height sets the top of each pocket.${angles}</p>`);
+      list.insertAdjacentHTML('afterbegin',`<p class="muted garment-placement-help">Height sets the top of each pocket.${angles}</p>`);
     }
     studioUnits.refresh(list);
   }
@@ -5025,6 +5337,100 @@ function bindPocketEditor(host,{getDesign,onChange,focus=focusSlider}) {
     commit({pocketDetails:pockets},null,true,next);
     if (remove) (card(next)?.querySelector('summary')||add).focus({preventScroll:true});
     else focus(control(`pocket:${next}`));
+  });
+  render();
+  return {render,control,fitAdjusted};
+}
+
+function slitEditorMarkup(design,prefix='design') {
+  return `<details id="${prefix}-slits" class="design-options" data-slit-editor${Object.keys(studioDesign.slitSections(design)).length?'':' hidden'}>
+    <summary>Slits<span data-slit-count></span></summary><div class="slider-group-content">
+      <div data-slit-list></div>
+      <button type="button" class="secondary" id="add-${prefix}-slit" data-add-slit>＋ Add slit</button>
+    </div></details>`;
+}
+
+function bindSlitEditor(host,{getDesign,onChange,focus=focusSlider}) {
+  const list=host.querySelector('[data-slit-list]');
+  const add=host.querySelector('[data-add-slit]');
+  const count=host.querySelector('[data-slit-count]');
+  let adjustedSlits=new Set();
+  const card=index=>list.querySelector(`[data-slit-index="${index}"]`);
+  const control=key=>card(/^slit:(\d+)$/.exec(key)?.[1])?.querySelector('[data-slit-field=angle]');
+
+  function render() {
+    const design=getDesign();
+    const slits=studioDesign.slits(design);
+    const sections=Object.entries(studioDesign.slitSections(design));
+    host.hidden=!sections.length;
+    count.textContent=slits.length?` · ${slits.length}`:'';
+    const open=new Set([...list.querySelectorAll('[data-slit-index][open]')].map(row=>Number(row.dataset.slitIndex)));
+    const instructions=slits.length?'<p class="muted garment-placement-help">0° is center front. Positive angles move toward the wearer’s left. ±180° is center back.</p>':'';
+    list.innerHTML=instructions+slits.map((slit,index)=>{
+      const hit=`slit:${index}`;
+      const adjust=(field,label,options)=>slider(label,`data-slit-field="${field}" data-${field==='angle'?'component-slider':'highlight-component'}="${hit}"`,
+        studioDesign.slitLimits[field],slit[field],options);
+      return `<details class="design-options slider-group slit-card" data-slit-index="${index}"${open.has(index)?' open':''}>
+        <summary>Slit ${index+1} · ${escape(studioDesign.slitLabel(slit))}</summary><div class="slider-group-content">
+        ${sections.length>1?`<label class="field">Garment section<select data-slit-field="section" data-highlight-component="${hit}">${sections.map(([value,label])=>option(value,label,slit.section)).join('')}</select></label>`:''}
+        ${adjust('angle','Around the garment',{unit:'°',step:1,signed:true})}
+        ${adjust('length','Length above hem',{step:.1})}
+        ${adjust('opening','Opening width at hem',{step:.1,ends:['Closed','Wider']})}
+        <p class="muted garment-fit-note" data-slit-fit-note${adjustedSlits.has(index)?'':' hidden'}>The preview adjusted this slit to fit the available fabric.</p>
+        <button type="button" class="secondary" data-slit-remove aria-label="Remove slit ${index+1}">Remove</button>
+      </div></details>`;
+    }).join('');
+    studioUnits.refresh(list);
+  }
+
+  function fitAdjusted(indices=[]) {
+    const next=Array.from(indices);
+    if (adjustedSlits.size===next.length && next.every(index=>adjustedSlits.has(index))) return;
+    adjustedSlits=new Set(next);
+    for (const row of list.querySelectorAll('[data-slit-index]')) {
+      row.querySelector('[data-slit-fit-note]').hidden=!adjustedSlits.has(Number(row.dataset.slitIndex));
+    }
+  }
+
+  host.addEventListener('input',event=>{
+    const input=event.target;
+    const field=input.dataset.slitField;
+    if (!field) return;
+    event.stopPropagation();
+    const design=getDesign();
+    const slits=studioDesign.slits(design);
+    const index=Number(input.closest('[data-slit-index]').dataset.slitIndex);
+    const structural=input.type!=='range';
+    const value=structural?input.value:input.valueAsNumber;
+    slits[index]=studioDesign.slitDetail({...slits[index],[field]:value},design);
+    onChange({slits},{input,structural,index});
+    if (structural) {
+      render();
+      card(index)?.querySelector(`[data-slit-field="${field}"]`)?.focus({preventScroll:true});
+    } else {
+      writeSlider(input,slits[index][field]);
+      if (field==='angle') card(index).querySelector('summary').textContent=`Slit ${index+1} · ${studioDesign.slitLabel(slits[index])}`;
+    }
+  });
+
+  host.addEventListener('click',event=>{
+    const button=event.target.closest('[data-add-slit],[data-slit-remove]');
+    if (!button) return;
+    const design=getDesign();
+    const slits=studioDesign.slits(design);
+    const remove=button!==add;
+    const index=remove?Number(button.closest('[data-slit-index]').dataset.slitIndex):slits.length;
+    if (remove) slits.splice(index,1);
+    else {
+      const slit=studioDesign.newSlit(design);
+      if (!slit) return;
+      slits.push(slit);
+    }
+    const next=Math.min(index,slits.length-1);
+    onChange({slits},{input:null,structural:true,index:next});
+    render();
+    if (remove) (card(next)?.querySelector('summary')||add).focus({preventScroll:true});
+    else focus(control(`slit:${next}`));
   });
   render();
   return {render,control,fitAdjusted};
@@ -5133,7 +5539,7 @@ function designStudio() {
     const panel=input?.closest('[data-design-panel]');
     if (!panel) return;
     showDesignPanel(panel.dataset.designPanel);
-    if (input.matches('[data-one-piece]')) {
+    if (input.matches('[data-one-piece],[data-lace-field="matchPocket"]')) {
       openSliderSections(input);
       input.focus({preventScroll:true});
       input.closest('label').scrollIntoView({block:'center'});
@@ -5159,6 +5565,7 @@ function designStudio() {
   const editorHelp = document.querySelector('#design-editor-help');
   const settings = document.querySelector('#design-settings');
   let pocketEditor;
+  let slitEditor;
   const fitSliders = document.querySelector('#design-fit-sliders');
   const fitPanel = document.querySelector('#design-fit-panel');
   const layerMapNote = document.querySelector('#design-layer-map-note');
@@ -5240,11 +5647,12 @@ function designStudio() {
   let layerAttachmentDragSpan;
   let layerAttachmentDragSpans={};
   let guidedComponents=[];
+  let adjustedStitches=new Set();
   const editorSnapshot=()=>({fit:activeDesignFit(),seams:studioDesign.configuredSeams(designDraft),layers:studioDesign.layers(designDraft),layerTarget,
     hem:studioDesign.hemContour(designDraft),asymmetry:designDraft.asymmetry,shoulderSide:designDraft.shoulderSide,
     strapShape:studioDesign.strapShape(designDraft),straplessSupport:designDraft.straplessSupport,laceTrims:designDraft.laceTrims,
     stitchDetails:designDraft.stitchDetails,closure:designDraft.closure,fastener:designDraft.fastener,onePiece:designDraft.onePiece,
-    pocket:designDraft.pocket,pocketDetails:designDraft.pocketDetails});
+    pocket:designDraft.pocket,pocketDetails:designDraft.pocketDetails,slits:designDraft.slits});
   const editor=fitHandles.history({
     undoButton:document.querySelector('#design-undo'),redoButton:document.querySelector('#design-redo'),
     snapshot:editorSnapshot,
@@ -5318,6 +5726,12 @@ function designStudio() {
     if (key==null) return null;
     const pocket=pocketEditor?.control(key);
     if (pocket) return pocket;
+    const slit=slitEditor?.control(key);
+    if (slit) return slit;
+    if (key==='laceSeam') {
+      const match=laceFields.querySelector('[data-lace-field="matchPocket"]:checked:not(:disabled)');
+      if (match) return match;
+    }
     const continuousJoin={strapFrontJoin:'strapFront',strapBackJoin:'strapBack'}[key];
     if (continuousJoin && studioDesign.onePiece(designDraft)[continuousJoin]) return settings.querySelector(`[data-one-piece="${continuousJoin}"]`);
     const layer=layerComponent(key);
@@ -5347,11 +5761,10 @@ function designStudio() {
     return match?{key:match[1],index:match[2]===undefined?layerTarget:Number(match[2])}:null;
   }
 
-  function followPocket(index) {
-    const pocket=studioDesign.pocketDetails(designDraft)[index];
-    if (!pocket) return;
-    const offset=wrapAngle(pocket.angle-Number(angle.value));
-    if (Math.abs(offset)>58) angle.value=wrapAngle(pocket.angle-Math.sign(offset)*38);
+  function followGarmentAngle(degrees) {
+    if (!Number.isFinite(degrees)) return;
+    const offset=wrapAngle(degrees-Number(angle.value));
+    if (Math.abs(offset)>58) angle.value=wrapAngle(degrees-Math.sign(offset)*38);
   }
 
   function changePockets(patch,{input,structural,index}) {
@@ -5364,11 +5777,28 @@ function designStudio() {
     if (index>=0) {
       mode.value='fit';
       selectedComponent=`pocket:${index}`;
-      followPocket(index);
+      followGarmentAngle(studioDesign.pocketDetails(designDraft)[index]?.angle);
     }
     if (structural) {
       drawSeams();
       drawLace();
+    }
+    refreshEditor();
+    refreshFitPreview();
+    updateGuide();
+  }
+
+  function changeSlits(patch,{input,index}) {
+    if (input?.type==='range') rememberInput(input);
+    else {
+      editor.checkpoint();
+      activeInput=null;
+    }
+    designDraft.slits=patch.slits;
+    if (index>=0) {
+      mode.value='fit';
+      selectedComponent=`slit:${index}`;
+      followGarmentAngle(patch.slits[index]?.angle);
     }
     refreshEditor();
     refreshFitPreview();
@@ -5391,7 +5821,11 @@ function designStudio() {
     } else if (input.closest('[data-pocket-editor]')) {
       mode.value='fit';
       const row=input.closest('[data-pocket-index]');
-      if (row) followPocket(Number(row.dataset.pocketIndex));
+      if (row) followGarmentAngle(studioDesign.pocketDetails(designDraft)[Number(row.dataset.pocketIndex)]?.angle);
+    } else if (input.closest('[data-slit-editor]')) {
+      mode.value='fit';
+      const index=Number(input.closest('[data-slit-index]')?.dataset.slitIndex);
+      followGarmentAngle(studioDesign.slits(designDraft)[index]?.angle);
     } else if (laceFields.contains(input) || stitchFields.contains(input)) {
       mode.value='fit';
     } else if (seamFields.contains(input)) mode.value='seams';
@@ -5460,15 +5894,22 @@ function designStudio() {
   }
 
   function laceGroup(placement,label,trim,open) {
-    const display=trim||studioDesign.newLaceTrim();
+    const seam=placement==='seams';
+    const base=trim||studioDesign.newLaceTrim();
+    const display=seam?studioDesign.seamLaceTrim(base):base;
     return `<details class="design-options slider-group" data-lace-placement="${placement}"${placement==='layer'?' data-layer-section="lace"':''}${open?' open':''}>
       <summary>${label}</summary><div class="slider-group-content">
         <label class="sleeve-choice"><input type="checkbox" data-lace-enable${trim?' checked':''}> Add lace trim</label>
-        ${placement==='seams'?'<p class="muted tight" data-lace-seam-location></p>':''}
-        <fieldset class="lace-settings"${trim?'':' disabled'}><div class="fields">
+        ${seam?'<p class="muted tight" data-lace-seam-location></p>':''}
+        <fieldset class="lace-settings"${trim?'':' disabled'}>
+        ${seam?`<label class="field">Seam alignment<select data-lace-field="alignment" data-highlight-component="laceSeam" aria-describedby="seam-lace-alignment-help">${Object.entries({center:'Centered',left:'Left of seam',right:'Right of seam'}).map(([key,value])=>option(key,value,display.alignment)).join('')}</select></label>
+          <p class="muted" id="seam-lace-alignment-help">View the seam from outside with its top edge up.</p>
+          <label class="sleeve-choice tight"><input type="checkbox" data-lace-field="matchPocket" data-highlight-component="laceSeam" aria-describedby="seam-lace-match-help"${display.matchPocket?' checked':''}> Match in-seam pocket lace</label>
+          <p class="muted seam-lace-match-note" id="seam-lace-match-help" data-seam-lace-match-note></p>`:''}
+        <div data-lace-independent><div class="fields">
           <label class="field">Lace style<select data-lace-field="style">${studioDesign.laceStyles.map(style=>option(style,style,display.style)).join('')}</select></label>
           <label class="field">Lace color<input type="color" data-lace-field="color" value="${escape(display.color)}"></label>
-        </div>${slider('Trim width',`data-lace-field="width" data-component-slider="${laceComponents[placement]}"`,studioDesign.laceWidthLimits,display.width)}</fieldset>
+        </div>${slider('Trim width',`data-lace-field="width" data-component-slider="${laceComponents[placement]}"`,studioDesign.laceWidthLimits,display.width)}</div></fieldset>
       </div></details>`;
   }
 
@@ -5478,6 +5919,29 @@ function designStudio() {
     const open=new Set([...laceFields.querySelectorAll('[data-lace-placement][open]')].map(section=>section.dataset.lacePlacement));
     laceFields.innerHTML=Object.entries(placements).map(([key,label])=>laceGroup(key,label,trims[key],open.has(key))).join('');
     studioUnits.refresh(laceFields);
+  }
+
+  function syncSeamLaceControls() {
+    const group=laceFields.querySelector('[data-lace-placement="seams"]');
+    if (!group) return;
+    const seam=studioDesign.laceSeamPlacement(designDraft);
+    const overlay=seam.kind==='single'?`the seam at ${studioDesign.singleSeamLocation(seam.angle)}`:seam.kind==='panels'?'the two front panel seams':'the side seams';
+    const location=group.querySelector('[data-lace-seam-location]');
+    const route=`Lace follows ${overlay}.`;
+    if (location.textContent!==route) location.textContent=route;
+    const trim=studioDesign.seamLaceTrim(designDraft.laceTrims?.seams);
+    const compatible=studioDesign.seamLaceCanMatch(designDraft);
+    const centered=trim?.alignment==='center';
+    const match=group.querySelector('[data-lace-field="matchPocket"]');
+    const applies=compatible&&centered&&Boolean(trim?.matchPocket);
+    match.disabled=!compatible||!centered;
+    match.checked=trim?.matchPocket??true;
+    for (const input of group.querySelectorAll('[data-lace-independent] :is(input,select)')) input.disabled=applies;
+    const note=group.querySelector('[data-seam-lace-match-note]');
+    const message=applies?'The seam uses the pocket lace style, width and color. Turn off matching to edit the seam values.'
+      :!compatible?'Matching is available when this seam meets an in-seam pocket with lace.'
+      :!centered?'Center the seam lace to match the pocket lace.':'Match the pocket lace to use the same style, width and color.';
+    if (note.textContent!==message) note.textContent=message;
   }
 
   const stitchSources=()=>Array.isArray(designDraft.stitchDetails)?designDraft.stitchDetails:[];
@@ -5506,6 +5970,7 @@ function designStudio() {
       return `<details class="design-options slider-group" data-stitch-index="${index}" data-stitch-source="${sourceIndex}"${open.has(sourceIndex)?' open':''}>
         <summary>${escape(detail.style)} · ${escape(placements[detail.placement])}</summary><div class="slider-group-content">
           <div class="fields">${pick('style','Technique',studioDesign.stitchStyles.map(style=>[style,style]))}${pick('placement','Placement',Object.entries(placements))}</div>
+          <p class="muted garment-fit-note" data-stitch-fit-note${adjustedStitches.has(index)?'':' hidden'}>The preview shortened this stitch line where it meets the edge of the panel.</p>
           ${depth}${repeat}${gathered?'<p class="muted tight">2× fullness uses a strip twice the length of the sewn edge.</p>':''}
           <button type="button" class="secondary" data-remove-stitch-detail aria-label="Remove ${escape(detail.style)} at ${escape(placements[detail.placement].toLowerCase())}">Remove</button>
         </div></details>`;
@@ -5521,6 +5986,15 @@ function designStudio() {
     studioUnits.refresh(stitchFields);
   }
 
+  function stitchFitAdjusted(indices=[]) {
+    const next=Array.from(indices);
+    if (adjustedStitches.size===next.length && next.every(index=>adjustedStitches.has(index))) return;
+    adjustedStitches=new Set(next);
+    for (const row of stitchFields.querySelectorAll('[data-stitch-index]')) {
+      row.querySelector('[data-stitch-fit-note]').hidden=!adjustedStitches.has(Number(row.dataset.stitchIndex));
+    }
+  }
+
   function refreshEditor() {
     const groups=fitHandles.available(fitKeys());
     const continuous=studioDesign.onePiece(designDraft);
@@ -5529,13 +6003,7 @@ function designStudio() {
     const asymmetryKeys=studioDesign.asymmetryKeys(designDraft);
     const seams=studioDesign.seams(designDraft);
     const single=singleSeam(seams);
-    const seamLaceNote=laceFields.querySelector('[data-lace-seam-location]');
-    if (seamLaceNote) {
-      const seam=studioDesign.laceSeamPlacement(designDraft);
-      const overlay=seam.kind==='single'?`the seam at ${studioDesign.singleSeamLocation(seam.angle)}`:seam.kind==='panels'?'the two front panel seams':'the side seams';
-      const location=`Lace follows ${overlay}.`;
-      if (seamLaceNote.textContent!==location) seamLaceNote.textContent=location;
-    }
+    syncSeamLaceControls();
     const layerAllowed=studioDesign.layerKindChoices(designDraft.model).length>0;
     mode.querySelector('[value=seams]').disabled=!seamControls;
     mode.querySelector('[value=layers]').disabled=!layerAllowed;
@@ -5582,7 +6050,8 @@ function designStudio() {
       componentKeys=[...fitComponents,...layerKeys,...indicatedSeams,'designClosure','designPocket',
         ...Object.keys(studioDesign.laceTrims(designDraft)).map(key=>laceComponents[key]),
         ...studioDesign.stitchDetails(designDraft).map((_,index)=>`stitchDetail:${index}`),
-        ...studioDesign.pocketDetails(designDraft).map((_,index)=>`pocket:${index}`)];
+        ...studioDesign.pocketDetails(designDraft).map((_,index)=>`pocket:${index}`),
+        ...studioDesign.slits(designDraft).map((_,index)=>`slit:${index}`)];
       if (studioDesign.supportsStrapShape(support)) componentKeys.push(...strapShapeKeys.filter(key=>
         !key.endsWith('Angle')||!continuous[key.replace(/Angle$/,'')]));
       if (support==='Strapless') componentKeys.push('straplessSupport');
@@ -5735,6 +6204,7 @@ function designStudio() {
     designDraft.stitchDetails=snapshot.stitchDetails;
     designDraft.pocket=snapshot.pocket;
     designDraft.pocketDetails=snapshot.pocketDetails;
+    designDraft.slits=snapshot.slits;
     panelZipperMaxLength=undefined;
     if (mode.value==='seams') angle.value=studioDesign.seams(designDraft).panelAngle??0;
     designDraft.layers=snapshot.layers;
@@ -5745,6 +6215,7 @@ function designStudio() {
     drawLace();
     drawStitchDetails();
     pocketEditor.render();
+    slitEditor.render();
     drawMainHem();
     drawAsymmetry();
     if (form.elements.shoulderSide) form.elements.shoulderSide.value=studioDesign.selectedShoulderSide(designDraft);
@@ -5890,6 +6361,7 @@ function designStudio() {
         </div><p class="muted">Negative placement moves toward the neck. Positive placement moves toward the arm.</p></div>
         ${strapShapeControls(support,designDraft,designDraft)}`:''}
       ${['dress','skirt'].includes(model)?'<details class="design-options" id="design-main-hem"><summary>Main hem and points</summary><div id="design-main-hem-fields" class="slider-group-content"></div></details>':''}
+      ${slitEditorMarkup(designDraft)}
       <div class="fields">${select('closure','Closure',studioDesign.closureChoices(model))}${model==='trousers'?select('rise','Waist rise',studioDesign.rises):''}</div>
       <p class="muted tight" data-seam-closure-note hidden>The zipper in Seam placement is the closure for this design.</p>
       <div id="design-fastener-fields"></div>
@@ -5903,6 +6375,7 @@ function designStudio() {
         <label class="field">Custom detail notes<textarea name="details" rows="3" maxlength="2000" placeholder="e.g. Contrast stitching, back tie placement or special hardware">${escape(designDraft.details || '')}</textarea></label>
       </details>`;
     pocketEditor=bindPocketEditor(settings.querySelector('[data-pocket-editor]'),{getDesign:()=>designDraft,onChange:changePockets,focus:revealDesignControl});
+    slitEditor=bindSlitEditor(settings.querySelector('[data-slit-editor]'),{getDesign:()=>designDraft,onChange:changeSlits,focus:revealDesignControl});
     studioUnits.refresh(settings);
     drawFastenerFields();
     refreshDesignStraps();
@@ -5962,6 +6435,8 @@ function designStudio() {
     layerAttachmentDragSpan=anchors.layerAttachmentDragSpan;
     layerAttachmentDragSpans=anchors.layerAttachmentDragSpans||{};
     pocketEditor.fitAdjusted(anchors.pocketFitAdjusted);
+    slitEditor.fitAdjusted(anchors.slitFitAdjusted);
+    stitchFitAdjusted(anchors.stitchFitAdjusted);
     if (syncZipperLimit(anchors.panelZipperMaxLength)) {
       updateGuide();
       preview();
@@ -5995,11 +6470,12 @@ function designStudio() {
   }
   function changeModel(model) {
     form.elements.namedItem('model').value = model;
-    const {name,reference,photoOutline,fitModelId,primary,accent,details,layers,seams,laceTrims,stitchDetails,asymmetry,shoulderSide,straplessSupport,onePiece,pocket,pocketDetails}=designDraft;
+    const {name,reference,photoOutline,fitModelId,primary,accent,details,layers,seams,laceTrims,stitchDetails,asymmetry,shoulderSide,straplessSupport,onePiece,pocket,pocketDetails,slits}=designDraft;
     designDraft = {...studioDesign.defaults(model),...studioDesign.hemContour(designDraft),...studioDesign.strapShape(designDraft),
       name,reference,photoOutline,fitModelId,primary,accent,details,layers,seams,laceTrims,stitchDetails,asymmetry,shoulderSide,straplessSupport,onePiece,
-      pocket:studioDesign.pocketChoices(model).includes(pocket)?pocket:'None',pocketDetails};
+      pocket:studioDesign.pocketChoices(model).includes(pocket)?pocket:'None',pocketDetails,slits};
     if (Array.isArray(pocketDetails)) designDraft.pocketDetails=studioDesign.pocketDetails(designDraft);
+    if (Array.isArray(slits)) designDraft.slits=studioDesign.slits(designDraft);
     panelZipperMaxLength=undefined;
     editor.reset();
     settingsForModel();
@@ -6251,8 +6727,14 @@ function designStudio() {
       const enabled=group.querySelector('[data-lace-enable]').checked;
       const width=group.querySelector('[data-lace-field=width]');
       group.querySelector('fieldset').disabled=!enabled;
-      const trim=enabled?studioDesign.laceTrim({style:group.querySelector('[data-lace-field=style]').value,
-        color:group.querySelector('[data-lace-field=color]').value,width:width.valueAsNumber}):null;
+      const lace={style:group.querySelector('[data-lace-field=style]').value,
+        color:group.querySelector('[data-lace-field=color]').value,width:width.valueAsNumber};
+      const seam=placement==='seams';
+      if (seam) {
+        lace.alignment=group.querySelector('[data-lace-field=alignment]').value;
+        lace.matchPocket=field.dataset.laceField==='matchPocket'?field.checked:(studioDesign.seamLaceTrim(designDraft.laceTrims?.seams)?.matchPocket??true);
+      }
+      const trim=enabled?(seam?studioDesign.seamLaceTrim(lace):studioDesign.laceTrim(lace)):null;
       if (field===width) writeSlider(width,width.valueAsNumber);
       if (placement==='layer') {
         changeLayerValue(Number(group.closest('[data-layer-index]').dataset.layerIndex),'laceTrim',trim);
